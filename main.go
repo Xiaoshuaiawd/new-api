@@ -195,8 +195,14 @@ func InitResources() error {
 	// 初始化模型
 	model.GetPricing()
 
-	// Initialize SQL Database
+	// Initialize Log Database
 	err = model.InitLogDB()
+	if err != nil {
+		return err
+	}
+
+	// Initialize MES Database (Message/Conversation history)
+	err = model.InitMESDB()
 	if err != nil {
 		return err
 	}
