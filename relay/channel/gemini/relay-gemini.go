@@ -892,11 +892,6 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		usage.CompletionTokenDetails.TextTokens = usage.CompletionTokens
 	}
 
-	// 检测流式响应是否为空（通过token数检测）
-	if usage.CompletionTokens == 0 {
-		return service.CreateEmptyResponseError(), nil
-	}
-
 	if info.ShouldIncludeUsage {
 		response = helper.GenerateFinalUsageResponse(id, createAt, info.UpstreamModelName, *usage)
 		err := helper.ObjectData(c, response)
@@ -928,11 +923,6 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	}
 	fullTextResponse := responseGeminiChat2OpenAI(c, &geminiResponse)
 	fullTextResponse.Model = info.UpstreamModelName
-
-	// 检测空回复
-	if service.IsEmptyResponse(fullTextResponse) {
-		return service.CreateEmptyResponseError(), nil
-	}
 
 	// 保存原始的completion_tokens用作text_tokens
 	originalCompletionTokens := geminiResponse.UsageMetadata.CandidatesTokenCount
