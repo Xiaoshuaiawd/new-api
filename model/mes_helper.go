@@ -17,7 +17,7 @@ func NewMESHelper() *MESHelper {
 	return &MESHelper{}
 }
 
-// SaveChatCompletion 将聊天补全对话保存到 MES 数据库
+// SaveChatCompletion 将完整的聊天对话上下文保存到 MES 数据库
 func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, messages []map[string]interface{},
 	response map[string]interface{}, modelName string, userId int, tokenId int, channelId int) error {
 
@@ -27,54 +27,86 @@ func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, me
 
 	ip := c.ClientIP()
 
-	// 保存用户消息
-	for i, message := range messages {
-		role, _ := message["role"].(string)
-		content := h.extractContent(message["content"])
+	// 构建完整的对话上下文
+	fullConversation := make([]map[string]interface{}, 0, len(messages)+1)
 
-		history := &ConversationHistory{
-			ConversationId: conversationId,
-			MessageId:      fmt.Sprintf("%s_user_%d", conversationId, i),
-			Role:           role,
-			Content:        content,
-			ModelName:      modelName,
-			UserId:         userId,
-			TokenId:        tokenId,
-			ChannelId:      channelId,
-			Ip:             ip,
-		}
+	// 添加所有输入消息
+	fullConversation = append(fullConversation, messages...)
 
-		// Add metadata
-		otherData := make(map[string]interface{})
-		for key, value := range message {
-			if key != "role" && key != "content" {
-				otherData[key] = value
-			}
-		}
-		if len(otherData) > 0 {
-			otherBytes, _ := json.Marshal(otherData)
-			history.Other = string(otherBytes)
-		}
-
-		err := SaveConversationHistory(history)
-		if err != nil {
-			common.SysError(fmt.Sprintf("Failed to save user message: %v", err))
-			// Continue to save other messages
+	// 添加AI响应（如果有的话）
+	if response != nil {
+		assistantMessage := h.buildAssistantMessage(response)
+		if assistantMessage != nil {
+			fullConversation = append(fullConversation, assistantMessage)
 		}
 	}
 
-	// Save assistant response
+	// 构建要保存的消息结构
+	conversationContent := map[string]interface{}{
+		"messages": fullConversation,
+	}
+
+	// 将完整对话序列化为JSON
+	contentJSON, err := json.Marshal(conversationContent)
+	if err != nil {
+		return fmt.Errorf("序列化对话内容失败: %v", err)
+	}
+
+	// 计算token使用情况
+	var promptTokens, completionTokens, totalTokens int
 	if response != nil {
-		err := h.saveAssistantResponse(conversationId, response, modelName, userId, tokenId, channelId, ip)
-		if err != nil {
-			common.SysError(fmt.Sprintf("Failed to save assistant response: %v", err))
+		if usage, ok := response["usage"].(map[string]interface{}); ok {
+			promptTokens = h.getIntFromInterface(usage["prompt_tokens"])
+			completionTokens = h.getIntFromInterface(usage["completion_tokens"])
+			totalTokens = h.getIntFromInterface(usage["total_tokens"])
 		}
+	}
+
+	// 保存为单个对话记录
+	history := &ConversationHistory{
+		ConversationId:   conversationId,
+		MessageId:        conversationId + "_complete", // 完整对话的消息ID
+		UserId:           userId,
+		CreatedAt:        common.GetTimestamp(),
+		UpdatedAt:        common.GetTimestamp(),
+		Role:             "conversation",      // 标识这是完整对话
+		Content:          string(contentJSON), // 完整的JSON对话内容
+		ModelName:        modelName,
+		TokenId:          tokenId,
+		ChannelId:        channelId,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+		IsStream:         false, // 后续会根据实际情况更新
+		Ip:               ip,
+	}
+
+	// 添加额外的元数据到Other字段
+	otherData := map[string]interface{}{
+		"message_count": len(fullConversation),
+		"request_time":  common.GetTimestamp(),
+	}
+	if response != nil {
+		otherData["response_id"] = response["id"]
+		otherData["response_model"] = response["model"]
+		if created, ok := response["created"]; ok {
+			otherData["response_created"] = created
+		}
+	}
+
+	otherBytes, _ := json.Marshal(otherData)
+	history.Other = string(otherBytes)
+
+	// 保存到数据库
+	err = h.saveConversationHistory(history)
+	if err != nil {
+		return fmt.Errorf("保存完整对话失败: %v", err)
 	}
 
 	return nil
 }
 
-// SaveErrorConversation saves a conversation that resulted in an error
+// SaveErrorConversation 保存导致错误的完整对话上下文
 func (h *MESHelper) SaveErrorConversation(c *gin.Context, conversationId string, messages []map[string]interface{},
 	errorCode int, errorMessage string, modelName string, userId int, tokenId int, channelId int) error {
 
@@ -84,42 +116,48 @@ func (h *MESHelper) SaveErrorConversation(c *gin.Context, conversationId string,
 
 	ip := c.ClientIP()
 
-	// Save the last user message that caused the error
-	if len(messages) > 0 {
-		lastMessage := messages[len(messages)-1]
-		role, _ := lastMessage["role"].(string)
-		content := h.extractContent(lastMessage["content"])
-
-		errorHistory := &ErrorConversationHistory{
-			ConversationId: conversationId,
-			MessageId:      fmt.Sprintf("%s_error_%d", conversationId, time.Now().Unix()),
-			Role:           role,
-			Content:        content,
-			ModelName:      modelName,
-			UserId:         userId,
-			TokenId:        tokenId,
-			ChannelId:      channelId,
-			ErrorCode:      errorCode,
-			ErrorMessage:   errorMessage,
-			Ip:             ip,
-		}
-
-		// Add metadata
-		otherData := make(map[string]interface{})
-		for key, value := range lastMessage {
-			if key != "role" && key != "content" {
-				otherData[key] = value
-			}
-		}
-		if len(otherData) > 0 {
-			otherBytes, _ := json.Marshal(otherData)
-			errorHistory.Other = string(otherBytes)
-		}
-
-		return SaveErrorConversationHistory(errorHistory)
+	// 构建完整的对话上下文（只包含用户消息，因为出错了没有AI响应）
+	conversationContent := map[string]interface{}{
+		"messages": messages,
+		"error": map[string]interface{}{
+			"code":    errorCode,
+			"message": errorMessage,
+		},
 	}
 
-	return nil
+	// 将完整对话序列化为JSON
+	contentJSON, err := json.Marshal(conversationContent)
+	if err != nil {
+		return fmt.Errorf("序列化错误对话内容失败: %v", err)
+	}
+
+	// 保存为单个错误对话记录
+	errorHistory := &ErrorConversationHistory{
+		ConversationId: conversationId,
+		MessageId:      conversationId + "_error", // 错误对话的消息ID
+		UserId:         userId,
+		CreatedAt:      common.GetTimestamp(),
+		Role:           "error_conversation", // 标识这是错误的完整对话
+		Content:        string(contentJSON),  // 完整的JSON对话内容
+		ModelName:      modelName,
+		TokenId:        tokenId,
+		ChannelId:      channelId,
+		ErrorCode:      errorCode,
+		ErrorMessage:   errorMessage,
+		Ip:             ip,
+	}
+
+	// 添加额外的元数据到Other字段
+	otherData := map[string]interface{}{
+		"message_count": len(messages),
+		"error_time":    common.GetTimestamp(),
+		"error_type":    "api_error",
+	}
+
+	otherBytes, _ := json.Marshal(otherData)
+	errorHistory.Other = string(otherBytes)
+
+	return SaveErrorConversationHistory(errorHistory)
 }
 
 // GetConversationMessages retrieves conversation messages in OpenAI format
@@ -334,4 +372,81 @@ func GetMESHelper() *MESHelper {
 		globalMESHelper = NewMESHelper()
 	}
 	return globalMESHelper
+}
+
+// buildAssistantMessage 从响应数据构建助手消息
+func (h *MESHelper) buildAssistantMessage(response map[string]interface{}) map[string]interface{} {
+	if response == nil {
+		return nil
+	}
+
+	assistantMessage := map[string]interface{}{
+		"role": "assistant",
+	}
+
+	// 从choices中提取内容
+	if choices, ok := response["choices"].([]interface{}); ok && len(choices) > 0 {
+		if firstChoice, ok := choices[0].(map[string]interface{}); ok {
+			if message, ok := firstChoice["message"].(map[string]interface{}); ok {
+				// 提取内容
+				if content, exists := message["content"]; exists {
+					assistantMessage["content"] = content
+				}
+
+				// 提取工具调用（如果有）
+				if toolCalls, exists := message["tool_calls"]; exists {
+					assistantMessage["tool_calls"] = toolCalls
+				}
+
+				// 提取其他字段
+				for key, value := range message {
+					if key != "role" && key != "content" && key != "tool_calls" {
+						assistantMessage[key] = value
+					}
+				}
+			}
+		}
+	}
+
+	// 如果没有content字段，尝试直接从response中获取
+	if _, hasContent := assistantMessage["content"]; !hasContent {
+		if content, exists := response["content"]; exists {
+			assistantMessage["content"] = content
+		}
+	}
+
+	return assistantMessage
+}
+
+// getIntFromInterface 安全地从interface{}中获取int值
+func (h *MESHelper) getIntFromInterface(val interface{}) int {
+	if val == nil {
+		return 0
+	}
+
+	switch v := val.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case float32:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
+// saveConversationHistory 保存对话历史到数据库
+func (h *MESHelper) saveConversationHistory(history *ConversationHistory) error {
+	// 创建表（如果需要的话）
+	tableName := getConversationHistoryTableName()
+	err := createTableIfNotExists(tableName, &ConversationHistory{})
+	if err != nil {
+		return err
+	}
+
+	// 保存到数据库
+	return MES_DB.Table(tableName).Create(history).Error
 }
