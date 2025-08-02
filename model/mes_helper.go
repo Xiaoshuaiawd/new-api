@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"one-api/common"
+	"one-api/dto"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -92,6 +93,77 @@ func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, me
 		if created, ok := response["created"]; ok {
 			otherData["response_created"] = created
 		}
+	}
+
+	otherBytes, _ := json.Marshal(otherData)
+	history.Other = string(otherBytes)
+
+	// 保存到数据库
+	err = h.saveConversationHistory(history)
+	if err != nil {
+		return fmt.Errorf("保存完整对话失败: %v", err)
+	}
+
+	return nil
+}
+
+// SaveFullConversation 保存完整的对话到 MES 数据库（新方法）
+func (h *MESHelper) SaveFullConversation(c *gin.Context, conversationId string, fullConversation []map[string]interface{},
+	response *dto.OpenAITextResponse, modelName string, userId int, tokenId int, channelId int) error {
+
+	if !common.MESEnabled {
+		return nil // MES 未启用，跳过保存
+	}
+
+	ip := c.ClientIP()
+
+	// 构建要保存的消息结构
+	conversationContent := map[string]interface{}{
+		"messages": fullConversation,
+	}
+
+	// 将完整对话序列化为JSON
+	contentJSON, err := json.Marshal(conversationContent)
+	if err != nil {
+		return fmt.Errorf("序列化完整对话内容失败: %v", err)
+	}
+
+	// 计算token使用情况
+	var promptTokens, completionTokens, totalTokens int
+	if response != nil && response.Usage.TotalTokens > 0 {
+		promptTokens = response.Usage.PromptTokens
+		completionTokens = response.Usage.CompletionTokens
+		totalTokens = response.Usage.TotalTokens
+	}
+
+	// 保存为单个对话记录
+	history := &ConversationHistory{
+		ConversationId:   conversationId,
+		MessageId:        conversationId + "_full", // 完整对话的消息ID
+		UserId:           userId,
+		CreatedAt:        common.GetTimestamp(),
+		UpdatedAt:        common.GetTimestamp(),
+		Role:             "conversation",      // 标识这是完整对话
+		Content:          string(contentJSON), // 完整的JSON对话内容
+		ModelName:        modelName,
+		TokenId:          tokenId,
+		ChannelId:        channelId,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+		IsStream:         false,
+		Ip:               ip,
+	}
+
+	// 添加额外的元数据到Other字段
+	otherData := map[string]interface{}{
+		"message_count": len(fullConversation),
+		"request_time":  common.GetTimestamp(),
+	}
+	if response != nil {
+		otherData["response_id"] = response.Id
+		otherData["response_model"] = response.Model
+		otherData["response_created"] = response.Created
 	}
 
 	otherBytes, _ := json.Marshal(otherData)
@@ -384,13 +456,31 @@ func (h *MESHelper) buildAssistantMessage(response map[string]interface{}) map[s
 		"role": "assistant",
 	}
 
+	// 调试日志
+	if common.DebugEnabled {
+		responseJSON, _ := json.Marshal(response)
+		common.SysLog("MES调试: 原始响应数据 = " + string(responseJSON))
+	}
+
 	// 从choices中提取内容
 	if choices, ok := response["choices"].([]interface{}); ok && len(choices) > 0 {
+		if common.DebugEnabled {
+			common.SysLog(fmt.Sprintf("MES调试: 找到 %d 个choices", len(choices)))
+		}
+
 		if firstChoice, ok := choices[0].(map[string]interface{}); ok {
+			if common.DebugEnabled {
+				choiceJSON, _ := json.Marshal(firstChoice)
+				common.SysLog("MES调试: 第一个choice = " + string(choiceJSON))
+			}
+
 			if message, ok := firstChoice["message"].(map[string]interface{}); ok {
 				// 提取内容
 				if content, exists := message["content"]; exists {
 					assistantMessage["content"] = content
+					if common.DebugEnabled {
+						common.SysLog("MES调试: 提取到assistant content = " + fmt.Sprintf("%v", content))
+					}
 				}
 
 				// 提取工具调用（如果有）
@@ -404,7 +494,15 @@ func (h *MESHelper) buildAssistantMessage(response map[string]interface{}) map[s
 						assistantMessage[key] = value
 					}
 				}
+			} else {
+				if common.DebugEnabled {
+					common.SysLog("MES调试: choices[0]中没有找到message字段")
+				}
 			}
+		}
+	} else {
+		if common.DebugEnabled {
+			common.SysLog("MES调试: 没有找到choices字段或choices为空")
 		}
 	}
 
@@ -412,6 +510,10 @@ func (h *MESHelper) buildAssistantMessage(response map[string]interface{}) map[s
 	if _, hasContent := assistantMessage["content"]; !hasContent {
 		if content, exists := response["content"]; exists {
 			assistantMessage["content"] = content
+		}
+
+		if common.DebugEnabled {
+			common.SysLog("MES调试: 最终assistant消息 = " + fmt.Sprintf("%v", assistantMessage))
 		}
 	}
 

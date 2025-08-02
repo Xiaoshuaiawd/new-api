@@ -640,16 +640,46 @@ func saveChatCompletionToMES(c *gin.Context, info *relaycommon.RelayInfo, respon
 	// 转换消息格式
 	messages := convertDTOMessagesToMESFormat(chatRequest.Messages)
 
-	// 构建响应数据
-	responseData := buildMESResponseData(response)
+	// 构建更健壮的助手响应消息
+	var assistantMessage map[string]interface{}
+	if len(response.Choices) > 0 {
+		choice := response.Choices[0]
+		assistantMessage = map[string]interface{}{
+			"role":    "assistant",
+			"content": choice.Message.StringContent(),
+		}
 
-	// 获取MES辅助器并保存
+		// 添加其他字段（如果有的话）
+		if len(choice.Message.ToolCalls) > 0 {
+			assistantMessage["tool_calls"] = choice.Message.ToolCalls
+		}
+
+		if choice.FinishReason != "" {
+			assistantMessage["finish_reason"] = choice.FinishReason
+		}
+	}
+
+	// 构建完整的对话
+	fullConversation := make([]map[string]interface{}, 0, len(messages)+1)
+	fullConversation = append(fullConversation, messages...)
+
+	if assistantMessage != nil {
+		fullConversation = append(fullConversation, assistantMessage)
+	}
+
+	// 调试日志
+	if common.DebugEnabled {
+		conversationJSON, _ := common.Marshal(fullConversation)
+		common.SysLog("MES调试: 完整对话 = " + string(conversationJSON))
+	}
+
+	// 保存到MES
 	mesHelper := model.GetMESHelper()
-	err = mesHelper.SaveChatCompletion(
+	err = mesHelper.SaveFullConversation(
 		c,
 		conversationId,
-		messages,
-		responseData,
+		fullConversation,
+		response,
 		info.OriginModelName,
 		info.UserId,
 		info.TokenId,
@@ -777,16 +807,35 @@ func saveStreamChatCompletionToMES(c *gin.Context, info *relaycommon.RelayInfo, 
 	// 转换消息格式
 	messages := convertDTOMessagesToMESFormat(chatRequest.Messages)
 
-	// 构建流式响应数据
-	responseData := buildStreamMESResponseData(responseText, usage, responseId, createAt, modelName)
+	// 构建助手响应消息
+	assistantMessage := map[string]interface{}{
+		"role":    "assistant",
+		"content": responseText,
+	}
+
+	// 构建完整的对话
+	fullConversation := make([]map[string]interface{}, 0, len(messages)+1)
+	fullConversation = append(fullConversation, messages...)
+	fullConversation = append(fullConversation, assistantMessage)
+
+	// 构建假的response对象用于传递usage信息
+	var fakeResponse *dto.OpenAITextResponse
+	if usage != nil {
+		fakeResponse = &dto.OpenAITextResponse{
+			Id:      responseId,
+			Model:   modelName,
+			Created: createAt,
+			Usage:   *usage,
+		}
+	}
 
 	// 获取MES辅助器并保存
 	mesHelper := model.GetMESHelper()
-	err = mesHelper.SaveChatCompletion(
+	err = mesHelper.SaveFullConversation(
 		c,
 		conversationId,
-		messages,
-		responseData,
+		fullConversation,
+		fakeResponse,
 		info.OriginModelName,
 		info.UserId,
 		info.TokenId,
