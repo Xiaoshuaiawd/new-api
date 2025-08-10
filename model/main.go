@@ -64,6 +64,22 @@ var DB *gorm.DB
 
 var LOG_DB *gorm.DB
 
+// dropIndexIfExists drops a MySQL index only if it exists to avoid noisy 1091 errors
+func dropIndexIfExists(tableName string, indexName string) {
+    if !common.UsingMySQL {
+        return
+    }
+    var count int64
+    // Check index existence via information_schema
+    err := DB.Raw(
+        "SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?",
+        tableName, indexName,
+    ).Scan(&count).Error
+    if err == nil && count > 0 {
+        _ = DB.Exec("ALTER TABLE " + tableName + " DROP INDEX " + indexName + ";").Error
+    }
+}
+
 func createRootAccountIfNeed() error {
 	var user User
 	//if user.Status != common.UserStatusEnabled {
@@ -426,6 +442,9 @@ func migrateMESDB() error {
 }
 
 func migrateDB() error {
+	// 修复旧版本留下的唯一索引，允许软删除后重新插入同名记录
+	dropIndexIfExists("models", "uk_model_name")
+	dropIndexIfExists("vendors", "uk_vendor_name")
 	if !common.UsingPostgreSQL {
 		return migrateDBFast()
 	}
@@ -441,7 +460,12 @@ func migrateDB() error {
 		&TopUp{},
 		&QuotaData{},
 		&Task{},
+		&Model{},
+		&Vendor{},
+		&PrefillGroup{},
 		&Setup{},
+		&TwoFA{},
+		&TwoFABackupCode{},
 	)
 	if err != nil {
 		return err
@@ -450,6 +474,10 @@ func migrateDB() error {
 }
 
 func migrateDBFast() error {
+	// 修复旧版本留下的唯一索引，允许软删除后重新插入同名记录
+	dropIndexIfExists("models", "uk_model_name")
+	dropIndexIfExists("vendors", "uk_vendor_name")
+
 	var wg sync.WaitGroup
 
 	migrations := []struct {
@@ -467,7 +495,12 @@ func migrateDBFast() error {
 		{&TopUp{}, "TopUp"},
 		{&QuotaData{}, "QuotaData"},
 		{&Task{}, "Task"},
+		{&Model{}, "Model"},
+        {&Vendor{}, "Vendor"},
+		{&PrefillGroup{}, "PrefillGroup"},
 		{&Setup{}, "Setup"},
+		{&TwoFA{}, "TwoFA"},
+		{&TwoFABackupCode{}, "TwoFABackupCode"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
