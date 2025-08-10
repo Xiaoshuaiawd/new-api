@@ -83,7 +83,9 @@ func SearchUserLogs(c *gin.Context) {
 
 func GetLogByKey(c *gin.Context) {
 	key := c.Query("key")
-	logs, err := model.GetLogByKey(key)
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_time"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_time"), 10, 64)
+	logs, err := model.GetLogByKey(key, startTimestamp, endTimestamp)
 	if err != nil {
 		c.JSON(200, gin.H{
 			"success": false,

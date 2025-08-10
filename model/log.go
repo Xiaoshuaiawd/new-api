@@ -59,15 +59,29 @@ func formatUserLogs(logs []*Log) {
 	}
 }
 
-func GetLogByKey(key string) (logs []*Log, err error) {
+func GetLogByKey(key string, startTimestamp int64, endTimestamp int64) (logs []*Log, err error) {
 	if os.Getenv("LOG_SQL_DSN") != "" {
 		var tk Token
 		if err = DB.Model(&Token{}).Where(logKeyCol+"=?", strings.TrimPrefix(key, "sk-")).First(&tk).Error; err != nil {
 			return nil, err
 		}
-		err = LOG_DB.Model(&Log{}).Where("token_id=?", tk.Id).Find(&logs).Error
+		tx := LOG_DB.Model(&Log{}).Where("token_id=?", tk.Id)
+		if startTimestamp != 0 {
+			tx = tx.Where("created_at >= ?", startTimestamp)
+		}
+		if endTimestamp != 0 {
+			tx = tx.Where("created_at <= ?", endTimestamp)
+		}
+		err = tx.Find(&logs).Error
 	} else {
-		err = LOG_DB.Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ?", strings.TrimPrefix(key, "sk-")).Find(&logs).Error
+		tx := LOG_DB.Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ?", strings.TrimPrefix(key, "sk-"))
+		if startTimestamp != 0 {
+			tx = tx.Where("logs.created_at >= ?", startTimestamp)
+		}
+		if endTimestamp != 0 {
+			tx = tx.Where("logs.created_at <= ?", endTimestamp)
+		}
+		err = tx.Find(&logs).Error
 	}
 	formatUserLogs(logs)
 	return logs, err
