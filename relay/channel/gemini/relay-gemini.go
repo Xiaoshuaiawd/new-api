@@ -434,8 +434,8 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest, info *relaycommon
 						return nil, fmt.Errorf("mime type is not supported by Gemini: '%s', url: '%s', supported types are: %v", fileData.MimeType, url, getSupportedMimeTypesList())
 					}
 
-					parts = append(parts, GeminiPart{
-						InlineData: &GeminiInlineData{
+					parts = append(parts, dto.GeminiPart{
+						InlineData: &dto.GeminiInlineData{
 							MimeType: fileData.MimeType, // 使用原始的 MimeType，因为大小写可能对API有意义
 							Data:     fileData.Base64Data,
 						},
@@ -445,8 +445,8 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest, info *relaycommon
 					if err != nil {
 						return nil, fmt.Errorf("decode base64 audio data failed: %s", err.Error())
 					}
-					parts = append(parts, GeminiPart{
-						InlineData: &GeminiInlineData{
+					parts = append(parts, dto.GeminiPart{
+						InlineData: &dto.GeminiInlineData{
 							MimeType: format,
 							Data:     base64String,
 						},

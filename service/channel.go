@@ -57,6 +57,12 @@ func ShouldDisableChannel(channelType int, err *types.NewAPIError) bool {
 			return true
 		}
 	}
+	if (strings.Contains(err.Error(), "StatusCode: 401") ||
+		strings.Contains(err.Error(), "invalid aws secret key") ||
+		strings.Contains(err.Error(), "StatusCode: 403")) &&
+		channelType == constant.ChannelTypeAws {
+		return true
+	}
 	oaiErr := err.ToOpenAIError()
 	switch oaiErr.Code {
 	case "invalid_api_key":
