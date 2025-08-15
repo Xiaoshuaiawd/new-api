@@ -1,0 +1,26 @@
+kind: pipeline
+type: docker
+name: docker-build
+
+steps:
+  # 构建并推送Docker镜像到DockerHub
+  - name: docker-build-push
+    image: plugins/docker
+    settings:
+      dockerfile: Dockerfile
+      repo: ${DOCKER_USERNAME}/${DRONE_REPO_NAME}
+      username:
+        from_secret: docker_username
+      password:
+        from_secret: docker_password
+      tags:
+        - latest
+        - ${DRONE_TAG:-${DRONE_COMMIT_SHA:0:8}}
+
+# 触发条件
+trigger:
+  event:
+    - push
+    - tag
+  branch:
+    - feature/*
