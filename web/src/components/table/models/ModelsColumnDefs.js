@@ -121,24 +121,34 @@ const renderEndpoints = (value) => {
   }
 };
 
-// Render quota type
-const renderQuotaType = (qt, t) => {
-  if (qt === 1) {
-    return (
-      <Tag color='teal' size='small' shape='circle'>
-        {t('按次计费')}
-      </Tag>
-    );
-  }
-  if (qt === 0) {
-    return (
-      <Tag color='violet' size='small' shape='circle'>
-        {t('按量计费')}
-      </Tag>
-    );
-  }
-  // 未知
-  return '-';
+// Render quota types (array) using common limited items renderer
+const renderQuotaTypes = (arr, t) => {
+  if (!Array.isArray(arr) || arr.length === 0) return '-';
+  return renderLimitedItems({
+    items: arr,
+    renderItem: (qt, idx) => {
+      if (qt === 1) {
+        return (
+          <Tag key={`${qt}-${idx}`} color='teal' size='small' shape='circle'>
+            {t('按次计费')}
+          </Tag>
+        );
+      }
+      if (qt === 0) {
+        return (
+          <Tag key={`${qt}-${idx}`} color='violet' size='small' shape='circle'>
+            {t('按量计费')}
+          </Tag>
+        );
+      }
+      return (
+        <Tag key={`${qt}-${idx}`} color='white' size='small' shape='circle'>
+          {qt}
+        </Tag>
+      );
+    },
+    maxDisplay: 3,
+  });
 };
 
 // Render bound channels
@@ -303,8 +313,8 @@ export const getModelsColumns = ({
     },
     {
       title: t('计费类型'),
-      dataIndex: 'quota_type',
-      render: (qt) => renderQuotaType(qt, t),
+      dataIndex: 'quota_types',
+      render: (qts) => renderQuotaTypes(qts, t),
     },
     {
       title: t('创建时间'),
