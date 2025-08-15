@@ -20,6 +20,26 @@ steps:
       auto_tag: false
       force_tag: true
 
+  # 更新K8s部署
+  - name: update-k8s
+    image: bitnami/kubectl:latest
+    environment:
+      KUBE_CONFIG:
+        from_secret: kube_config
+    commands:
+      # 创建kubeconfig文件
+      - mkdir -p ~/.kube
+      - echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
+      - chmod 600 ~/.kube/config
+      # 获取新的镜像标签
+      - export NEW_TAG=${DRONE_TAG:-v0.0.${DRONE_BUILD_NUMBER}}
+      # 更新所有带有 appname=new-api 注解的 Deployment
+      - kubectl get deployments --all-namespaces -o json | jq -r '.items[] | select(.metadata.annotations.appname == "new-api") | "\(.metadata.namespace) \(.metadata.name)"' | while read namespace name; do echo "Updating deployment $name in namespace $namespace"; kubectl set image deployment/$name -n $namespace "*=aliin/new-api:$NEW_TAG" --record; done
+      # 等待部署完成
+      - kubectl get deployments --all-namespaces -o json | jq -r '.items[] | select(.metadata.annotations.appname == "new-api") | "\(.metadata.namespace) \(.metadata.name)"' | while read namespace name; do kubectl rollout status deployment/$name -n $namespace; done
+    depends_on:
+      - docker-build-push
+
 # 触发条件
 trigger:
   event:
