@@ -8,7 +8,8 @@ steps:
     image: plugins/docker
     settings:
       dockerfile: Dockerfile
-      repo: ${DOCKER_USERNAME}/${DRONE_REPO_NAME}
+      repo: ${DOCKER_USERNAME}/new-api
+      registry: docker.io
       username:
         from_secret: docker_username
       password:
@@ -16,6 +17,8 @@ steps:
       tags:
         - latest
         - ${DRONE_TAG:-${DRONE_COMMIT_SHA:0:8}}
+      auto_tag: false
+      force_tag: true
 
 # 触发条件
 trigger:
