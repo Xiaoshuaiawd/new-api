@@ -29,14 +29,8 @@ steps:
     commands:
       # 创建kubeconfig文件
       - mkdir -p ~/.kube
-      - printf '%s' "$KUBE_CONFIG" | base64 -d > ~/.kube/config || echo "Base64 decode failed, trying direct copy..."
-      - |
-        if [ ! -f ~/.kube/config ] || [ ! -s ~/.kube/config ]; then
-          echo "Fallback: treating KUBE_CONFIG as plain text"
-          printf '%s' "$KUBE_CONFIG" > ~/.kube/config
-        fi
+      - printf '%s' "$KUBE_CONFIG" > ~/.kube/config
       - chmod 600 ~/.kube/config
-      - echo "Kubeconfig file created, size: $(wc -c < ~/.kube/config) bytes"
       # 获取新的镜像标签
       - export NEW_TAG=${DRONE_TAG:-v0.0.${DRONE_BUILD_NUMBER}}
       # 更新所有带有 appname=new-api 注解的 Deployment
