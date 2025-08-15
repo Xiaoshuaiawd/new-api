@@ -8,7 +8,7 @@ steps:
     image: plugins/docker
     settings:
       dockerfile: Dockerfile
-      repo: ${DOCKER_USERNAME}/new-api
+      repo: aliin/new-api
       registry: docker.io
       username:
         from_secret: docker_username
