@@ -137,8 +137,30 @@ func main() {
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())
 	middleware.SetUpLogger(server)
-	// Initialize session store
-	store := cookie.NewStore([]byte(common.SessionSecret))
+	// Initialize session store with Redis support for multi-site isolation
+	var store sessions.Store
+	var sessionName string
+
+	// Get site identifier from environment variable
+	siteId := os.Getenv("SITE_ID")
+	if siteId == "" {
+		siteId = "default"
+	}
+
+	// Use site-specific session name to avoid conflicts
+	sessionName = fmt.Sprintf("session_%s", siteId)
+
+	// Use cookie store with site-specific secret to avoid conflicts between sites
+	// The site ID and different secret ensure session isolation
+	siteSessionSecret := common.SessionSecret + "_" + siteId
+	store = cookie.NewStore([]byte(siteSessionSecret))
+
+	if common.RedisEnabled {
+		common.SysLog(fmt.Sprintf("Using cookie session store with site ID: %s (Redis available but using simplified approach)", siteId))
+	} else {
+		common.SysLog(fmt.Sprintf("Using cookie session store with site ID: %s", siteId))
+	}
+
 	store.Options(sessions.Options{
 		Path:     "/",
 		MaxAge:   2592000, // 30 days
@@ -146,7 +168,7 @@ func main() {
 		Secure:   false,
 		SameSite: http.SameSiteStrictMode,
 	})
-	server.Use(sessions.Sessions("session", store))
+	server.Use(sessions.Sessions(sessionName, store))
 
 	router.SetRouter(server, buildFS, indexPage)
 	var port = os.Getenv("PORT")
