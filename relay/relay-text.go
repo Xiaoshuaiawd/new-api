@@ -11,6 +11,7 @@ import (
 	"one-api/logger"
 	"one-api/model"
 	relaycommon "one-api/relay/common"
+	relayconstant "one-api/relay/constant"
 	"one-api/relay/helper"
 	"one-api/service"
 	"one-api/setting/model_setting"
@@ -167,8 +168,8 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 						common.SysError("MES错误记录出现panic: " + fmt.Sprintf("%v", r))
 					}
 				}()
-				if relayInfo.RelayMode == relayconstant.RelayModeChatCompletions {
-					saveErrorToMES(c, relayInfo, newApiErr, textRequest)
+				if info.RelayMode == relayconstant.RelayModeChatCompletions {
+					saveErrorToMES(c, info, newApiErr, textRequest)
 				}
 			}()
 
