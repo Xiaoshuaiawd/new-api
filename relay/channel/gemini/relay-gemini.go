@@ -423,7 +423,7 @@ func CovertGemini2OpenAI(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 				// 判断是否是url
 				if strings.HasPrefix(part.GetAudioMedia().Url, "http") {
 					// 是url，获取文件的类型和base64编码的数据
-					fileData, err := service.GetFileBase64FromUrl(part.GetAudioMedia().Url)
+					fileData, err := service.GetFileBase64FromUrl(c, part.GetAudioMedia().Url, "formatting audio for Gemini")
 					if err != nil {
 						return nil, fmt.Errorf("get file base64 from url '%s' failed: %w", part.GetAudioMedia().Url, err)
 					}
