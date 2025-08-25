@@ -83,9 +83,14 @@ func SearchUserLogs(c *gin.Context) {
 
 func GetLogByKey(c *gin.Context) {
 	key := c.Query("key")
+	pageInfo := common.GetPageQuery(c)
+	logType, _ := strconv.Atoi(c.Query("type"))
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
-	logs, err := model.GetLogByKey(key, startTimestamp, endTimestamp)
+	modelName := c.Query("model_name")
+	group := c.Query("group")
+
+	logs, _, err := model.GetLogByKey(key, logType, startTimestamp, endTimestamp, modelName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group)
 	if err != nil {
 		c.JSON(200, gin.H{
 			"success": false,
@@ -93,6 +98,7 @@ func GetLogByKey(c *gin.Context) {
 		})
 		return
 	}
+	// 保持原有的返回格式
 	c.JSON(200, gin.H{
 		"success": true,
 		"message": "",
