@@ -83,14 +83,25 @@ func SearchUserLogs(c *gin.Context) {
 
 func GetLogByKey(c *gin.Context) {
 	key := c.Query("key")
-	pageInfo := common.GetPageQuery(c)
+
+	// 手动处理分页参数，移除page_size限制
+	page, _ := strconv.Atoi(c.Query("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+	if pageSize <= 0 {
+		pageSize = 20 // 默认页面大小
+	}
+	startIdx := (page - 1) * pageSize
+
 	logType, _ := strconv.Atoi(c.Query("type"))
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	modelName := c.Query("model_name")
 	group := c.Query("group")
 
-	logs, _, err := model.GetLogByKey(key, logType, startTimestamp, endTimestamp, modelName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group)
+	logs, _, err := model.GetLogByKey(key, logType, startTimestamp, endTimestamp, modelName, startIdx, pageSize, group)
 	if err != nil {
 		c.JSON(200, gin.H{
 			"success": false,
