@@ -7,6 +7,7 @@ import (
 	"one-api/logger"
 	"one-api/types"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -138,6 +139,175 @@ func GetLogByKey(key string, logType int, startTimestamp int64, endTimestamp int
 
 	formatUserLogs(logs)
 	return logs, total, err
+}
+
+// GetLogByKeyLightweight 轻量级查询，只返回核心字段，用于大数据量场景
+func GetLogByKeyLightweight(key string, logType int, startTimestamp int64, endTimestamp int64, modelName string, startIdx int, num int, group string) (logs []*Log, err error) {
+	var tx *gorm.DB
+
+	if os.Getenv("LOG_SQL_DSN") != "" {
+		// 有单独的日志数据库
+		var tk Token
+		if err = DB.Model(&Token{}).Where(logKeyCol+"=?", strings.TrimPrefix(key, "sk-")).First(&tk).Error; err != nil {
+			return nil, err
+		}
+
+		if logType == LogTypeUnknown {
+			tx = LOG_DB.Select("id, created_at, type, content, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream").Where("token_id = ?", tk.Id)
+		} else {
+			tx = LOG_DB.Select("id, created_at, type, content, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream").Where("token_id = ? and type = ?", tk.Id, logType)
+		}
+	} else {
+		// 使用主数据库
+		if logType == LogTypeUnknown {
+			tx = LOG_DB.Select("logs.id, logs.created_at, logs.type, logs.content, logs.model_name, logs.quota, logs.prompt_tokens, logs.completion_tokens, logs.use_time, logs.is_stream").Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ?", strings.TrimPrefix(key, "sk-"))
+		} else {
+			tx = LOG_DB.Select("logs.id, logs.created_at, logs.type, logs.content, logs.model_name, logs.quota, logs.prompt_tokens, logs.completion_tokens, logs.use_time, logs.is_stream").Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ? and logs.type = ?", strings.TrimPrefix(key, "sk-"), logType)
+		}
+	}
+
+	if modelName != "" {
+		tx = tx.Where("logs.model_name like ?", modelName)
+	}
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+	if group != "" {
+		tx = tx.Where("logs."+logGroupCol+" = ?", group)
+	}
+
+	err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// 轻量级查询不需要格式化用户日志，减少处理时间
+	return logs, err
+}
+
+// GetLogByKeyCursor 基于游标的分页查询，适用于超大数据量（100万+）
+func GetLogByKeyCursor(key string, logType int, startTimestamp int64, endTimestamp int64, modelName string, pageSize int, group string, cursor string, lightweight bool) (logs []*Log, nextCursor string, err error) {
+	var tx *gorm.DB
+	var cursorTimestamp int64
+	var cursorId int64
+
+	// 解析游标
+	if cursor != "" {
+		parts := strings.Split(cursor, "_")
+		if len(parts) == 2 {
+			cursorTimestamp, _ = strconv.ParseInt(parts[0], 10, 64)
+			cursorId, _ = strconv.ParseInt(parts[1], 10, 64)
+		}
+	}
+
+	// 选择要查询的字段
+	selectFields := "*"
+	if lightweight {
+		selectFields = "id, created_at, type, content, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream"
+	}
+
+	if os.Getenv("LOG_SQL_DSN") != "" {
+		// 有单独的日志数据库
+		var tk Token
+		if err = DB.Model(&Token{}).Where(logKeyCol+"=?", strings.TrimPrefix(key, "sk-")).First(&tk).Error; err != nil {
+			return nil, "", err
+		}
+
+		if logType == LogTypeUnknown {
+			tx = LOG_DB.Select(selectFields).Where("token_id = ?", tk.Id)
+		} else {
+			tx = LOG_DB.Select(selectFields).Where("token_id = ? and type = ?", tk.Id, logType)
+		}
+	} else {
+		// 使用主数据库
+		if lightweight {
+			selectFields = "logs.id, logs.created_at, logs.type, logs.content, logs.model_name, logs.quota, logs.prompt_tokens, logs.completion_tokens, logs.use_time, logs.is_stream"
+		} else {
+			selectFields = "logs.*"
+		}
+
+		if logType == LogTypeUnknown {
+			tx = LOG_DB.Select(selectFields).Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ?", strings.TrimPrefix(key, "sk-"))
+		} else {
+			tx = LOG_DB.Select(selectFields).Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ? and logs.type = ?", strings.TrimPrefix(key, "sk-"), logType)
+		}
+	}
+
+	// 添加筛选条件
+	if modelName != "" {
+		tx = tx.Where("logs.model_name like ?", modelName)
+	}
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+	if group != "" {
+		tx = tx.Where("logs."+logGroupCol+" = ?", group)
+	}
+
+	// 游标分页：使用 created_at 和 id 的组合进行分页
+	if cursor != "" {
+		// 查询比游标更早的记录 (created_at < cursor_timestamp OR (created_at = cursor_timestamp AND id < cursor_id))
+		tx = tx.Where("(logs.created_at < ?) OR (logs.created_at = ? AND logs.id < ?)", cursorTimestamp, cursorTimestamp, cursorId)
+	}
+
+	// 按时间倒序，ID倒序，多查询一条用于判断是否还有更多数据
+	err = tx.Order("logs.created_at DESC, logs.id DESC").Limit(pageSize + 1).Find(&logs).Error
+	if err != nil {
+		return nil, "", err
+	}
+
+	// 判断是否还有更多数据
+	hasMore := len(logs) > pageSize
+	if hasMore {
+		logs = logs[:pageSize] // 移除多查询的那一条
+	}
+
+	// 生成下一页的游标
+	if len(logs) > 0 && hasMore {
+		lastLog := logs[len(logs)-1]
+		nextCursor = fmt.Sprintf("%d_%d", lastLog.CreatedAt, lastLog.Id)
+	}
+
+	// 如果不是轻量级查询，需要处理channel信息和格式化
+	if !lightweight && len(logs) > 0 {
+		// 批量加载channel信息
+		channelIdsMap := make(map[int]struct{})
+		channelMap := make(map[int]string)
+		for _, log := range logs {
+			if log.ChannelId != 0 {
+				channelIdsMap[log.ChannelId] = struct{}{}
+			}
+		}
+
+		channelIds := make([]int, 0, len(channelIdsMap))
+		for channelId := range channelIdsMap {
+			channelIds = append(channelIds, channelId)
+		}
+		if len(channelIds) > 0 {
+			var channels []struct {
+				Id   int    `gorm:"column:id"`
+				Name string `gorm:"column:name"`
+			}
+			if err = DB.Table("channels").Select("id, name").Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
+				return logs, nextCursor, err
+			}
+			for _, channel := range channels {
+				channelMap[channel.Id] = channel.Name
+			}
+			for i := range logs {
+				logs[i].ChannelName = channelMap[logs[i].ChannelId]
+			}
+		}
+		formatUserLogs(logs)
+	}
+
+	return logs, nextCursor, nil
 }
 
 func RecordLog(userId int, logType int, content string) {

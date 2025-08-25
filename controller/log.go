@@ -95,13 +95,40 @@ func GetLogByKey(c *gin.Context) {
 	}
 	startIdx := (page - 1) * pageSize
 
+	// 检查是否使用轻量级查询（用于大数据量场景）
+	lightweight := c.Query("lightweight") == "true"
+	// 检查是否使用游标分页（用于超大数据量场景，如100万+）
+	useCursor := c.Query("cursor") != "" || c.Query("use_cursor") == "true"
+
 	logType, _ := strconv.Atoi(c.Query("type"))
 	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
 	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
 	modelName := c.Query("model_name")
 	group := c.Query("group")
 
-	logs, _, err := model.GetLogByKey(key, logType, startTimestamp, endTimestamp, modelName, startIdx, pageSize, group)
+	var logs []*model.Log
+	var err error
+	var nextCursor string
+
+	if useCursor {
+		cursor := c.Query("cursor")
+		logs, nextCursor, err = model.GetLogByKeyCursor(key, logType, startTimestamp, endTimestamp, modelName, pageSize, group, cursor, lightweight)
+		if err == nil {
+			// 游标分页返回格式
+			c.JSON(200, gin.H{
+				"success":     true,
+				"message":     "",
+				"data":        logs,
+				"next_cursor": nextCursor,
+				"has_more":    nextCursor != "",
+			})
+			return
+		}
+	} else if lightweight {
+		logs, err = model.GetLogByKeyLightweight(key, logType, startTimestamp, endTimestamp, modelName, startIdx, pageSize, group)
+	} else {
+		logs, _, err = model.GetLogByKey(key, logType, startTimestamp, endTimestamp, modelName, startIdx, pageSize, group)
+	}
 	if err != nil {
 		c.JSON(200, gin.H{
 			"success": false,
