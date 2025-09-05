@@ -19,19 +19,38 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { Button } from '@douyinfe/semi-ui';
-import { IconSun, IconMoon } from '@douyinfe/semi-icons';
+import { IconClose, IconMenu } from '@douyinfe/semi-icons';
 
-const ThemeToggle = ({ theme, onThemeToggle, t }) => {
+const MobileMenuButton = ({
+  isConsoleRoute,
+  isMobile,
+  drawerOpen,
+  collapsed,
+  onToggle,
+  t,
+}) => {
+  if (!isConsoleRoute || !isMobile) {
+    return null;
+  }
+
   return (
     <Button
-      icon={theme === 'dark' ? <IconSun size="large" className="text-yellow-500" /> : <IconMoon size="large" className="text-gray-300" />}
-      aria-label={t('切换主题')}
-      onClick={onThemeToggle}
-      theme="borderless"
-      type="tertiary"
-      className="!p-1.5 !text-current focus:!bg-semi-color-fill-1 dark:focus:!bg-gray-700 !rounded-full !bg-semi-color-fill-0 dark:!bg-semi-color-fill-1 hover:!bg-semi-color-fill-1 dark:hover:!bg-semi-color-fill-2"
+      icon={
+        (isMobile ? drawerOpen : collapsed) ? (
+          <IconClose className='text-lg' />
+        ) : (
+          <IconMenu className='text-lg' />
+        )
+      }
+      aria-label={
+        (isMobile ? drawerOpen : collapsed) ? t('关闭侧边栏') : t('打开侧边栏')
+      }
+      onClick={onToggle}
+      theme='borderless'
+      type='tertiary'
+      className='!p-2 !text-current focus:!bg-semi-color-fill-1 dark:focus:!bg-gray-700'
     />
   );
 };
 
-export default ThemeToggle;
+export default MobileMenuButton;

@@ -321,8 +321,14 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	return &tokenCountMeta
 }
 
-func (claudeRequest *ClaudeRequest) IsStream(c *gin.Context) bool {
-	return claudeRequest.Stream
+func (c *ClaudeRequest) IsStream(ctx *gin.Context) bool {
+	return c.Stream
+}
+
+func (c *ClaudeRequest) SetModelName(modelName string) {
+	if modelName != "" {
+		c.Model = modelName
+	}
 }
 
 func (c *ClaudeRequest) SearchToolNameByToolCallId(toolCallId string) string {
@@ -482,14 +488,14 @@ func (c *ClaudeResponse) GetClaudeError() *types.ClaudeError {
 	case string:
 		// 处理简单字符串错误
 		return &types.ClaudeError{
-			Type:    "error",
+			Type:    "upstream_error",
 			Message: err,
 		}
 	default:
 		// 未知类型，尝试转换为字符串
 		return &types.ClaudeError{
-			Type:    "unknown_error",
-			Message: fmt.Sprintf("%v", err),
+			Type:    "unknown_upstream_error",
+			Message: fmt.Sprintf("unknown_error: %v", err),
 		}
 	}
 }

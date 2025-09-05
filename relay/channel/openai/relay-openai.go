@@ -2,6 +2,7 @@ package openai
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -211,21 +212,34 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		forceFormat = true
 	}
 
-	if simpleResponse.Usage.TotalTokens == 0 || (simpleResponse.Usage.PromptTokens == 0 && simpleResponse.Usage.CompletionTokens == 0) {
-		completionTokens := 0
-		for _, choice := range simpleResponse.Choices {
-			ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.ReasoningContent+choice.Message.Reasoning, info.UpstreamModelName)
-			completionTokens += ctkm
+	usageModified := false
+	if simpleResponse.Usage.PromptTokens == 0 {
+		completionTokens := simpleResponse.Usage.CompletionTokens
+		if completionTokens == 0 {
+			for _, choice := range simpleResponse.Choices {
+				ctkm := service.CountTextToken(choice.Message.StringContent()+choice.Message.ReasoningContent+choice.Message.Reasoning, info.UpstreamModelName)
+				completionTokens += ctkm
+			}
 		}
 		simpleResponse.Usage = dto.Usage{
 			PromptTokens:     info.PromptTokens,
 			CompletionTokens: completionTokens,
 			TotalTokens:      info.PromptTokens + completionTokens,
 		}
+		usageModified = true
 	}
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
+		if usageModified {
+			var bodyMap map[string]interface{}
+			err = common.Unmarshal(responseBody, &bodyMap)
+			if err != nil {
+				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			}
+			bodyMap["usage"] = simpleResponse.Usage
+			responseBody, _ = common.Marshal(bodyMap)
+		}
 		if forceFormat {
 			responseBody, err = common.Marshal(simpleResponse)
 			if err != nil {
@@ -293,11 +307,6 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 func OpenaiSTTHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, responseFormat string) (*types.NewAPIError, *dto.Usage) {
 	defer service.CloseResponseBodyGracefully(resp)
 
-	// count tokens by audio file duration
-	audioTokens, err := countAudioTokens(c)
-	if err != nil {
-		return types.NewError(err, types.ErrorCodeCountTokenFailed), nil
-	}
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError), nil
@@ -305,6 +314,26 @@ func OpenaiSTTHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
+	var responseData struct {
+		Usage *dto.Usage `json:"usage"`
+	}
+	if err := json.Unmarshal(responseBody, &responseData); err == nil && responseData.Usage != nil {
+		if responseData.Usage.TotalTokens > 0 {
+			usage := responseData.Usage
+			if usage.PromptTokens == 0 {
+				usage.PromptTokens = usage.InputTokens
+			}
+			if usage.CompletionTokens == 0 {
+				usage.CompletionTokens = usage.OutputTokens
+			}
+			return nil, usage
+		}
+	}
+
+	audioTokens, err := countAudioTokens(c)
+	if err != nil {
+		return types.NewError(err, types.ErrorCodeCountTokenFailed), nil
+	}
 	usage := &dto.Usage{}
 	usage.PromptTokens = audioTokens
 	usage.CompletionTokens = 0

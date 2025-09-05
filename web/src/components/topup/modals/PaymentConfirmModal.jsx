@@ -18,12 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import {
-  Modal,
-  Typography,
-  Card,
-  Skeleton,
-} from '@douyinfe/semi-ui';
+import { Modal, Typography, Card, Skeleton } from '@douyinfe/semi-ui';
 import { SiAlipay, SiWechat, SiStripe } from 'react-icons/si';
 import { CreditCard } from 'lucide-react';
 
@@ -62,11 +57,17 @@ const PaymentConfirmModal = ({
         <Card className='!rounded-xl !border-0 bg-slate-50 dark:bg-slate-800'>
           <div className='space-y-3'>
             <div className='flex justify-between items-center'>
-              <Text strong className='text-slate-700 dark:text-slate-200'>{t('充值数量')}：</Text>
-              <Text className='text-slate-900 dark:text-slate-100'>{renderQuotaWithAmount(topUpCount)}</Text>
+              <Text strong className='text-slate-700 dark:text-slate-200'>
+                {t('充值数量')}：
+              </Text>
+              <Text className='text-slate-900 dark:text-slate-100'>
+                {renderQuotaWithAmount(topUpCount)}
+              </Text>
             </div>
             <div className='flex justify-between items-center'>
-              <Text strong className='text-slate-700 dark:text-slate-200'>{t('实付金额')}：</Text>
+              <Text strong className='text-slate-700 dark:text-slate-200'>
+                {t('实付金额')}：
+              </Text>
               {amountLoading ? (
                 <Skeleton.Title style={{ width: '60px', height: '16px' }} />
               ) : (
@@ -76,7 +77,9 @@ const PaymentConfirmModal = ({
               )}
             </div>
             <div className='flex justify-between items-center'>
-              <Text strong className='text-slate-700 dark:text-slate-200'>{t('支付方式')}：</Text>
+              <Text strong className='text-slate-700 dark:text-slate-200'>
+                {t('支付方式')}：
+              </Text>
               <div className='flex items-center'>
                 {(() => {
                   const payMethod = payMethods.find(
@@ -85,39 +88,77 @@ const PaymentConfirmModal = ({
                   if (payMethod) {
                     return (
                       <>
-                        {payMethod.type === 'zfb' ? (
-                          <SiAlipay className='mr-2' size={16} color="#1677FF" />
-                        ) : payMethod.type === 'wx' ? (
-                          <SiWechat className='mr-2' size={16} color="#07C160" />
+                        {payMethod.type === 'alipay' ? (
+                          <SiAlipay
+                            className='mr-2'
+                            size={16}
+                            color='#1677FF'
+                          />
+                        ) : payMethod.type === 'wxpay' ? (
+                          <SiWechat
+                            className='mr-2'
+                            size={16}
+                            color='#07C160'
+                          />
                         ) : payMethod.type === 'stripe' ? (
-                          <SiStripe className='mr-2' size={16} color="#635BFF" />
+                          <SiStripe
+                            className='mr-2'
+                            size={16}
+                            color='#635BFF'
+                          />
                         ) : (
-                          <CreditCard className='mr-2' size={16} color={payMethod.color || 'var(--semi-color-text-2)'} />
+                          <CreditCard
+                            className='mr-2'
+                            size={16}
+                            color={
+                              payMethod.color || 'var(--semi-color-text-2)'
+                            }
+                          />
                         )}
-                        <Text className='text-slate-900 dark:text-slate-100'>{payMethod.name}</Text>
+                        <Text className='text-slate-900 dark:text-slate-100'>
+                          {payMethod.name}
+                        </Text>
                       </>
                     );
                   } else {
                     // 默认充值方式
-                    if (payWay === 'zfb') {
+                    if (payWay === 'alipay') {
                       return (
                         <>
-                          <SiAlipay className='mr-2' size={16} color="#1677FF" />
-                          <Text className='text-slate-900 dark:text-slate-100'>{t('支付宝')}</Text>
+                          <SiAlipay
+                            className='mr-2'
+                            size={16}
+                            color='#1677FF'
+                          />
+                          <Text className='text-slate-900 dark:text-slate-100'>
+                            {t('支付宝')}
+                          </Text>
                         </>
                       );
                     } else if (payWay === 'stripe') {
                       return (
                         <>
-                          <SiStripe className='mr-2' size={16} color="#635BFF" />
-                          <Text className='text-slate-900 dark:text-slate-100'>Stripe</Text>
+                          <SiStripe
+                            className='mr-2'
+                            size={16}
+                            color='#635BFF'
+                          />
+                          <Text className='text-slate-900 dark:text-slate-100'>
+                            Stripe
+                          </Text>
                         </>
                       );
                     } else {
                       return (
                         <>
-                          <SiWechat className='mr-2' size={16} color="#07C160" />
-                          <Text className='text-slate-900 dark:text-slate-100'>{t('微信')}</Text>
+                          <SiWechat
+                            className='mr-2'
+                            size={16}
+                            color='#07C160'
+                          />
+                          <Text className='text-slate-900 dark:text-slate-100'>
+                            {t('微信')}
+                          </Text>
                         </>
                       );
                     }

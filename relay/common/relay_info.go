@@ -63,6 +63,7 @@ type ChannelMeta struct {
 	Organization         string
 	ChannelCreateTime    int64
 	ParamOverride        map[string]interface{}
+	HeadersOverride      map[string]interface{}
 	ChannelSetting       dto.ChannelSettings
 	ChannelOtherSettings dto.ChannelOtherSettings
 	UpstreamModelName    string
@@ -115,11 +116,13 @@ type RelayInfo struct {
 	*RerankerInfo
 	*ResponsesUsageInfo
 	*ChannelMeta
+	*TaskRelayInfo
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
+	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)
 	apiType, _ := common.ChannelType2APIType(channelType)
 	channelMeta := &ChannelMeta{
 		ChannelType:          channelType,
@@ -133,6 +136,7 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 		Organization:         c.GetString("channel_organization"),
 		ChannelCreateTime:    c.GetInt64("channel_create_time"),
 		ParamOverride:        paramOverride,
+		HeadersOverride:      headerOverride,
 		UpstreamModelName:    common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
 		IsModelMapped:        false,
 		SupportStreamOptions: false,
@@ -158,7 +162,14 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	if streamSupportedChannels[channelMeta.ChannelType] {
 		channelMeta.SupportStreamOptions = true
 	}
+
 	info.ChannelMeta = channelMeta
+
+	// reset some fields based on channel meta
+	// 重置某些字段，例如模型名称等
+	if info.Request != nil {
+		info.Request.SetModelName(info.OriginModelName)
+	}
 }
 
 func (info *RelayInfo) ToString() string {
@@ -303,7 +314,7 @@ func GenRelayInfoResponses(c *gin.Context, request *dto.OpenAIResponsesRequest) 
 		BuiltInTools: make(map[string]*BuildInToolInfo),
 	}
 	if len(request.Tools) > 0 {
-		for _, tool := range request.Tools {
+		for _, tool := range request.GetToolsMap() {
 			toolType := common.Interface2String(tool["type"])
 			info.ResponsesUsageInfo.BuiltInTools[toolType] = &BuildInToolInfo{
 				ToolName:  toolType,
@@ -390,6 +401,10 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		},
 	}
 
+	if info.RelayMode == relayconstant.RelayModeUnknown {
+		info.RelayMode = c.GetInt("relay_mode")
+	}
+
 	if strings.HasPrefix(c.Request.URL.Path, "/pg") {
 		info.IsPlayground = true
 		info.RequestURLPath = strings.TrimPrefix(info.RequestURLPath, "/pg")
@@ -455,22 +470,10 @@ func (info *RelayInfo) HasSendResponse() bool {
 }
 
 type TaskRelayInfo struct {
-	*RelayInfo
 	Action       string
 	OriginTaskID string
 
 	ConsumeQuota bool
-}
-
-func GenTaskRelayInfo(c *gin.Context) (*TaskRelayInfo, error) {
-	relayInfo, err := GenRelayInfo(c, types.RelayFormatTask, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	info := &TaskRelayInfo{
-		RelayInfo: relayInfo,
-	}
-	return info, nil
 }
 
 type TaskSubmitReq struct {
