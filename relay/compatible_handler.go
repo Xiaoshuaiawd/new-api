@@ -171,7 +171,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 					}
 				}()
 				if info.RelayMode == relayconstant.RelayModeChatCompletions {
-					saveErrorToMES(c, info, newApiErr, textRequest)
+					saveErrorToMES(c, info, newApiErr, request)
 				}
 			}()
 
