@@ -142,14 +142,14 @@ func GetLogByKey(key string, logType int, startTimestamp int64, endTimestamp int
 }
 
 // GetLogByKeyLightweight 轻量级查询，只返回核心字段，用于大数据量场景
-func GetLogByKeyLightweight(key string, logType int, startTimestamp int64, endTimestamp int64, modelName string, startIdx int, num int, group string) (logs []*Log, err error) {
+func GetLogByKeyLightweight(key string, logType int, startTimestamp int64, endTimestamp int64, modelName string, startIdx int, num int, group string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 
 	if os.Getenv("LOG_SQL_DSN") != "" {
 		// 有单独的日志数据库
 		var tk Token
 		if err = DB.Model(&Token{}).Where(logKeyCol+"=?", strings.TrimPrefix(key, "sk-")).First(&tk).Error; err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		if logType == LogTypeUnknown {
@@ -179,13 +179,19 @@ func GetLogByKeyLightweight(key string, logType int, startTimestamp int64, endTi
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
 
+	// 先统计总数
+	err = tx.Model(&Log{}).Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
 	err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// 轻量级查询不需要格式化用户日志，减少处理时间
-	return logs, err
+	return logs, total, err
 }
 
 // GetLogByKeyCursor 基于游标的分页查询，适用于超大数据量（100万+）

@@ -109,6 +109,7 @@ func GetLogByKey(c *gin.Context) {
 	var logs []*model.Log
 	var err error
 	var nextCursor string
+	var total int64
 
 	if useCursor {
 		cursor := c.Query("cursor")
@@ -125,9 +126,9 @@ func GetLogByKey(c *gin.Context) {
 			return
 		}
 	} else if lightweight {
-		logs, err = model.GetLogByKeyLightweight(key, logType, startTimestamp, endTimestamp, modelName, startIdx, pageSize, group)
+		logs, total, err = model.GetLogByKeyLightweight(key, logType, startTimestamp, endTimestamp, modelName, startIdx, pageSize, group)
 	} else {
-		logs, _, err = model.GetLogByKey(key, logType, startTimestamp, endTimestamp, modelName, startIdx, pageSize, group)
+		logs, total, err = model.GetLogByKey(key, logType, startTimestamp, endTimestamp, modelName, startIdx, pageSize, group)
 	}
 	if err != nil {
 		c.JSON(200, gin.H{
@@ -136,11 +137,22 @@ func GetLogByKey(c *gin.Context) {
 		})
 		return
 	}
-	// 保持原有的返回格式
+
+	// 计算总页数
+	var totalPages int
+	if pageSize > 0 {
+		totalPages = int((total + int64(pageSize) - 1) / int64(pageSize)) // 向上取整
+	}
+
+	// 返回包含分页信息的格式
 	c.JSON(200, gin.H{
-		"success": true,
-		"message": "",
-		"data":    logs,
+		"success":   true,
+		"message":   "",
+		"data":      logs,
+		"total":     total,
+		"pages":     totalPages,
+		"page":      page,
+		"page_size": pageSize,
 	})
 }
 
