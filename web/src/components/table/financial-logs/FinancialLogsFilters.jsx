@@ -18,8 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Button, Form, Tooltip } from '@douyinfe/semi-ui';
+import { Button, Form, Tooltip, Divider, Typography } from '@douyinfe/semi-ui';
 import { IconSearch, IconInfoCircle } from '@douyinfe/semi-icons';
+
+const { Text } = Typography;
 
 const FinancialLogsFilters = ({
   formInitValues,
@@ -104,50 +106,71 @@ const FinancialLogsFilters = ({
           />
         </div>
 
+        <Divider margin='8px' />
+        
         {/* 高级选项 */}
-        <div className='grid grid-cols-1 md:grid-cols-3 gap-2'>
-          <Form.Select
-            field='type'
-            placeholder={t('日志类型')}
-            className='w-full'
-            showClear
-            pure
-            size='small'
-          >
-            <Form.Select.Option value='0'>{t('全部类型')}</Form.Select.Option>
-            <Form.Select.Option value='1'>{t('充值日志')}</Form.Select.Option>
-            <Form.Select.Option value='2'>{t('消费日志')}</Form.Select.Option>
-            <Form.Select.Option value='3'>{t('管理日志')}</Form.Select.Option>
-            <Form.Select.Option value='4'>{t('系统日志')}</Form.Select.Option>
-            <Form.Select.Option value='5'>{t('错误日志')}</Form.Select.Option>
-          </Form.Select>
-
-          <div className='flex items-center gap-2'>
-            <Form.Switch
-              field='lightweight'
-              label={
-                <Tooltip content={t('轻量级查询模式，只返回核心字段，查询速度更快')}>
-                  <span>{t('轻量级查询')}</span>
-                </Tooltip>
-              }
+        <div className='space-y-3'>
+          <Text type='secondary' size='small' className='block'>
+            {t('高级选项')}
+          </Text>
+          
+          <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
+            <Form.Select
+              field='type'
+              label={t('日志类型')}
+              placeholder={t('选择日志类型')}
+              className='w-full'
+              showClear
               pure
               size='small'
-            />
-          </div>
+            >
+              <Form.Select.Option value='0'>{t('全部类型')}</Form.Select.Option>
+              <Form.Select.Option value='1'>{t('充值日志')}</Form.Select.Option>
+              <Form.Select.Option value='2'>{t('消费日志')}</Form.Select.Option>
+              <Form.Select.Option value='3'>{t('管理日志')}</Form.Select.Option>
+              <Form.Select.Option value='4'>{t('系统日志')}</Form.Select.Option>
+              <Form.Select.Option value='5'>{t('错误日志')}</Form.Select.Option>
+            </Form.Select>
 
-          <div className='flex items-center gap-2'>
-            <Form.Switch
-              field='use_cursor'
-              label={
-                <Tooltip content={t('游标分页模式，适用于大数据量查询，性能更好')}>
-                  <span>{t('游标分页')}</span>
+            <div className='flex flex-col gap-2 p-3 bg-gray-50 rounded-lg'>
+              <div className='flex items-center gap-1'>
+                <Text strong size='small'>{t('查询模式')}</Text>
+                <Tooltip content={t('轻量级查询：只返回核心字段，查询速度更快，适用于中等数据量（10-100万条）')}>
+                  <IconInfoCircle size="small" style={{ color: 'var(--semi-color-text-2)' }} />
                 </Tooltip>
-              }
-              pure
-              size='small'
-              checked={useCursor}
-              onChange={handleCursorModeChange}
-            />
+              </div>
+              <Form.Switch
+                field='lightweight'
+                pure
+                size='small'
+                checkedText={t('轻量级')}
+                uncheckedText={t('完整字段')}
+              />
+              <Text type='tertiary' size='small'>
+                {t('轻量级模式查询更快')}
+              </Text>
+            </div>
+
+            <div className='flex flex-col gap-2 p-3 bg-gray-50 rounded-lg'>
+              <div className='flex items-center gap-1'>
+                <Text strong size='small'>{t('分页模式')}</Text>
+                <Tooltip content={t('游标分页：适用于大数据量查询（100万+条），性能更好，但不显示总数统计')}>
+                  <IconInfoCircle size="small" style={{ color: 'var(--semi-color-text-2)' }} />
+                </Tooltip>
+              </div>
+              <Form.Switch
+                field='use_cursor'
+                pure
+                size='small'
+                checked={useCursor}
+                onChange={handleCursorModeChange}
+                checkedText={t('游标分页')}
+                uncheckedText={t('普通分页')}
+              />
+              <Text type='tertiary' size='small'>
+                {useCursor ? t('适用于大数据量') : t('显示总数统计')}
+              </Text>
+            </div>
           </div>
         </div>
 
