@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -54,6 +55,89 @@ const (
 	LogTypeError
 )
 
+// PricingModelData 定义模型价格数据结构
+type PricingModelData struct {
+	ModelName       string  `json:"model_name"`
+	ModelRatio      float64 `json:"model_ratio"`
+	CompletionRatio float64 `json:"completion_ratio"`
+}
+
+// PricingData 定义完整的pricing数据结构
+type PricingData struct {
+	Data       []PricingModelData `json:"data"`
+	GroupRatio map[string]float64 `json:"group_ratio"`
+}
+
+// 全局缓存变量
+var (
+	pricingCache      *PricingData
+	pricingCacheMutex sync.RWMutex
+	pricingCacheTime  time.Time
+)
+
+// getPricingData 获取pricing数据，带缓存机制
+func getPricingData() (*PricingData, error) {
+	pricingCacheMutex.RLock()
+	// 检查缓存是否有效（5分钟内）
+	if pricingCache != nil && time.Since(pricingCacheTime) < 5*time.Minute {
+		defer pricingCacheMutex.RUnlock()
+		return pricingCache, nil
+	}
+	pricingCacheMutex.RUnlock()
+
+	// 需要更新缓存
+	pricingCacheMutex.Lock()
+	defer pricingCacheMutex.Unlock()
+
+	// 双重检查，防止并发更新
+	if pricingCache != nil && time.Since(pricingCacheTime) < 5*time.Minute {
+		return pricingCache, nil
+	}
+
+	// 获取pricing数据 - 从系统配置中构建pricing数据
+	var pricingModels []PricingModelData
+
+	// 获取所有模型的倍率信息
+	modelRatios := ratio_setting.GetDefaultModelRatioMap()
+	completionRatios := ratio_setting.GetCompletionRatioMap()
+
+	// 构建模型数据列表
+	for modelName, modelRatio := range modelRatios {
+		completionRatio := completionRatios[modelName]
+		if completionRatio == 0 {
+			completionRatio = 2.0 // 默认输出倍率
+		}
+
+		pricingModels = append(pricingModels, PricingModelData{
+			ModelName:       modelName,
+			ModelRatio:      modelRatio,
+			CompletionRatio: completionRatio,
+		})
+	}
+
+	groupRatio := ratio_setting.GetGroupRatioCopy()
+
+	pricingData := &PricingData{
+		Data:       pricingModels,
+		GroupRatio: groupRatio,
+	}
+
+	pricingCache = pricingData
+	pricingCacheTime = time.Now()
+
+	return pricingCache, nil
+}
+
+// findModelRatio 从pricing数据中查找指定模型的倍率信息
+func findModelRatio(pricingData *PricingData, modelName string) (modelRatio float64, completionRatio float64, found bool) {
+	for _, model := range pricingData.Data {
+		if model.ModelName == modelName {
+			return model.ModelRatio, model.CompletionRatio, true
+		}
+	}
+	return 0, 0, false
+}
+
 // calculatePriceFields 计算并设置价格显示字段
 func calculatePriceFields(log *Log) {
 	// 默认倍率
@@ -61,29 +145,21 @@ func calculatePriceFields(log *Log) {
 	var completionRatio float64 = 2.0
 	var groupRatio float64 = 1.0
 
-	// 尝试从 other 字段中解析倍率信息
-	if log.Other != "" {
-		otherMap, err := common.StrToMap(log.Other)
-		if err == nil && otherMap != nil {
-			if mr, ok := otherMap["model_ratio"]; ok {
-				if mrFloat, ok := mr.(float64); ok {
-					modelRatio = mrFloat
-				}
-			}
-			if cr, ok := otherMap["completion_ratio"]; ok {
-				if crFloat, ok := cr.(float64); ok {
-					completionRatio = crFloat
-				}
-			}
-			if gr, ok := otherMap["group_ratio"]; ok {
-				if grFloat, ok := gr.(float64); ok {
-					groupRatio = grFloat
-				}
-			}
+	// 直接从 /api/pricing 获取倍率信息
+	if pricingData, err := getPricingData(); err == nil {
+		// 查找模型倍率
+		if mr, cr, found := findModelRatio(pricingData, log.ModelName); found {
+			modelRatio = mr
+			completionRatio = cr
+		}
+
+		// 获取分组倍率
+		if gr, ok := pricingData.GroupRatio[log.Group]; ok {
+			groupRatio = gr
 		}
 	}
 
-	// 如果 other 字段中没有倍率信息，尝试从系统配置获取
+	// 如果从 pricing 获取失败，回退到系统配置
 	if modelRatio == 1.0 {
 		if mr, success, _ := ratio_setting.GetModelRatio(log.ModelName); success {
 			modelRatio = mr
