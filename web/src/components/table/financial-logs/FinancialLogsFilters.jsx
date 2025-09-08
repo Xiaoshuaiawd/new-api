@@ -132,28 +132,27 @@ const FinancialLogsFilters = ({
               <Form.Select.Option value='5'>{t('错误日志')}</Form.Select.Option>
             </Form.Select>
 
-            <div className='flex flex-col gap-2 p-3 bg-gray-50 rounded-lg'>
-              <div className='flex items-center gap-1'>
-                <Text strong size='small'>{t('查询模式')}</Text>
-                <Tooltip content={t('普通模式：标准查询，显示总数和页码；分页模式：适用于大数据量查询，性能更好')}>
-                  <IconInfoCircle size="small" style={{ color: 'var(--semi-color-text-2)' }} />
-                </Tooltip>
-              </div>
-              <Form.Select
-                field='query_mode'
-                pure
-                size='small'
-                placeholder={t('选择查询模式')}
-                value={useCursor ? 'cursor' : 'normal'}
-                onChange={(value) => handleCursorModeChange(value === 'cursor')}
-              >
-                <Form.Select.Option value='normal'>{t('普通模式')}</Form.Select.Option>
-                <Form.Select.Option value='cursor'>{t('分页模式')}</Form.Select.Option>
-              </Form.Select>
-              <Text type='tertiary' size='small'>
-                {useCursor ? t('适用于大数据量查询') : t('显示总数和页码')}
-              </Text>
-            </div>
+            <Form.Select
+              field='query_mode'
+              label={
+                <div className='flex items-center gap-1'>
+                  <span>{t('查询模式')}</span>
+                  <Tooltip content={t('普通模式：标准查询，显示总数和页码；分页模式：适用于大数据量查询，性能更好')}>
+                    <IconInfoCircle size="small" style={{ color: 'var(--semi-color-text-2)' }} />
+                  </Tooltip>
+                </div>
+              }
+              placeholder={t('选择查询模式')}
+              className='w-full'
+              showClear
+              pure
+              size='small'
+              value={useCursor ? 'cursor' : 'normal'}
+              onChange={(value) => handleCursorModeChange(value === 'cursor')}
+            >
+              <Form.Select.Option value='normal'>{t('普通模式')}</Form.Select.Option>
+              <Form.Select.Option value='cursor'>{t('分页模式')}</Form.Select.Option>
+            </Form.Select>
           </div>
         </div>
 
@@ -183,16 +182,6 @@ const FinancialLogsFilters = ({
             >
               {t('重置')}
             </Button>
-            {useCursor && hasMore && (
-              <Button
-                type='tertiary'
-                onClick={loadNextPage}
-                loading={loading}
-                size='small'
-              >
-                {t('加载更多')}
-              </Button>
-            )}
           </div>
 
           <div className='flex gap-2 w-full sm:w-auto justify-end'>

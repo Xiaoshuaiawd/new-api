@@ -41,19 +41,7 @@ const FinancialLogsPage = () => {
         type='type2'
         statsArea={<FinancialLogsActions {...logsData} />}
         searchArea={<FinancialLogsFilters {...logsData} />}
-        paginationArea={
-          !logsData.useCursor
-            ? createCardProPagination({
-                currentPage: logsData.activePage,
-                pageSize: logsData.pageSize,
-                total: logsData.logCount,
-                onPageChange: logsData.handlePageChange,
-                onPageSizeChange: logsData.handlePageSizeChange,
-                isMobile: isMobile,
-                t: logsData.t,
-              })
-            : null // No pagination for cursor mode
-        }
+        paginationArea={null}
         t={logsData.t}
       >
         <FinancialLogsTable {...logsData} />

@@ -90,12 +90,42 @@ const FinancialLogsTable = (logsData) => {
       }
       pagination={
         useCursor
-          ? false // Disable pagination for cursor mode
+          ? {
+              // 游标分页模式的自定义分页控制
+              pageSize: pageSize,
+              pageSizeOptions: [10, 20, 40, 100],
+              showSizeChanger: true,
+              onPageSizeChange: (size) => {
+                handlePageSizeChange(size);
+              },
+              // 隐藏页码导航，但保留页面大小选择
+              showQuickJumper: false,
+              showTotal: (total, range) => {
+                return (
+                  <div className='flex items-center gap-2'>
+                    <span>{t('当前显示: {{count}} 条', { count: logs.length })}</span>
+                    {hasMore && (
+                      <button
+                        onClick={loadNextPage}
+                        disabled={loading}
+                        className='px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50'
+                      >
+                        {loading ? t('加载中...') : t('加载更多')}
+                      </button>
+                    )}
+                  </div>
+                );
+              },
+              // 隐藏页码导航
+              itemRender: () => null,
+              current: 1,
+              total: logs.length,
+            }
           : {
               currentPage: activePage,
               pageSize: pageSize,
               total: logCount,
-              pageSizeOptions: [10, 20, 50, 100],
+              pageSizeOptions: [10, 20, 40, 100],
               showSizeChanger: true,
               onPageSizeChange: (size) => {
                 handlePageSizeChange(size);
@@ -103,7 +133,7 @@ const FinancialLogsTable = (logsData) => {
               onPageChange: handlePageChange,
             }
       }
-      hidePagination={useCursor}
+      hidePagination={false}
     />
   );
 };
