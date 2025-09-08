@@ -24,14 +24,11 @@ import CompactModeToggle from '../../common/ui/CompactModeToggle';
 import { useMinimumLoadingTime } from '../../../hooks/common/useMinimumLoadingTime';
 
 const FinancialLogsActions = ({
-  logs,
   logCount,
   loading,
   compactMode,
   setCompactMode,
   refresh,
-  useCursor,
-  hasMore,
   t,
 }) => {
   const showSkeleton = useMinimumLoadingTime(loading);
@@ -57,25 +54,8 @@ const FinancialLogsActions = ({
             }}
             className='!rounded-lg'
           >
-            {useCursor 
-              ? t('当前显示: {{count}} 条', { count: logs.length || 0 })
-              : t('总条数: {{count}}', { count: logCount || 0 })
-            }
+            {t('总条数: {{count}}', { count: logCount || 0 })}
           </Tag>
-          
-          {useCursor && (
-            <Tag
-              color={hasMore ? 'green' : 'grey'}
-              style={{
-                fontWeight: 500,
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-                padding: 13,
-              }}
-              className='!rounded-lg'
-            >
-              {hasMore ? t('有更多数据') : t('已加载全部')}
-            </Tag>
-          )}
 
           <Button
             type='tertiary'

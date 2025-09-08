@@ -78,7 +78,6 @@ export const useFinancialLogsData = () => {
       timestamp2string(getTodayStartTimestamp()),
       timestamp2string(now.getTime() / 1000 + 3600),
     ],
-    query_mode: 'normal',
   };
 
   // Column visibility state
@@ -88,10 +87,6 @@ export const useFinancialLogsData = () => {
   // Compact mode
   const [compactMode, setCompactMode] = useTableCompactMode('financial-logs');
 
-  // Cursor pagination state
-  const [cursor, setCursor] = useState(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [useCursor, setUseCursor] = useState(false);
 
   // Load saved column preferences from localStorage
   useEffect(() => {
@@ -189,7 +184,6 @@ export const useFinancialLogsData = () => {
       group: formValues.group || '',
       start_timestamp,
       end_timestamp,
-      use_cursor: useCursor,
     };
   };
 
@@ -228,7 +222,7 @@ export const useFinancialLogsData = () => {
   };
 
   // Load logs function using the /api/log/token endpoint
-  const loadLogs = async (page = 1, size = pageSize, resetCursor = false) => {
+  const loadLogs = async (page = 1, size = pageSize) => {
     setLoading(true);
 
     const {
@@ -238,7 +232,6 @@ export const useFinancialLogsData = () => {
       group,
       start_timestamp,
       end_timestamp,
-      use_cursor,
     } = getFormValues();
 
     if (!key || key.trim() === '') {
@@ -251,14 +244,7 @@ export const useFinancialLogsData = () => {
       let url = `/api/log/token?key=${encodeURIComponent(key)}`;
       
       // Add pagination parameters
-      if (use_cursor) {
-        url += `&use_cursor=true&page_size=${size}`;
-        if (cursor && !resetCursor) {
-          url += `&cursor=${encodeURIComponent(cursor)}`;
-        }
-      } else {
-        url += `&page=${page}&page_size=${size}`;
-      }
+      url += `&page=${page}&page_size=${size}`;
 
       // Add filter parameters
       if (type > 0) {
@@ -280,18 +266,10 @@ export const useFinancialLogsData = () => {
       const { success, message, data } = res.data;
       
       if (success) {
-        if (use_cursor) {
-          // Handle cursor pagination response
-          setCursor(res.data.next_cursor);
-          setHasMore(res.data.has_more);
-          setActivePage(1); // Cursor pagination doesn't use page numbers
-          setLogCount(0); // No total count in cursor mode for performance
-        } else {
-          // Handle regular pagination response
-          setActivePage(res.data.page || page);
-          setPageSize(res.data.page_size || size);
-          setLogCount(res.data.total || 0);
-        }
+        // Handle regular pagination response
+        setActivePage(res.data.page || page);
+        setPageSize(res.data.page_size || size);
+        setLogCount(res.data.total || 0);
 
         setLogsFormat(data);
       } else {
@@ -318,22 +296,13 @@ export const useFinancialLogsData = () => {
     localStorage.setItem('page-size', size + '');
     setPageSize(size);
     setActivePage(1);
-    setCursor(null); // Reset cursor when changing page size
-    loadLogs(1, size, true);
-  };
-
-  // Load next page for cursor pagination
-  const loadNextPage = () => {
-    if (hasMore && !loading) {
-      loadLogs(1, pageSize, false);
-    }
+    loadLogs(1, size);
   };
 
   // Refresh function
   const refresh = async () => {
     setActivePage(1);
-    setCursor(null);
-    await loadLogs(1, pageSize, true);
+    await loadLogs(1, pageSize);
   };
 
   // Copy text function
@@ -346,13 +315,6 @@ export const useFinancialLogsData = () => {
     }
   };
 
-  // Handle cursor pagination mode change
-  const handleCursorModeChange = (checked) => {
-    setUseCursor(checked);
-    setCursor(null);
-    setActivePage(1);
-  };
-
   return {
     // Basic state
     logs,
@@ -362,14 +324,6 @@ export const useFinancialLogsData = () => {
     pageSize,
     tokenKey,
     setTokenKey,
-
-    // Cursor pagination
-    cursor,
-    hasMore,
-    useCursor,
-    setUseCursor,
-    handleCursorModeChange,
-    loadNextPage,
 
     // Form state
     formApi,

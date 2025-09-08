@@ -32,10 +32,6 @@ const FinancialLogsFilters = ({
   loading,
   tokenKey,
   setTokenKey,
-  useCursor,
-  handleCursorModeChange,
-  hasMore,
-  loadNextPage,
   t,
 }) => {
   return (
@@ -114,7 +110,7 @@ const FinancialLogsFilters = ({
             {t('高级选项')}
           </Text>
           
-          <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+          <div className='grid grid-cols-1 md:grid-cols-1 gap-4'>
             <Form.Select
               field='type'
               label={t('日志类型')}
@@ -130,28 +126,6 @@ const FinancialLogsFilters = ({
               <Form.Select.Option value='3'>{t('管理日志')}</Form.Select.Option>
               <Form.Select.Option value='4'>{t('系统日志')}</Form.Select.Option>
               <Form.Select.Option value='5'>{t('错误日志')}</Form.Select.Option>
-            </Form.Select>
-
-            <Form.Select
-              field='query_mode'
-              label={
-                <div className='flex items-center gap-1'>
-                  <span>{t('查询模式')}</span>
-                  <Tooltip content={t('普通模式：标准查询，显示总数和页码；分页模式：适用于大数据量查询，性能更好')}>
-                    <IconInfoCircle size="small" style={{ color: 'var(--semi-color-text-2)' }} />
-                  </Tooltip>
-                </div>
-              }
-              placeholder={t('选择查询模式')}
-              className='w-full'
-              showClear
-              pure
-              size='small'
-              value={useCursor ? 'cursor' : 'normal'}
-              onChange={(value) => handleCursorModeChange(value === 'cursor')}
-            >
-              <Form.Select.Option value='normal'>{t('普通模式')}</Form.Select.Option>
-              <Form.Select.Option value='cursor'>{t('分页模式')}</Form.Select.Option>
             </Form.Select>
           </div>
         </div>
