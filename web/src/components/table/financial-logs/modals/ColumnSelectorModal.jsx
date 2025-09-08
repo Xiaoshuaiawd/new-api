@@ -35,7 +35,6 @@ const ColumnSelectorModal = ({
     [COLUMN_KEYS.ID]: t('ID'),
     [COLUMN_KEYS.CREATED_AT]: t('时间'),
     [COLUMN_KEYS.TYPE]: t('类型'),
-    [COLUMN_KEYS.CONTENT]: t('内容'),
     [COLUMN_KEYS.USERNAME]: t('用户名'),
     [COLUMN_KEYS.TOKEN_NAME]: t('Token名称'),
     [COLUMN_KEYS.MODEL_NAME]: t('模型'),

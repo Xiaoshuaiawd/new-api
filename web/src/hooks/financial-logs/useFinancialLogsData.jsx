@@ -78,8 +78,7 @@ export const useFinancialLogsData = () => {
       timestamp2string(getTodayStartTimestamp()),
       timestamp2string(now.getTime() / 1000 + 3600),
     ],
-    lightweight: false,
-    use_cursor: false,
+    query_mode: 'normal',
   };
 
   // Column visibility state
@@ -118,7 +117,6 @@ export const useFinancialLogsData = () => {
       [COLUMN_KEYS.ID]: true,
       [COLUMN_KEYS.CREATED_AT]: true,
       [COLUMN_KEYS.TYPE]: true,
-      [COLUMN_KEYS.CONTENT]: true,
       [COLUMN_KEYS.USERNAME]: true,
       [COLUMN_KEYS.TOKEN_NAME]: true,
       [COLUMN_KEYS.MODEL_NAME]: true,
@@ -191,8 +189,7 @@ export const useFinancialLogsData = () => {
       group: formValues.group || '',
       start_timestamp,
       end_timestamp,
-      lightweight: formValues.lightweight || false,
-      use_cursor: formValues.use_cursor || useCursor,
+      use_cursor: useCursor,
     };
   };
 
@@ -241,7 +238,6 @@ export const useFinancialLogsData = () => {
       group,
       start_timestamp,
       end_timestamp,
-      lightweight,
       use_cursor,
     } = getFormValues();
 
@@ -279,11 +275,6 @@ export const useFinancialLogsData = () => {
       let localStartTimestamp = Date.parse(start_timestamp) / 1000;
       let localEndTimestamp = Date.parse(end_timestamp) / 1000;
       url += `&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}`;
-
-      // Add lightweight parameter
-      if (lightweight) {
-        url += `&lightweight=true`;
-      }
 
       const res = await API.get(url);
       const { success, message, data } = res.data;

@@ -114,7 +114,7 @@ const FinancialLogsFilters = ({
             {t('高级选项')}
           </Text>
           
-          <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
+          <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
             <Form.Select
               field='type'
               label={t('日志类型')}
@@ -135,40 +135,23 @@ const FinancialLogsFilters = ({
             <div className='flex flex-col gap-2 p-3 bg-gray-50 rounded-lg'>
               <div className='flex items-center gap-1'>
                 <Text strong size='small'>{t('查询模式')}</Text>
-                <Tooltip content={t('轻量级查询：只返回核心字段，查询速度更快，适用于中等数据量（10-100万条）')}>
+                <Tooltip content={t('普通模式：标准查询，显示总数和页码；分页模式：适用于大数据量查询，性能更好')}>
                   <IconInfoCircle size="small" style={{ color: 'var(--semi-color-text-2)' }} />
                 </Tooltip>
               </div>
-              <Form.Switch
-                field='lightweight'
+              <Form.Select
+                field='query_mode'
                 pure
                 size='small'
-                checkedText={t('轻量级')}
-                uncheckedText={t('完整字段')}
-              />
+                placeholder={t('选择查询模式')}
+                value={useCursor ? 'cursor' : 'normal'}
+                onChange={(value) => handleCursorModeChange(value === 'cursor')}
+              >
+                <Form.Select.Option value='normal'>{t('普通模式')}</Form.Select.Option>
+                <Form.Select.Option value='cursor'>{t('分页模式')}</Form.Select.Option>
+              </Form.Select>
               <Text type='tertiary' size='small'>
-                {t('轻量级模式查询更快')}
-              </Text>
-            </div>
-
-            <div className='flex flex-col gap-2 p-3 bg-gray-50 rounded-lg'>
-              <div className='flex items-center gap-1'>
-                <Text strong size='small'>{t('分页模式')}</Text>
-                <Tooltip content={t('游标分页：适用于大数据量查询（100万+条），性能更好，但不显示总数统计')}>
-                  <IconInfoCircle size="small" style={{ color: 'var(--semi-color-text-2)' }} />
-                </Tooltip>
-              </div>
-              <Form.Switch
-                field='use_cursor'
-                pure
-                size='small'
-                checked={useCursor}
-                onChange={handleCursorModeChange}
-                checkedText={t('游标分页')}
-                uncheckedText={t('普通分页')}
-              />
-              <Text type='tertiary' size='small'>
-                {useCursor ? t('适用于大数据量') : t('显示总数统计')}
+                {useCursor ? t('适用于大数据量查询') : t('显示总数和页码')}
               </Text>
             </div>
           </div>

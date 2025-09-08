@@ -103,7 +103,7 @@ const FinancialLogsTable = (logsData) => {
               onPageChange: handlePageChange,
             }
       }
-      hidePagination={true}
+      hidePagination={useCursor}
     />
   );
 };

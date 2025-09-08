@@ -24,6 +24,7 @@ import CompactModeToggle from '../../common/ui/CompactModeToggle';
 import { useMinimumLoadingTime } from '../../../hooks/common/useMinimumLoadingTime';
 
 const FinancialLogsActions = ({
+  logs,
   logCount,
   loading,
   compactMode,
@@ -57,7 +58,7 @@ const FinancialLogsActions = ({
             className='!rounded-lg'
           >
             {useCursor 
-              ? t('当前显示条数: {{count}}', { count: logCount || 0 })
+              ? t('当前显示: {{count}} 条', { count: logs.length || 0 })
               : t('总条数: {{count}}', { count: logCount || 0 })
             }
           </Tag>

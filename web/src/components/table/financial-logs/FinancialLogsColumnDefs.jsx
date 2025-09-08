@@ -72,27 +72,6 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       ),
     },
     {
-      title: t('内容'),
-      dataIndex: 'content',
-      key: COLUMN_KEYS.CONTENT,
-      width: 200,
-      render: (text) => (
-        <div style={{ 
-          maxWidth: '180px', 
-          overflow: 'hidden', 
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap'
-        }}>
-          <Text 
-            style={{ fontSize: '12px' }}
-            ellipsis={{ showTooltip: true }}
-          >
-            {text || '-'}
-          </Text>
-        </div>
-      ),
-    },
-    {
       title: t('用户名'),
       dataIndex: 'username',
       key: COLUMN_KEYS.USERNAME,

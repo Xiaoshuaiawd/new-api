@@ -42,9 +42,8 @@ const FinancialLogsPage = () => {
         statsArea={<FinancialLogsActions {...logsData} />}
         searchArea={<FinancialLogsFilters {...logsData} />}
         paginationArea={
-          logsData.useCursor
-            ? null // No pagination for cursor mode
-            : createCardProPagination({
+          !logsData.useCursor
+            ? createCardProPagination({
                 currentPage: logsData.activePage,
                 pageSize: logsData.pageSize,
                 total: logsData.logCount,
@@ -53,6 +52,7 @@ const FinancialLogsPage = () => {
                 isMobile: isMobile,
                 t: logsData.t,
               })
+            : null // No pagination for cursor mode
         }
         t={logsData.t}
       >
