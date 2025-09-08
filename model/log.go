@@ -94,24 +94,16 @@ func getPricingData() (*PricingData, error) {
 		return pricingCache, nil
 	}
 
-	// 获取pricing数据 - 从系统配置中构建pricing数据
+	// 获取pricing数据 - 调用model.GetPricing()获取实际的定价数据
+	pricings := GetPricing()
 	var pricingModels []PricingModelData
 
-	// 获取所有模型的倍率信息
-	modelRatios := ratio_setting.GetDefaultModelRatioMap()
-	completionRatios := ratio_setting.GetCompletionRatioMap()
-
-	// 构建模型数据列表
-	for modelName, modelRatio := range modelRatios {
-		completionRatio := completionRatios[modelName]
-		if completionRatio == 0 {
-			completionRatio = 2.0 // 默认输出倍率
-		}
-
+	// 转换为我们需要的格式
+	for _, pricing := range pricings {
 		pricingModels = append(pricingModels, PricingModelData{
-			ModelName:       modelName,
-			ModelRatio:      modelRatio,
-			CompletionRatio: completionRatio,
+			ModelName:       pricing.ModelName,
+			ModelRatio:      pricing.ModelRatio,
+			CompletionRatio: pricing.CompletionRatio,
 		})
 	}
 
@@ -176,26 +168,28 @@ func calculatePriceFields(log *Log) {
 		}
 	}
 
-	// 根据实际数据分析：
-	// model_ratio=1.5, input_price=$0.5/1M, output_price=$2.5/1M, completion_ratio=5
-	// 输入价格 = model_ratio * (1/3) = 1.5 * (1/3) = 0.5 ✓
-	// 输出价格 = 输入价格 * completion_ratio = 0.5 * 5 = 2.5 ✓
-	inputRatioPrice := modelRatio * (1.0 / 3.0) // model_ratio / 3
+	// 正确的计算公式：
+	// 输入价格 = 输入倍率(model_ratio) × 2
+	// 输出价格 = 输入价格 × 输出倍率(completion_ratio)
+	// 例如：model_ratio=1.5, completion_ratio=5
+	// 输入价格 = 1.5 × 2 = 3.0 → "$3.000 / 1M"
+	// 输出价格 = 3.0 × 5 = 15.0 → "$15.000 / 1M"
+	inputRatioPrice := modelRatio * 2.0
 	outputRatioPrice := inputRatioPrice * completionRatio
 
 	// 计算输入金额和输出金额
 	promptTokens := float64(log.PromptTokens)
 	completionTokens := float64(log.CompletionTokens)
 
-	// (tokens / 1,000,000) * price per 1M tokens * group ratio
+	// 应用分组倍率到金额计算
 	inputAmount := (promptTokens / 1000000) * inputRatioPrice * groupRatio
 	outputAmount := (completionTokens / 1000000) * outputRatioPrice * groupRatio
 
-	// 格式化显示字符串
-	log.InputPriceDisplay = fmt.Sprintf("$%.3f / 1M", inputRatioPrice)
-	log.OutputPriceDisplay = fmt.Sprintf("$%.3f / 1M", outputRatioPrice)
-	log.InputAmountDisplay = fmt.Sprintf("$%.6f", inputAmount)
-	log.OutputAmountDisplay = fmt.Sprintf("$%.6f", outputAmount)
+	// 格式化显示字符串 - 价格和金额都只返回数值，前端负责格式化显示
+	log.InputPriceDisplay = fmt.Sprintf("%.0f", inputRatioPrice)
+	log.OutputPriceDisplay = fmt.Sprintf("%.0f", outputRatioPrice)
+	log.InputAmountDisplay = fmt.Sprintf("%.6f", inputAmount)
+	log.OutputAmountDisplay = fmt.Sprintf("%.6f", outputAmount)
 }
 
 func formatUserLogs(logs []*Log) {

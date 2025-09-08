@@ -449,31 +449,114 @@ export const useFinancialLogsData = () => {
       }
 
       if (allData.length > 0) {
-        // 转换数据为Excel格式
-        const excelData = allData.map((log, index) => ({
-          '序号': index + 1,
-          'ID': log.id,
-          '时间': timestamp2string(log.created_at),
-          '类型': getLogTypeText(log.type),
-          'Token名称': log.token_name || '-',
-          '模型': log.model_name || '-',
-          '配额': renderQuota(log.quota, 6),
-          '提示Token': (log.prompt_tokens || 0).toLocaleString(),
-          '完成Token': (log.completion_tokens || 0).toLocaleString(),
-          '输入价格': log.input_price_display || '-',
-          '输出价格': log.output_price_display || '-',
-          '输入金额': log.input_amount_display || '-',
-          '输出金额': log.output_amount_display || '-',
-          '流式': log.is_stream ? '是' : '否',
-          '渠道ID': log.channel_id || '-',
-          'TokenID': log.token_id || '-',
-          'IP': log.ip || '-',
-          '其他信息': log.other || '-',
-        }));
+        // 计算汇总数据
+        let totalInputAmount = 0;
+        let totalOutputAmount = 0;
+        let totalPromptTokens = 0;
+        let totalCompletionTokens = 0;
+
+        // 转换数据为Excel格式并计算汇总
+        const excelData = allData.map((log, index) => {
+          // 累加金额和token数量
+          const inputAmount = parseFloat(log.input_amount_display) || 0;
+          const outputAmount = parseFloat(log.output_amount_display) || 0;
+          totalInputAmount += inputAmount;
+          totalOutputAmount += outputAmount;
+          totalPromptTokens += log.prompt_tokens || 0;
+          totalCompletionTokens += log.completion_tokens || 0;
+
+          return {
+            '序号': index + 1,
+            'ID': log.id,
+            '时间': timestamp2string(log.created_at),
+            '类型': getLogTypeText(log.type),
+            'Token名称': log.token_name || '-',
+            '模型': log.model_name || '-',
+            '配额': renderQuota(log.quota, 6),
+            '提示Token': (log.prompt_tokens || 0).toLocaleString(),
+            '完成Token': (log.completion_tokens || 0).toLocaleString(),
+            '输入价格': log.input_price_display && log.input_price_display !== '-' ? `$${parseFloat(log.input_price_display).toFixed(3)} / 1M` : '-',
+            '输出价格': log.output_price_display && log.output_price_display !== '-' ? `$${parseFloat(log.output_price_display).toFixed(3)} / 1M` : '-',
+            '输入金额': log.input_amount_display && log.input_amount_display !== '-' ? `$${parseFloat(log.input_amount_display).toFixed(6)}` : '-',
+            '输出金额': log.output_amount_display && log.output_amount_display !== '-' ? `$${parseFloat(log.output_amount_display).toFixed(6)}` : '-',
+            '流式': log.is_stream ? '是' : '否',
+            '渠道ID': log.channel_id || '-',
+            'TokenID': log.token_id || '-',
+            'IP': log.ip || '-',
+            '其他信息': log.other || '-',
+          };
+        });
+
+        // 添加空行
+        excelData.push({
+          '序号': '',
+          'ID': '',
+          '时间': '',
+          '类型': '',
+          'Token名称': '',
+          '模型': '',
+          '配额': '',
+          '提示Token': '',
+          '完成Token': '',
+          '输入价格': '',
+          '输出价格': '',
+          '输入金额': '',
+          '输出金额': '',
+          '流式': '',
+          '渠道ID': '',
+          'TokenID': '',
+          'IP': '',
+          '其他信息': '',
+        });
+
+        // 添加汇总行
+        excelData.push({
+          '序号': '',
+          'ID': '',
+          '时间': '',
+          '类型': '',
+          'Token名称': '',
+          '模型': '汇总统计',
+          '配额': '',
+          '提示Token': totalPromptTokens.toLocaleString(),
+          '完成Token': totalCompletionTokens.toLocaleString(),
+          '输入价格': '',
+          '输出价格': '',
+          '输入金额': `$${totalInputAmount.toFixed(6)}`,
+          '输出金额': `$${totalOutputAmount.toFixed(6)}`,
+          '流式': '',
+          '渠道ID': '',
+          'TokenID': '',
+          'IP': '',
+          '其他信息': '',
+        });
+
+        // 添加总计行
+        const totalAmount = totalInputAmount + totalOutputAmount;
+        excelData.push({
+          '序号': '',
+          'ID': '',
+          '时间': '',
+          '类型': '',
+          'Token名称': '',
+          '模型': '总计金额',
+          '配额': '',
+          '提示Token': '',
+          '完成Token': '',
+          '输入价格': '',
+          '输出价格': '',
+          '输入金额': '',
+          '输出金额': `$${totalAmount.toFixed(6)}`,
+          '流式': '',
+          '渠道ID': '',
+          'TokenID': '',
+          'IP': '',
+          '其他信息': '',
+        });
 
         // 创建Excel文件并下载
         downloadExcel(excelData, `财务日志_${timestamp2string(Date.now() / 1000).replace(/[:\s]/g, '_')}.xlsx`);
-        showSuccess(t('下载成功，共导出 {{count}} 条记录', { count: allData.length }));
+        showSuccess(t('下载成功，共导出 {{count}} 条记录，包含汇总统计', { count: allData.length }));
       } else {
         showError(t('没有数据可以下载'));
       }

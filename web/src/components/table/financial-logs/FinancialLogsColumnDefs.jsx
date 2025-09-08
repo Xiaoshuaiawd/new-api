@@ -187,11 +187,16 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       key: COLUMN_KEYS.INPUT_PRICE,
       width: 120,
       align: 'right',
-      render: (text, record) => (
-        <Text style={{ fontSize: '12px' }}>
-          {record.input_price_display || '-'}
-        </Text>
-      ),
+      render: (text, record) => {
+        const price = record.input_price_display;
+        if (!price || price === '-') return '-';
+        const numPrice = parseFloat(price);
+        return (
+          <Text style={{ fontSize: '12px' }}>
+            ${numPrice.toFixed(3)} / 1M
+          </Text>
+        );
+      },
     },
     {
       title: t('输出价格'),
@@ -199,11 +204,16 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       key: COLUMN_KEYS.OUTPUT_PRICE,
       width: 120,
       align: 'right',
-      render: (text, record) => (
-        <Text style={{ fontSize: '12px' }}>
-          {record.output_price_display || '-'}
-        </Text>
-      ),
+      render: (text, record) => {
+        const price = record.output_price_display;
+        if (!price || price === '-') return '-';
+        const numPrice = parseFloat(price);
+        return (
+          <Text style={{ fontSize: '12px' }}>
+            ${numPrice.toFixed(3)} / 1M
+          </Text>
+        );
+      },
     },
     {
       title: t('输入金额'),
@@ -211,11 +221,16 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       key: COLUMN_KEYS.INPUT_AMOUNT,
       width: 100,
       align: 'right',
-      render: (text, record) => (
-        <Text style={{ fontSize: '12px', color: 'var(--semi-color-success)' }}>
-          {record.input_amount_display || '-'}
-        </Text>
-      ),
+      render: (text, record) => {
+        const amount = record.input_amount_display;
+        if (!amount || amount === '-') return '-';
+        const numAmount = parseFloat(amount);
+        return (
+          <Text style={{ fontSize: '12px', color: 'var(--semi-color-success)' }}>
+            ${numAmount.toFixed(6)}
+          </Text>
+        );
+      },
     },
     {
       title: t('输出金额'),
@@ -223,11 +238,16 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       key: COLUMN_KEYS.OUTPUT_AMOUNT,
       width: 100,
       align: 'right',
-      render: (text, record) => (
-        <Text style={{ fontSize: '12px', color: 'var(--semi-color-warning)' }}>
-          {record.output_amount_display || '-'}
-        </Text>
-      ),
+      render: (text, record) => {
+        const amount = record.output_amount_display;
+        if (!amount || amount === '-') return '-';
+        const numAmount = parseFloat(amount);
+        return (
+          <Text style={{ fontSize: '12px', color: 'var(--semi-color-warning)' }}>
+            ${numAmount.toFixed(6)}
+          </Text>
+        );
+      },
     },
     {
       title: t('流式'),
