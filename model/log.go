@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"one-api/common"
 	"one-api/logger"
+	"one-api/setting/ratio_setting"
 	"one-api/types"
 	"os"
 	"strconv"
@@ -37,6 +38,11 @@ type Log struct {
 	Group            string `json:"group" gorm:"index"`
 	Ip               string `json:"ip" gorm:"index;default:''"`
 	Other            string `json:"other"`
+	// 价格显示字段 (不存储到数据库，仅用于API返回)
+	InputPriceDisplay   string `json:"input_price_display" gorm:"-"`
+	OutputPriceDisplay  string `json:"output_price_display" gorm:"-"`
+	InputAmountDisplay  string `json:"input_amount_display" gorm:"-"`
+	OutputAmountDisplay string `json:"output_amount_display" gorm:"-"`
 }
 
 const (
@@ -47,6 +53,42 @@ const (
 	LogTypeSystem
 	LogTypeError
 )
+
+// calculatePriceFields 计算并设置价格显示字段
+func calculatePriceFields(log *Log) {
+	// 默认基础价格 $0.5 / 1M tokens
+	basePrice := 0.5
+
+	// 获取输出倍率，默认为2
+	outputMultiplier := ratio_setting.GetCompletionRatio(log.ModelName)
+	if outputMultiplier == 0 {
+		outputMultiplier = 2.0
+	}
+
+	// 获取分组倍率
+	groupMultiplier := ratio_setting.GetGroupRatio(log.Group)
+	if groupMultiplier == 0 {
+		groupMultiplier = 1.0
+	}
+
+	// 计算输入价格和输出价格 (每1M tokens的价格)
+	inputPrice := basePrice                     // $0.5 / 1M tokens
+	outputPrice := basePrice * outputMultiplier // $0.5 * 2 = $1 / 1M tokens
+
+	// 计算输入金额和输出金额
+	promptTokens := float64(log.PromptTokens)
+	completionTokens := float64(log.CompletionTokens)
+
+	// (tokens / 1,000,000) * price per 1M tokens * group multiplier
+	inputAmount := (promptTokens / 1000000) * inputPrice * groupMultiplier
+	outputAmount := (completionTokens / 1000000) * outputPrice * groupMultiplier
+
+	// 格式化显示字符串
+	log.InputPriceDisplay = fmt.Sprintf("$%.3f / 1M", inputPrice)
+	log.OutputPriceDisplay = fmt.Sprintf("$%.3f / 1M", outputPrice)
+	log.InputAmountDisplay = fmt.Sprintf("$%.6f", inputAmount)
+	log.OutputAmountDisplay = fmt.Sprintf("$%.6f", outputAmount)
+}
 
 func formatUserLogs(logs []*Log) {
 	for i := range logs {
@@ -59,6 +101,9 @@ func formatUserLogs(logs []*Log) {
 		}
 		logs[i].Other = common.MapToJsonStr(otherMap)
 		logs[i].Id = logs[i].Id % 1024
+
+		// 计算价格字段
+		calculatePriceFields(logs[i])
 	}
 }
 
@@ -190,7 +235,11 @@ func GetLogByKeyLightweight(key string, logType int, startTimestamp int64, endTi
 		return nil, 0, err
 	}
 
-	// 轻量级查询不需要格式化用户日志，减少处理时间
+	// 为日志添加价格计算字段
+	for i := range logs {
+		calculatePriceFields(logs[i])
+	}
+
 	return logs, total, err
 }
 
@@ -311,6 +360,11 @@ func GetLogByKeyCursor(key string, logType int, startTimestamp int64, endTimesta
 			}
 		}
 		formatUserLogs(logs)
+	} else {
+		// 即使是轻量级查询，也需要计算价格字段
+		for i := range logs {
+			calculatePriceFields(logs[i])
+		}
 	}
 
 	return logs, nextCursor, nil
