@@ -68,6 +68,11 @@ export const useHeaderBar = ({ onMobileMenuToggle, drawerOpen }) => {
           };
         }
 
+        // 确保financial字段存在
+        if (modules.financial === undefined) {
+          modules.financial = true;
+        }
+
         return modules;
       } catch (error) {
         console.error('解析顶栏模块配置失败:', error);
