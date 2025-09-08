@@ -56,36 +56,68 @@ const (
 
 // calculatePriceFields 计算并设置价格显示字段
 func calculatePriceFields(log *Log) {
-	// 默认基础价格 $0.5 / 1M tokens
-	basePrice := 0.5
+	// 默认倍率
+	var modelRatio float64 = 1.0
+	var completionRatio float64 = 2.0
+	var groupRatio float64 = 1.0
 
-	// 获取输出倍率，默认为2
-	outputMultiplier := ratio_setting.GetCompletionRatio(log.ModelName)
-	if outputMultiplier == 0 {
-		outputMultiplier = 2.0
+	// 尝试从 other 字段中解析倍率信息
+	if log.Other != "" {
+		otherMap, err := common.StrToMap(log.Other)
+		if err == nil && otherMap != nil {
+			if mr, ok := otherMap["model_ratio"]; ok {
+				if mrFloat, ok := mr.(float64); ok {
+					modelRatio = mrFloat
+				}
+			}
+			if cr, ok := otherMap["completion_ratio"]; ok {
+				if crFloat, ok := cr.(float64); ok {
+					completionRatio = crFloat
+				}
+			}
+			if gr, ok := otherMap["group_ratio"]; ok {
+				if grFloat, ok := gr.(float64); ok {
+					groupRatio = grFloat
+				}
+			}
+		}
 	}
 
-	// 获取分组倍率
-	groupMultiplier := ratio_setting.GetGroupRatio(log.Group)
-	if groupMultiplier == 0 {
-		groupMultiplier = 1.0
+	// 如果 other 字段中没有倍率信息，尝试从系统配置获取
+	if modelRatio == 1.0 {
+		if mr, success, _ := ratio_setting.GetModelRatio(log.ModelName); success {
+			modelRatio = mr
+		}
+	}
+	if completionRatio == 2.0 {
+		if cr := ratio_setting.GetCompletionRatio(log.ModelName); cr > 0 {
+			completionRatio = cr
+		}
+	}
+	if groupRatio == 1.0 {
+		if gr := ratio_setting.GetGroupRatio(log.Group); gr > 0 {
+			groupRatio = gr
+		}
 	}
 
-	// 计算输入价格和输出价格 (每1M tokens的价格)
-	inputPrice := basePrice                     // $0.5 / 1M tokens
-	outputPrice := basePrice * outputMultiplier // $0.5 * 2 = $1 / 1M tokens
+	// 根据实际数据分析：
+	// model_ratio=1.5, input_price=$0.5/1M, output_price=$2.5/1M, completion_ratio=5
+	// 输入价格 = model_ratio * (1/3) = 1.5 * (1/3) = 0.5 ✓
+	// 输出价格 = 输入价格 * completion_ratio = 0.5 * 5 = 2.5 ✓
+	inputRatioPrice := modelRatio * (1.0 / 3.0) // model_ratio / 3
+	outputRatioPrice := inputRatioPrice * completionRatio
 
 	// 计算输入金额和输出金额
 	promptTokens := float64(log.PromptTokens)
 	completionTokens := float64(log.CompletionTokens)
 
-	// (tokens / 1,000,000) * price per 1M tokens * group multiplier
-	inputAmount := (promptTokens / 1000000) * inputPrice * groupMultiplier
-	outputAmount := (completionTokens / 1000000) * outputPrice * groupMultiplier
+	// (tokens / 1,000,000) * price per 1M tokens * group ratio
+	inputAmount := (promptTokens / 1000000) * inputRatioPrice * groupRatio
+	outputAmount := (completionTokens / 1000000) * outputRatioPrice * groupRatio
 
 	// 格式化显示字符串
-	log.InputPriceDisplay = fmt.Sprintf("$%.3f / 1M", inputPrice)
-	log.OutputPriceDisplay = fmt.Sprintf("$%.3f / 1M", outputPrice)
+	log.InputPriceDisplay = fmt.Sprintf("$%.3f / 1M", inputRatioPrice)
+	log.OutputPriceDisplay = fmt.Sprintf("$%.3f / 1M", outputRatioPrice)
 	log.InputAmountDisplay = fmt.Sprintf("$%.6f", inputAmount)
 	log.OutputAmountDisplay = fmt.Sprintf("$%.6f", outputAmount)
 }
