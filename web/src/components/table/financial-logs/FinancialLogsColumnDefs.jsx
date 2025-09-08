@@ -72,29 +72,6 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       ),
     },
     {
-      title: t('用户名'),
-      dataIndex: 'username',
-      key: COLUMN_KEYS.USERNAME,
-      width: 120,
-      render: (text) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Text style={{ fontSize: '12px' }}>
-            {text || '-'}
-          </Text>
-          {text && (
-            <Button
-              theme="borderless"
-              type="tertiary"
-              size="small"
-              icon={<IconCopy />}
-              onClick={(e) => copyText(e, text)}
-              style={{ minWidth: 'auto', padding: '2px' }}
-            />
-          )}
-        </div>
-      ),
-    },
-    {
       title: t('Token名称'),
       dataIndex: 'token_name',
       key: COLUMN_KEYS.TOKEN_NAME,
@@ -185,9 +162,9 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       width: 80,
       align: 'right',
       sorter: (a, b) => (a.prompt_tokens || 0) - (b.prompt_tokens || 0),
-      render: (text) => (
+      render: (text, record) => (
         <Text style={{ fontSize: '12px' }}>
-          {text || '0'}
+          {(record.prompt_tokens || 0).toLocaleString()}
         </Text>
       ),
     },
@@ -198,22 +175,57 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       width: 80,
       align: 'right',
       sorter: (a, b) => (a.completion_tokens || 0) - (b.completion_tokens || 0),
-      render: (text) => (
+      render: (text, record) => (
         <Text style={{ fontSize: '12px' }}>
-          {text || '0'}
+          {(record.completion_tokens || 0).toLocaleString()}
         </Text>
       ),
     },
     {
-      title: t('耗时'),
-      dataIndex: 'use_time_display',
-      key: COLUMN_KEYS.USE_TIME,
-      width: 80,
+      title: t('输入价格'),
+      dataIndex: 'input_price_display',
+      key: COLUMN_KEYS.INPUT_PRICE,
+      width: 120,
       align: 'right',
-      sorter: (a, b) => (a.use_time || 0) - (b.use_time || 0),
-      render: (text) => (
+      render: (text, record) => (
         <Text style={{ fontSize: '12px' }}>
-          {text}
+          {record.input_price_display || '-'}
+        </Text>
+      ),
+    },
+    {
+      title: t('输出价格'),
+      dataIndex: 'output_price_display',
+      key: COLUMN_KEYS.OUTPUT_PRICE,
+      width: 120,
+      align: 'right',
+      render: (text, record) => (
+        <Text style={{ fontSize: '12px' }}>
+          {record.output_price_display || '-'}
+        </Text>
+      ),
+    },
+    {
+      title: t('输入金额'),
+      dataIndex: 'input_amount_display',
+      key: COLUMN_KEYS.INPUT_AMOUNT,
+      width: 100,
+      align: 'right',
+      render: (text, record) => (
+        <Text style={{ fontSize: '12px', color: 'var(--semi-color-success)' }}>
+          {record.input_amount_display || '-'}
+        </Text>
+      ),
+    },
+    {
+      title: t('输出金额'),
+      dataIndex: 'output_amount_display',
+      key: COLUMN_KEYS.OUTPUT_AMOUNT,
+      width: 100,
+      align: 'right',
+      render: (text, record) => (
+        <Text style={{ fontSize: '12px', color: 'var(--semi-color-warning)' }}>
+          {record.output_amount_display || '-'}
         </Text>
       ),
     },
@@ -245,29 +257,6 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       ),
     },
     {
-      title: t('渠道'),
-      dataIndex: 'channel_name',
-      key: COLUMN_KEYS.CHANNEL_NAME,
-      width: 120,
-      render: (text) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Text style={{ fontSize: '12px' }}>
-            {text || '-'}
-          </Text>
-          {text && (
-            <Button
-              theme="borderless"
-              type="tertiary"
-              size="small"
-              icon={<IconCopy />}
-              onClick={(e) => copyText(e, text)}
-              style={{ minWidth: 'auto', padding: '2px' }}
-            />
-          )}
-        </div>
-      ),
-    },
-    {
       title: t('TokenID'),
       dataIndex: 'token_id',
       key: COLUMN_KEYS.TOKEN_ID,
@@ -277,29 +266,6 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
         <Text style={{ fontSize: '12px' }}>
           {text || '-'}
         </Text>
-      ),
-    },
-    {
-      title: t('分组'),
-      dataIndex: 'group',
-      key: COLUMN_KEYS.GROUP,
-      width: 100,
-      render: (text) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Text style={{ fontSize: '12px' }}>
-            {text || 'default'}
-          </Text>
-          {text && (
-            <Button
-              theme="borderless"
-              type="tertiary"
-              size="small"
-              icon={<IconCopy />}
-              onClick={(e) => copyText(e, text)}
-              style={{ minWidth: 'auto', padding: '2px' }}
-            />
-          )}
-        </div>
       ),
     },
     {

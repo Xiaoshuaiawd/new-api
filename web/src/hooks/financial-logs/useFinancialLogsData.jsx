@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '@douyinfe/semi-ui';
 import * as XLSX from 'xlsx';
@@ -33,28 +33,29 @@ import {
 } from '../../helpers';
 import { ITEMS_PER_PAGE } from '../../constants';
 import { useTableCompactMode } from '../common/useTableCompactMode';
+import { StatusContext } from '../../context/Status';
 
 export const useFinancialLogsData = () => {
   const { t } = useTranslation();
+  const [statusState] = useContext(StatusContext);
 
   // Define column keys for selection
   const COLUMN_KEYS = {
     ID: 'id',
     CREATED_AT: 'created_at',
     TYPE: 'type',
-    CONTENT: 'content',
-    USERNAME: 'username',
     TOKEN_NAME: 'token_name',
     MODEL_NAME: 'model_name',
     QUOTA: 'quota',
     PROMPT_TOKENS: 'prompt_tokens',
     COMPLETION_TOKENS: 'completion_tokens',
-    USE_TIME: 'use_time',
+    INPUT_PRICE: 'input_price',
+    OUTPUT_PRICE: 'output_price',
+    INPUT_AMOUNT: 'input_amount',
+    OUTPUT_AMOUNT: 'output_amount',
     IS_STREAM: 'is_stream',
     CHANNEL_ID: 'channel_id',
-    CHANNEL_NAME: 'channel_name',
     TOKEN_ID: 'token_id',
-    GROUP: 'group',
     IP: 'ip',
     OTHER: 'other',
   };
@@ -63,6 +64,11 @@ export const useFinancialLogsData = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
+  
+  // Pricing and ratio state
+  const [groupRatio, setGroupRatio] = useState({});
+  const [completionRatio, setCompletionRatio] = useState({});
+  const [modelRatio, setModelRatio] = useState({});
   const [activePage, setActivePage] = useState(1);
   const [logCount, setLogCount] = useState(0);
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
@@ -106,6 +112,9 @@ export const useFinancialLogsData = () => {
     } else {
       initDefaultColumns();
     }
+    
+    // 加载倍率配置
+    loadPricingConfig();
   }, []);
 
   // Get default column visibility
@@ -114,18 +123,18 @@ export const useFinancialLogsData = () => {
       [COLUMN_KEYS.ID]: true,
       [COLUMN_KEYS.CREATED_AT]: true,
       [COLUMN_KEYS.TYPE]: true,
-      [COLUMN_KEYS.USERNAME]: true,
       [COLUMN_KEYS.TOKEN_NAME]: true,
       [COLUMN_KEYS.MODEL_NAME]: true,
       [COLUMN_KEYS.QUOTA]: true,
       [COLUMN_KEYS.PROMPT_TOKENS]: true,
       [COLUMN_KEYS.COMPLETION_TOKENS]: true,
-      [COLUMN_KEYS.USE_TIME]: true,
+      [COLUMN_KEYS.INPUT_PRICE]: true,
+      [COLUMN_KEYS.OUTPUT_PRICE]: true,
+      [COLUMN_KEYS.INPUT_AMOUNT]: true,
+      [COLUMN_KEYS.OUTPUT_AMOUNT]: true,
       [COLUMN_KEYS.IS_STREAM]: false,
       [COLUMN_KEYS.CHANNEL_ID]: false,
-      [COLUMN_KEYS.CHANNEL_NAME]: true,
       [COLUMN_KEYS.TOKEN_ID]: false,
-      [COLUMN_KEYS.GROUP]: true,
       [COLUMN_KEYS.IP]: false,
       [COLUMN_KEYS.OTHER]: false,
     };
@@ -163,6 +172,21 @@ export const useFinancialLogsData = () => {
     }
   }, [visibleColumns]);
 
+  // Load pricing configuration from API
+  const loadPricingConfig = async () => {
+    try {
+      const res = await API.get('/api/pricing');
+      const { success, data, group_ratio } = res.data;
+      if (success) {
+        setGroupRatio(group_ratio || {});
+        // 可以根据需要添加其他倍率配置
+        console.log('Loaded pricing config:', { group_ratio });
+      }
+    } catch (error) {
+      console.error('Failed to load pricing config:', error);
+    }
+  };
+
   // 获取表单值的辅助函数
   const getFormValues = () => {
     const formValues = formApi ? formApi.getValues() : {};
@@ -189,6 +213,36 @@ export const useFinancialLogsData = () => {
     };
   };
 
+  // Calculate price and amount based on tokens
+  const calculatePriceAndAmount = (log) => {
+    // 从系统状态获取基础配置
+    const basePrice = 0.5; // 基础价格 $0.5 / 1M tokens
+    const outputMultiplier = 2; // 输出倍率 - 这个可以后续从completionRatio中获取
+    
+    // 获取分组倍率
+    const logGroup = log.group || 'default';
+    const groupMultiplier = groupRatio[logGroup] || 1;
+    
+    // 计算输入价格和输出价格 (每1M tokens的价格)
+    const inputPrice = basePrice; // $0.5 / 1M tokens
+    const outputPrice = basePrice * outputMultiplier; // $0.5 * 2 = $1 / 1M tokens
+    
+    // 计算输入金额和输出金额
+    const promptTokens = log.prompt_tokens || 0;
+    const completionTokens = log.completion_tokens || 0;
+    
+    // (tokens / 1,000,000) * price per 1M tokens * group multiplier
+    const inputAmount = (promptTokens / 1000000) * inputPrice * groupMultiplier;
+    const outputAmount = (completionTokens / 1000000) * outputPrice * groupMultiplier;
+    
+    return {
+      inputPrice,
+      outputPrice,
+      inputAmount,
+      outputAmount
+    };
+  };
+
   // Format logs data
   const setLogsFormat = (logs) => {
     for (let i = 0; i < logs.length; i++) {
@@ -198,12 +252,16 @@ export const useFinancialLogsData = () => {
       // Format quota display
       logs[i].quota_display = renderQuota(logs[i].quota, 6);
       
-      // Format tokens display
-      logs[i].prompt_tokens_display = renderNumber(logs[i].prompt_tokens);
-      logs[i].completion_tokens_display = renderNumber(logs[i].completion_tokens);
+      // Format tokens display - use normal integer format
+      logs[i].prompt_tokens_display = logs[i].prompt_tokens || 0;
+      logs[i].completion_tokens_display = logs[i].completion_tokens || 0;
       
-      // Format use time
-      logs[i].use_time_display = logs[i].use_time ? `${logs[i].use_time}s` : '-';
+      // Calculate and format price and amount
+      const priceAmount = calculatePriceAndAmount(logs[i]);
+      logs[i].input_price_display = `$${priceAmount.inputPrice.toFixed(3)} / 1M`;
+      logs[i].output_price_display = `$${priceAmount.outputPrice.toFixed(3)} / 1M`;
+      logs[i].input_amount_display = `$${priceAmount.inputAmount.toFixed(6)}`;
+      logs[i].output_amount_display = `$${priceAmount.outputAmount.toFixed(6)}`;
       
       // Format stream status
       logs[i].is_stream_display = logs[i].is_stream ? t('是') : t('否');
@@ -336,59 +394,147 @@ export const useFinancialLogsData = () => {
     setDownloadLoading(true);
 
     try {
-      // 构建下载URL，使用大页面大小获取所有数据
-      let url = `/api/log/token?key=${encodeURIComponent(key)}`;
-      
-      // 使用大页面大小来获取所有数据
-      url += `&page=1&page_size=100000`;
+      // 第一步：先获取总数，使用小页面大小
+      let countUrl = `/api/log/token?key=${encodeURIComponent(key)}`;
+      countUrl += `&page=1&page_size=1`;
 
       // Add filter parameters
       if (type > 0) {
-        url += `&type=${type}`;
+        countUrl += `&type=${type}`;
       }
       if (model_name) {
-        url += `&model_name=${encodeURIComponent(model_name)}`;
+        countUrl += `&model_name=${encodeURIComponent(model_name)}`;
       }
       if (group) {
-        url += `&group=${encodeURIComponent(group)}`;
+        countUrl += `&group=${encodeURIComponent(group)}`;
       }
 
       // Add timestamp parameters
       let localStartTimestamp = Date.parse(start_timestamp) / 1000;
       let localEndTimestamp = Date.parse(end_timestamp) / 1000;
-      url += `&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}`;
+      countUrl += `&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}`;
 
-      const res = await API.get(url);
-      const { success, message, data } = res.data;
+      const countRes = await API.get(countUrl);
+      const { success: countSuccess, message: countMessage, data: countData } = countRes.data;
       
-      if (success && data && data.length > 0) {
+      if (!countSuccess) {
+        showError(countMessage || t('获取数据总数失败'));
+        return;
+      }
+
+      const totalCount = countRes.data.total || 0;
+      
+      if (totalCount === 0) {
+        showError(t('没有数据可以下载'));
+        return;
+      }
+
+      // 显示下载确认信息
+      if (totalCount > 50000) {
+        const confirmed = window.confirm(t('检测到大量数据（{{count}} 条），下载可能需要较长时间，是否继续？', { count: totalCount }));
+        if (!confirmed) {
+          return;
+        }
+      }
+
+      // 第二步：根据数据量决定下载策略
+      let allData = [];
+      
+      if (totalCount <= 100000) {
+        // 小于等于10万条，一次性下载
+        let downloadUrl = `/api/log/token?key=${encodeURIComponent(key)}`;
+        downloadUrl += `&page=1&page_size=${totalCount}`;
+
+        // Add filter parameters
+        if (type > 0) {
+          downloadUrl += `&type=${type}`;
+        }
+        if (model_name) {
+          downloadUrl += `&model_name=${encodeURIComponent(model_name)}`;
+        }
+        if (group) {
+          downloadUrl += `&group=${encodeURIComponent(group)}`;
+        }
+        downloadUrl += `&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}`;
+
+        const res = await API.get(downloadUrl);
+        const { success, message, data } = res.data;
+        
+        if (success && data) {
+          allData = data;
+        } else {
+          showError(message || t('下载数据失败'));
+          return;
+        }
+      } else {
+        // 大于10万条，分批下载
+        const batchSize = 50000; // 每批5万条
+        const totalPages = Math.ceil(totalCount / batchSize);
+        
+        showSuccess(t('数据量较大，将分 {{pages}} 批下载，请稍候...', { pages: totalPages }));
+        
+        for (let page = 1; page <= totalPages; page++) {
+          let batchUrl = `/api/log/token?key=${encodeURIComponent(key)}`;
+          batchUrl += `&page=${page}&page_size=${batchSize}`;
+
+          // Add filter parameters
+          if (type > 0) {
+            batchUrl += `&type=${type}`;
+          }
+          if (model_name) {
+            batchUrl += `&model_name=${encodeURIComponent(model_name)}`;
+          }
+          if (group) {
+            batchUrl += `&group=${encodeURIComponent(group)}`;
+          }
+          batchUrl += `&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}`;
+
+          const batchRes = await API.get(batchUrl);
+          const { success: batchSuccess, message: batchMessage, data: batchData } = batchRes.data;
+          
+          if (batchSuccess && batchData) {
+            allData = allData.concat(batchData);
+            // 显示进度
+            const progress = Math.round((page / totalPages) * 100);
+            console.log(`下载进度: ${progress}% (${page}/${totalPages})`);
+          } else {
+            showError(t('第 {{page}} 批数据下载失败: {{message}}', { page, message: batchMessage }));
+            return;
+          }
+        }
+      }
+
+      if (allData.length > 0) {
         // 转换数据为Excel格式
-        const excelData = data.map((log, index) => ({
-          '序号': index + 1,
-          'ID': log.id,
-          '时间': timestamp2string(log.created_at),
-          '类型': getLogTypeText(log.type),
-          '用户名': log.username || '-',
-          'Token名称': log.token_name || '-',
-          '模型': log.model_name || '-',
-          '配额': renderQuota(log.quota, 6),
-          '提示Token': renderNumber(log.prompt_tokens),
-          '完成Token': renderNumber(log.completion_tokens),
-          '耗时(秒)': log.use_time || 0,
-          '流式': log.is_stream ? '是' : '否',
-          '渠道ID': log.channel_id || '-',
-          '渠道名称': log.channel_name || '-',
-          'TokenID': log.token_id || '-',
-          '分组': log.group || 'default',
-          'IP': log.ip || '-',
-          '其他信息': log.other || '-',
-        }));
+        const excelData = allData.map((log, index) => {
+          const priceAmount = calculatePriceAndAmount(log);
+          return {
+            '序号': index + 1,
+            'ID': log.id,
+            '时间': timestamp2string(log.created_at),
+            '类型': getLogTypeText(log.type),
+            'Token名称': log.token_name || '-',
+            '模型': log.model_name || '-',
+            '配额': renderQuota(log.quota, 6),
+            '提示Token': (log.prompt_tokens || 0).toLocaleString(),
+            '完成Token': (log.completion_tokens || 0).toLocaleString(),
+            '输入价格': `$${priceAmount.inputPrice.toFixed(3)} / 1M`,
+            '输出价格': `$${priceAmount.outputPrice.toFixed(3)} / 1M`,
+            '输入金额': `$${priceAmount.inputAmount.toFixed(6)}`,
+            '输出金额': `$${priceAmount.outputAmount.toFixed(6)}`,
+            '流式': log.is_stream ? '是' : '否',
+            '渠道ID': log.channel_id || '-',
+            'TokenID': log.token_id || '-',
+            'IP': log.ip || '-',
+            '其他信息': log.other || '-',
+          };
+        });
 
         // 创建Excel文件并下载
         downloadExcel(excelData, `财务日志_${timestamp2string(Date.now() / 1000).replace(/[:\s]/g, '_')}.xlsx`);
-        showSuccess(t('下载成功，共导出 {{count}} 条记录', { count: data.length }));
+        showSuccess(t('下载成功，共导出 {{count}} 条记录', { count: allData.length }));
       } else {
-        showError(message || t('没有数据可以下载'));
+        showError(t('没有数据可以下载'));
       }
     } catch (error) {
       console.error('Download logs error:', error);
@@ -426,18 +572,18 @@ export const useFinancialLogsData = () => {
       { wch: 10 }, // ID
       { wch: 20 }, // 时间
       { wch: 8 },  // 类型
-      { wch: 15 }, // 用户名
       { wch: 20 }, // Token名称
       { wch: 15 }, // 模型
       { wch: 12 }, // 配额
-      { wch: 10 }, // 提示Token
-      { wch: 10 }, // 完成Token
-      { wch: 10 }, // 耗时
+      { wch: 12 }, // 提示Token
+      { wch: 12 }, // 完成Token
+      { wch: 18 }, // 输入价格
+      { wch: 18 }, // 输出价格
+      { wch: 15 }, // 输入金额
+      { wch: 15 }, // 输出金额
       { wch: 8 },  // 流式
       { wch: 10 }, // 渠道ID
-      { wch: 15 }, // 渠道名称
       { wch: 10 }, // TokenID
-      { wch: 10 }, // 分组
       { wch: 15 }, // IP
       { wch: 20 }, // 其他信息
     ];
