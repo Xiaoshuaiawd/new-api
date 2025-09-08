@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { Button, Form, Tooltip, Divider, Typography } from '@douyinfe/semi-ui';
-import { IconSearch, IconInfoCircle } from '@douyinfe/semi-icons';
+import { IconSearch, IconInfoCircle, IconDownload } from '@douyinfe/semi-icons';
 
 const { Text } = Typography;
 
@@ -32,6 +32,8 @@ const FinancialLogsFilters = ({
   loading,
   tokenKey,
   setTokenKey,
+  downloadLogs,
+  downloadLoading,
   t,
 }) => {
   return (
@@ -155,6 +157,15 @@ const FinancialLogsFilters = ({
               size='small'
             >
               {t('重置')}
+            </Button>
+            <Button
+              type='secondary'
+              icon={<IconDownload />}
+              onClick={downloadLogs}
+              loading={downloadLoading}
+              size='small'
+            >
+              {t('下载Excel')}
             </Button>
           </div>
 
