@@ -182,11 +182,6 @@ export default function SettingsHeaderNavModules(props) {
       hasSubConfig: true, // 标识该模块有子配置
     },
     {
-      key: 'financial',
-      title: t('财务系统'),
-      description: t('Token日志查询系统'),
-    },
-    {
       key: 'docs',
       title: t('文档'),
       description: t('系统文档和帮助信息'),
@@ -195,6 +190,11 @@ export default function SettingsHeaderNavModules(props) {
       key: 'about',
       title: t('关于'),
       description: t('关于系统的详细信息'),
+    },
+    {
+      key: 'financial',
+      title: t('财务系统'),
+      description: t('财务日志查询与分析系统'),
     },
   ];
 
