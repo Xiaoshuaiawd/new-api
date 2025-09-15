@@ -176,6 +176,12 @@ type GeminiFileData struct {
 	FileUri  string `json:"fileUri,omitempty"`
 }
 
+type GeminiVideoMetadata struct {
+	FPS         float64 `json:"fps,omitempty"`
+	StartOffset float64 `json:"startOffset,omitempty"`
+	EndOffset   float64 `json:"endOffset,omitempty"`
+}
+
 type GeminiPart struct {
 	Text                string                         `json:"text,omitempty"`
 	Thought             bool                           `json:"thought,omitempty"`
@@ -185,6 +191,7 @@ type GeminiPart struct {
 	FileData            *GeminiFileData                `json:"fileData,omitempty"`
 	ExecutableCode      *GeminiPartExecutableCode      `json:"executableCode,omitempty"`
 	CodeExecutionResult *GeminiPartCodeExecutionResult `json:"codeExecutionResult,omitempty"`
+	VideoMetadata       *GeminiVideoMetadata           `json:"videoMetadata,omitempty"`
 }
 
 // UnmarshalJSON custom unmarshaler for GeminiPart to support snake_case and camelCase for InlineData

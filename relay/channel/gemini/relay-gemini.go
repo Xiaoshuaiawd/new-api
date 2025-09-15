@@ -417,6 +417,11 @@ func CovertGemini2OpenAI(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 							MimeType: format,
 							Data:     base64String,
 						},
+						VideoMetadata: &dto.GeminiVideoMetadata{
+							FPS:         textRequest.VideoMetadata.FPS,
+							StartOffset: textRequest.VideoMetadata.StartOffset,
+							EndOffset:   textRequest.VideoMetadata.EndOffset,
+						},
 					})
 				}
 			} else if part.Type == dto.ContentTypeAudioURL {

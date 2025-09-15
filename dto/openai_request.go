@@ -75,6 +75,8 @@ type GeneralOpenAIRequest struct {
 	WebSearch json.RawMessage `json:"web_search,omitempty"`
 	// doubao,zhipu_v4
 	THINKING json.RawMessage `json:"thinking,omitempty"`
+	// video metadata for gemini
+	VideoMetadata *VideoMetadata `json:"video_metadata,omitempty"`
 }
 
 func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
@@ -228,6 +230,12 @@ type FunctionRequest struct {
 
 type StreamOptions struct {
 	IncludeUsage bool `json:"include_usage,omitempty"`
+}
+
+type VideoMetadata struct {
+	FPS         float64 `json:"fps,omitempty"`
+	StartOffset float64 `json:"start_offset,omitempty"`
+	EndOffset   float64 `json:"end_offset,omitempty"`
 }
 
 func (r *GeneralOpenAIRequest) GetMaxTokens() uint {
