@@ -234,8 +234,8 @@ type StreamOptions struct {
 
 type VideoMetadata struct {
 	FPS         float64 `json:"fps,omitempty"`
-	StartOffset float64 `json:"start_offset,omitempty"`
-	EndOffset   float64 `json:"end_offset,omitempty"`
+	StartOffset string  `json:"start_offset,omitempty"`
+	EndOffset   string  `json:"end_offset,omitempty"`
 }
 
 func (r *GeneralOpenAIRequest) GetMaxTokens() uint {
