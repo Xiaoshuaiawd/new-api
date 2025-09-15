@@ -187,8 +187,14 @@ func CovertGemini2OpenAI(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 			TopP:            textRequest.TopP,
 			MaxOutputTokens: textRequest.GetMaxTokens(),
 			Seed:            int64(textRequest.Seed),
-			StopSequences:   textRequest.Stop.([]string),
 		},
+	}
+
+	// 安全处理 Stop 字段
+	if textRequest.Stop != nil {
+		if stopSequences, ok := textRequest.Stop.([]string); ok {
+			geminiRequest.GenerationConfig.StopSequences = stopSequences
+		}
 	}
 
 	if model_setting.IsGeminiModelSupportImagine(info.UpstreamModelName) {
