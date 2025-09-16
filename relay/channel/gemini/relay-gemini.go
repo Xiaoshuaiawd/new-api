@@ -192,7 +192,18 @@ func CovertGemini2OpenAI(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 
 	// 安全处理 Stop 字段
 	if textRequest.Stop != nil {
-		if stopSequences, ok := textRequest.Stop.([]string); ok {
+		switch v := textRequest.Stop.(type) {
+		case string:
+			geminiRequest.GenerationConfig.StopSequences = []string{v}
+		case []string:
+			geminiRequest.GenerationConfig.StopSequences = v
+		case []interface{}:
+			stopSequences := make([]string, 0, len(v))
+			for _, stop := range v {
+				if str, ok := stop.(string); ok {
+					stopSequences = append(stopSequences, str)
+				}
+			}
 			geminiRequest.GenerationConfig.StopSequences = stopSequences
 		}
 	}
