@@ -424,11 +424,6 @@ func CovertGemini2OpenAI(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 							MimeType: format,
 							Data:     base64String,
 						},
-						VideoMetadata: &dto.GeminiVideoMetadata{
-							FPS:         textRequest.VideoMetadata.FPS,
-							StartOffset: textRequest.VideoMetadata.StartOffset,
-							EndOffset:   textRequest.VideoMetadata.EndOffset,
-						},
 					})
 				}
 			} else if part.Type == dto.ContentTypeAudioURL {
@@ -492,6 +487,78 @@ func CovertGemini2OpenAI(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 						Data:     base64String,
 					},
 				})
+			} else if part.Type == dto.ContentTypeVideoUrl {
+				// 处理视频 URL
+				videoUrl := part.GetVideoUrl()
+				if videoUrl == nil || videoUrl.Url == "" {
+					continue
+				}
+
+				// 判断是否是 URL
+				if strings.HasPrefix(videoUrl.Url, "http") {
+					// 是 URL，获取文件的类型和 base64 编码的数据
+					fileData, err := service.GetFileBase64FromUrl(c, videoUrl.Url, "formatting video for Gemini")
+					if err != nil {
+						return nil, fmt.Errorf("get file base64 from url '%s' failed: %w", videoUrl.Url, err)
+					}
+
+					// 校验 MimeType 是否在 Gemini 支持的白名单中
+					if _, ok := geminiSupportedMimeTypes[strings.ToLower(fileData.MimeType)]; !ok {
+						return nil, fmt.Errorf("mime type is not supported by Gemini: '%s', url: '%s', supported types are: %v", fileData.MimeType, videoUrl.Url, getSupportedMimeTypesList())
+					}
+
+					geminiPart := dto.GeminiPart{
+						InlineData: &dto.GeminiInlineData{
+							MimeType: fileData.MimeType,
+							Data:     fileData.Base64Data,
+						},
+					}
+
+					// 只有当 VideoMetadata 存在时才添加
+					if textRequest.VideoMetadata != nil {
+						videoMeta := &dto.GeminiVideoMetadata{
+							StartOffset: textRequest.VideoMetadata.StartOffset,
+							EndOffset:   textRequest.VideoMetadata.EndOffset,
+						}
+						// 当 FPS 不为 1 时才设置 FPS 参数，因为 Gemini API 默认为 1 FPS
+						// 明确设置 FPS = 1 可能导致 API 异常行为
+						if textRequest.VideoMetadata.FPS != 1 {
+							videoMeta.FPS = textRequest.VideoMetadata.FPS
+						}
+						geminiPart.VideoMetadata = videoMeta
+					}
+
+					parts = append(parts, geminiPart)
+				} else {
+					// 处理 base64 编码的视频数据
+					format, base64String, err := service.DecodeBase64FileData(videoUrl.Url)
+					if err != nil {
+						return nil, fmt.Errorf("decode base64 video data failed: %s", err.Error())
+					}
+
+					geminiPart := dto.GeminiPart{
+						InlineData: &dto.GeminiInlineData{
+							MimeType: format,
+							Data:     base64String,
+						},
+					}
+
+					// 只有当 VideoMetadata 存在时才添加
+					if textRequest.VideoMetadata != nil {
+						videoMeta := &dto.GeminiVideoMetadata{
+							StartOffset: textRequest.VideoMetadata.StartOffset,
+							EndOffset:   textRequest.VideoMetadata.EndOffset,
+						}
+						// 当 FPS 不为 1 时才设置 FPS 参数，因为 Gemini API 默认为 1 FPS
+						// 明确设置 FPS = 1 可能导致 API 异常行为
+						if textRequest.VideoMetadata.FPS != 1 {
+							videoMeta.FPS = textRequest.VideoMetadata.FPS
+						}
+						geminiPart.VideoMetadata = videoMeta
+					}
+
+					parts = append(parts, geminiPart)
+				}
 			}
 		}
 
