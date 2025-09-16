@@ -129,7 +129,11 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	case "ImageRatio":
-		err = ratio_setting.UpdateImageRatioByJSONString(option.Value)
+		if value, ok := option.Value.(string); ok {
+			err = ratio_setting.UpdateImageRatioByJSONString(value)
+		} else {
+			err = fmt.Errorf("invalid value type for ImageRatio")
+		}
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
@@ -138,7 +142,11 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	case "AudioRatio":
-		err = ratio_setting.UpdateAudioRatioByJSONString(option.Value)
+		if value, ok := option.Value.(string); ok {
+			err = ratio_setting.UpdateAudioRatioByJSONString(value)
+		} else {
+			err = fmt.Errorf("invalid value type for AudioRatio")
+		}
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
@@ -147,7 +155,11 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	case "AudioCompletionRatio":
-		err = ratio_setting.UpdateAudioCompletionRatioByJSONString(option.Value)
+		if value, ok := option.Value.(string); ok {
+			err = ratio_setting.UpdateAudioCompletionRatioByJSONString(value)
+		} else {
+			err = fmt.Errorf("invalid value type for AudioCompletionRatio")
+		}
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
