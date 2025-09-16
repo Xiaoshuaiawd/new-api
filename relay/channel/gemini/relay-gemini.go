@@ -559,6 +559,36 @@ func CovertGemini2OpenAI(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 
 					parts = append(parts, geminiPart)
 				}
+			} else if part.Type == dto.ContentTypeYoutube {
+				// 处理 YouTube 视频
+				youtube := part.GetYoutube()
+				if youtube == nil || youtube.Url == "" {
+					continue
+				}
+
+				// YouTube URL 需要转换处理
+				geminiPart := dto.GeminiPart{
+					FileData: &dto.GeminiFileData{
+						FileUri:  youtube.Url,
+						MimeType: youtube.MimeType,
+					},
+				}
+
+				// 只有当 VideoMetadata 存在时才添加
+				if textRequest.VideoMetadata != nil {
+					videoMeta := &dto.GeminiVideoMetadata{
+						StartOffset: textRequest.VideoMetadata.StartOffset,
+						EndOffset:   textRequest.VideoMetadata.EndOffset,
+					}
+					// 当 FPS 不为 1 时才设置 FPS 参数，因为 Gemini API 默认为 1 FPS
+					// 明确设置 FPS = 1 可能导致 API 异常行为
+					if textRequest.VideoMetadata.FPS != 1 {
+						videoMeta.FPS = textRequest.VideoMetadata.FPS
+					}
+					geminiPart.VideoMetadata = videoMeta
+				}
+
+				parts = append(parts, geminiPart)
 			}
 		}
 
