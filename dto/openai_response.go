@@ -220,11 +220,13 @@ type Usage struct {
 	TotalTokens          int `json:"total_tokens"`
 	PromptCacheHitTokens int `json:"prompt_cache_hit_tokens,omitempty"`
 
-	PromptTokensDetails    InputTokenDetails  `json:"prompt_tokens_details"`
-	CompletionTokenDetails OutputTokenDetails `json:"completion_tokens_details"`
-	InputTokens            int                `json:"input_tokens"`
-	OutputTokens           int                `json:"output_tokens"`
-	InputTokensDetails     *InputTokenDetails `json:"input_tokens_details"`
+	PromptTokensDetails     InputTokenDetails    `json:"prompt_tokens_details"`
+	CompletionTokenDetails  OutputTokenDetails   `json:"completion_tokens_details"`
+	CacheTokensDetails      []CacheTokensDetails `json:"cache_tokens_details,omitempty"`
+	CachedContentTokenCount int                  `json:"cached_content_token_count,omitempty"`
+	InputTokens             int                  `json:"input_tokens"`
+	OutputTokens            int                  `json:"output_tokens"`
+	InputTokensDetails      *InputTokenDetails   `json:"input_tokens_details"`
 	// OpenRouter Params
 	Cost any `json:"cost,omitempty"`
 }
@@ -241,6 +243,11 @@ type OutputTokenDetails struct {
 	TextTokens      int `json:"text_tokens"`
 	AudioTokens     int `json:"audio_tokens"`
 	ReasoningTokens int `json:"reasoning_tokens"`
+}
+
+type CacheTokensDetails struct {
+	Modality   string `json:"modality"`
+	TokenCount int    `json:"token_count"`
 }
 
 type OpenAIResponsesResponse struct {

@@ -1102,6 +1102,22 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 					usage.PromptTokensDetails.TextTokens = detail.TokenCount
 				}
 			}
+
+			// 添加缓存 token 详情，但不计入配额计费
+			if len(geminiResponse.UsageMetadata.CacheTokensDetails) > 0 {
+				usage.CacheTokensDetails = make([]dto.CacheTokensDetails, len(geminiResponse.UsageMetadata.CacheTokensDetails))
+				for i, detail := range geminiResponse.UsageMetadata.CacheTokensDetails {
+					usage.CacheTokensDetails[i] = dto.CacheTokensDetails{
+						Modality:   detail.Modality,
+						TokenCount: detail.TokenCount,
+					}
+				}
+			}
+
+			// 添加缓存内容 token 总数
+			if geminiResponse.UsageMetadata.CachedContentTokenCount > 0 {
+				usage.CachedContentTokenCount = geminiResponse.UsageMetadata.CachedContentTokenCount
+			}
 		}
 		logger.LogDebug(c, fmt.Sprintf("info.SendResponseCount = %d", info.SendResponseCount))
 		if info.SendResponseCount == 0 {
@@ -1219,6 +1235,22 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		} else if detail.Modality == "TEXT" {
 			usage.PromptTokensDetails.TextTokens = detail.TokenCount
 		}
+	}
+
+	// 添加缓存 token 详情，但不计入配额计费
+	if len(geminiResponse.UsageMetadata.CacheTokensDetails) > 0 {
+		usage.CacheTokensDetails = make([]dto.CacheTokensDetails, len(geminiResponse.UsageMetadata.CacheTokensDetails))
+		for i, detail := range geminiResponse.UsageMetadata.CacheTokensDetails {
+			usage.CacheTokensDetails[i] = dto.CacheTokensDetails{
+				Modality:   detail.Modality,
+				TokenCount: detail.TokenCount,
+			}
+		}
+	}
+
+	// 添加缓存内容 token 总数
+	if geminiResponse.UsageMetadata.CachedContentTokenCount > 0 {
+		usage.CachedContentTokenCount = geminiResponse.UsageMetadata.CachedContentTokenCount
 	}
 
 	fullTextResponse.Usage = usage
