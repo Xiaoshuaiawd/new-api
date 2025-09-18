@@ -9,6 +9,7 @@ import (
 	"one-api/dto"
 	"one-api/logger"
 	"one-api/model"
+	"one-api/service"
 	"one-api/setting"
 	"strconv"
 	"strings"
@@ -442,7 +443,14 @@ func GetSelf(c *gin.Context) {
 	// 获取用户设置并提取sidebar_modules
 	userSetting := user.GetSetting()
 
-	// 构建响应数据，包含用户信息和权限
+	// 获取统一额度信息用于显示
+	quotaDisplayInfo, err := service.GetUserQuotaForDisplay(id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	// 构建响应数据，包含用户信息、权限和统一额度信息
 	responseData := map[string]interface{}{
 		"id":                user.Id,
 		"username":          user.Username,
@@ -451,8 +459,6 @@ func GetSelf(c *gin.Context) {
 		"status":            user.Status,
 		"email":             user.Email,
 		"group":             user.Group,
-		"quota":             user.Quota,
-		"used_quota":        user.UsedQuota,
 		"request_count":     user.RequestCount,
 		"aff_code":          user.AffCode,
 		"aff_count":         user.AffCount,
@@ -463,7 +469,24 @@ func GetSelf(c *gin.Context) {
 		"setting":           user.Setting,
 		"stripe_customer":   user.StripeCustomer,
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
-		"permissions":       permissions,                // 新增权限字段
+		"permissions":       permissions,                // 权限字段
+	}
+
+	// 添加统一额度信息
+	for key, value := range quotaDisplayInfo {
+		responseData[key] = value
+	}
+
+	// 为了向后兼容，继续提供传统的quota和used_quota字段
+	// 但现在这些字段的值来自统一额度系统
+	if quotaInfo, ok := quotaDisplayInfo["quota_type"].(string); ok && quotaInfo == "subscription" {
+		// 如果用户有订阅，quota字段显示总可用额度，used_quota显示总已用额度
+		responseData["quota"] = quotaDisplayInfo["total_quota"]
+		responseData["used_quota"] = quotaDisplayInfo["used_quota"]
+	} else {
+		// 传统额度用户，保持原有逻辑
+		responseData["quota"] = user.Quota
+		responseData["used_quota"] = user.UsedQuota
 	}
 
 	c.JSON(http.StatusOK, gin.H{

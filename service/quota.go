@@ -89,7 +89,9 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	if relayInfo.UsePrice {
 		return nil
 	}
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+
+	// 使用统一额度服务获取用户额度信息
+	quotaInfo, err := GetUserUnifiedQuota(relayInfo.UserId)
 	if err != nil {
 		return err
 	}
@@ -120,7 +122,7 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 		actualGroupRatio = userGroupRatio
 	}
 
-	quotaInfo := QuotaInfo{
+	quotaParams := QuotaInfo{
 		InputDetails: TokenDetails{
 			TextTokens:  textInputTokens,
 			AudioTokens: audioInputTokens,
@@ -135,10 +137,15 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 		GroupRatio: actualGroupRatio,
 	}
 
-	quota := calculateAudioQuota(quotaInfo)
+	quota := calculateAudioQuota(quotaParams)
 
-	if userQuota < quota {
-		return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
+	// 检查用户额度
+	if quotaInfo.AvailableQuota < quota {
+		quotaTypeStr := "传统额度"
+		if quotaInfo.HasSubscription {
+			quotaTypeStr = fmt.Sprintf("套餐额度(%s)", quotaInfo.PackageName)
+		}
+		return fmt.Errorf("用户%s不足, 剩余额度: %s, 需要额度: %s", quotaTypeStr, logger.FormatQuota(quotaInfo.AvailableQuota), logger.FormatQuota(quota))
 	}
 
 	if !token.UnlimitedQuota && token.RemainQuota < quota {
@@ -490,9 +497,24 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 func PostConsumeQuota(relayInfo *relaycommon.RelayInfo, quota int, preConsumedQuota int, sendEmail bool) (err error) {
 
 	if quota > 0 {
-		err = model.DecreaseUserQuota(relayInfo.UserId, quota)
+		// 使用统一额度服务消费用户额度
+		err = ConsumeUserQuota(relayInfo.UserId, quota)
 	} else {
-		err = model.IncreaseUserQuota(relayInfo.UserId, -quota, false)
+		// 返还额度：当quota为负数时，表示需要返还额度给用户
+		// 需要先获取用户额度信息，然后进行相应的额度增加操作
+		quotaInfo, getErr := GetUserUnifiedQuota(relayInfo.UserId)
+		if getErr != nil {
+			return getErr
+		}
+
+		if quotaInfo.HasSubscription {
+			// 如果用户有订阅，这种情况比较复杂，因为订阅额度通常不能简单返还
+			// 暂时使用传统方式处理返还，这可能需要后续优化
+			err = model.IncreaseUserQuota(relayInfo.UserId, -quota, false)
+		} else {
+			// 传统额度用户，使用原有逻辑
+			err = model.IncreaseUserQuota(relayInfo.UserId, -quota, false)
+		}
 	}
 	if err != nil {
 		return err

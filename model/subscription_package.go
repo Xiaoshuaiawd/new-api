@@ -491,3 +491,92 @@ func SubscribeToPackage(userId int, packageId int, duration int) (*UserSubscript
 
 	return subscription, nil
 }
+
+// GetActiveUserSubscription 获取用户当前有效的订阅 (单个)
+func GetActiveUserSubscription(userId int) (*UserSubscription, error) {
+	var subscription UserSubscription
+	now := common.GetTimestamp()
+
+	err := DB.Model(&UserSubscription{}).
+		Preload("Package").
+		Where("user_id = ? AND status = 1 AND start_time <= ? AND end_time > ?", userId, now, now).
+		Order("created_time desc").
+		First(&subscription).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil // 没有找到有效订阅，返回nil而不是错误
+		}
+		return nil, err
+	}
+
+	return &subscription, nil
+}
+
+// CalculateAvailableQuota 计算用户订阅的可用额度
+func CalculateAvailableQuota(subscription *UserSubscription) (int, error) {
+	if subscription.Package == nil {
+		pkg, err := GetSubscriptionPackageById(subscription.PackageId)
+		if err != nil {
+			return 0, err
+		}
+		subscription.Package = pkg
+	}
+
+	now := common.GetTimestamp()
+
+	// 检查订阅是否有效
+	if subscription.Status != 1 || subscription.StartTime > now || subscription.EndTime <= now {
+		return 0, errors.New("订阅无效或已过期")
+	}
+
+	totalAvailable := 0
+
+	// 计算永久额度
+	if subscription.Package.PermanentQuota > 0 {
+		permanentAvailable := subscription.Package.PermanentQuota - subscription.PermanentQuotaUsed
+		if permanentAvailable > 0 {
+			totalAvailable += int(permanentAvailable)
+		}
+	}
+
+	// 计算月额度 (检查是否需要重置)
+	if subscription.Package.MonthlyQuota > 0 {
+		nowTime := time.Unix(now, 0)
+		lastResetTime := time.Unix(subscription.LastMonthlyReset, 0)
+
+		monthlyUsed := subscription.MonthlyQuotaUsed
+		// 如果当前月份不同于上次重置月份，则重置
+		if nowTime.Year() != lastResetTime.Year() || nowTime.Month() != lastResetTime.Month() {
+			monthlyUsed = 0
+		}
+
+		monthlyAvailable := subscription.Package.MonthlyQuota - monthlyUsed
+		if monthlyAvailable > 0 {
+			totalAvailable += int(monthlyAvailable)
+		}
+	}
+
+	// 计算日额度 (检查是否需要重置)
+	if subscription.Package.DailyQuota > 0 {
+		today := time.Unix(now, 0).Truncate(24 * time.Hour).Unix()
+		lastResetDay := time.Unix(subscription.LastDailyReset, 0).Truncate(24 * time.Hour).Unix()
+
+		dailyUsed := subscription.DailyQuotaUsed
+		if today > lastResetDay {
+			dailyUsed = 0
+		}
+
+		dailyAvailable := subscription.Package.DailyQuota - dailyUsed
+		if dailyAvailable > 0 {
+			totalAvailable += int(dailyAvailable)
+		}
+	}
+
+	return totalAvailable, nil
+}
+
+// ConsumeSubscriptionQuota 消费订阅额度的统一接口
+func ConsumeSubscriptionQuota(subscription *UserSubscription, quotaToConsume int) error {
+	return subscription.ConsumeQuota(int64(quotaToConsume))
+}
