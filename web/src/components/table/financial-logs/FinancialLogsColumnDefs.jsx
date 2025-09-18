@@ -66,7 +66,7 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       key: COLUMN_KEYS.TYPE,
       width: 80,
       render: (text, record) => (
-        <Tag color={getTypeColor(record.type)} size="small">
+        <Tag color={getTypeColor(record.type)} size='small'>
           {text}
         </Tag>
       ),
@@ -78,24 +78,23 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       width: 150,
       render: (text) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <div style={{ 
-            maxWidth: '120px', 
-            overflow: 'hidden', 
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}>
-            <Text 
-              style={{ fontSize: '12px' }}
-              ellipsis={{ showTooltip: true }}
-            >
+          <div
+            style={{
+              maxWidth: '120px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <Text style={{ fontSize: '12px' }} ellipsis={{ showTooltip: true }}>
               {text || '-'}
             </Text>
           </div>
           {text && (
             <Button
-              theme="borderless"
-              type="tertiary"
-              size="small"
+              theme='borderless'
+              type='tertiary'
+              size='small'
               icon={<IconCopy />}
               onClick={(e) => copyText(e, text)}
               style={{ minWidth: 'auto', padding: '2px' }}
@@ -111,24 +110,23 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       width: 150,
       render: (text) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <div style={{ 
-            maxWidth: '120px', 
-            overflow: 'hidden', 
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}>
-            <Text 
-              style={{ fontSize: '12px' }}
-              ellipsis={{ showTooltip: true }}
-            >
+          <div
+            style={{
+              maxWidth: '120px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <Text style={{ fontSize: '12px' }} ellipsis={{ showTooltip: true }}>
               {text || '-'}
             </Text>
           </div>
           {text && (
             <Button
-              theme="borderless"
-              type="tertiary"
-              size="small"
+              theme='borderless'
+              type='tertiary'
+              size='small'
               icon={<IconCopy />}
               onClick={(e) => copyText(e, text)}
               style={{ minWidth: 'auto', padding: '2px' }}
@@ -145,10 +143,10 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       align: 'right',
       sorter: (a, b) => a.quota - b.quota,
       render: (text, record) => (
-        <Text 
-          style={{ 
+        <Text
+          style={{
             fontSize: '12px',
-            color: record.quota < 0 ? 'var(--semi-color-danger)' : 'inherit'
+            color: record.quota < 0 ? 'var(--semi-color-danger)' : 'inherit',
           }}
         >
           {text}
@@ -192,9 +190,7 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
         if (!price || price === '-') return '-';
         const numPrice = parseFloat(price);
         return (
-          <Text style={{ fontSize: '12px' }}>
-            ${numPrice.toFixed(3)} / 1M
-          </Text>
+          <Text style={{ fontSize: '12px' }}>${numPrice.toFixed(3)} / 1M</Text>
         );
       },
     },
@@ -209,9 +205,7 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
         if (!price || price === '-') return '-';
         const numPrice = parseFloat(price);
         return (
-          <Text style={{ fontSize: '12px' }}>
-            ${numPrice.toFixed(3)} / 1M
-          </Text>
+          <Text style={{ fontSize: '12px' }}>${numPrice.toFixed(3)} / 1M</Text>
         );
       },
     },
@@ -226,7 +220,9 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
         if (!amount || amount === '-') return '-';
         const numAmount = parseFloat(amount);
         return (
-          <Text style={{ fontSize: '12px', color: 'var(--semi-color-success)' }}>
+          <Text
+            style={{ fontSize: '12px', color: 'var(--semi-color-success)' }}
+          >
             ${numAmount.toFixed(6)}
           </Text>
         );
@@ -243,7 +239,9 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
         if (!amount || amount === '-') return '-';
         const numAmount = parseFloat(amount);
         return (
-          <Text style={{ fontSize: '12px', color: 'var(--semi-color-warning)' }}>
+          <Text
+            style={{ fontSize: '12px', color: 'var(--semi-color-warning)' }}
+          >
             ${numAmount.toFixed(6)}
           </Text>
         );
@@ -256,10 +254,7 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       width: 60,
       align: 'center',
       render: (text, record) => (
-        <Tag 
-          color={record.is_stream ? 'green' : 'grey'} 
-          size="small"
-        >
+        <Tag color={record.is_stream ? 'green' : 'grey'} size='small'>
           {text}
         </Tag>
       ),
@@ -270,11 +265,7 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       key: COLUMN_KEYS.CHANNEL_ID,
       width: 80,
       align: 'center',
-      render: (text) => (
-        <Text style={{ fontSize: '12px' }}>
-          {text || '-'}
-        </Text>
-      ),
+      render: (text) => <Text style={{ fontSize: '12px' }}>{text || '-'}</Text>,
     },
     {
       title: t('TokenID'),
@@ -282,11 +273,7 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       key: COLUMN_KEYS.TOKEN_ID,
       width: 80,
       align: 'center',
-      render: (text) => (
-        <Text style={{ fontSize: '12px' }}>
-          {text || '-'}
-        </Text>
-      ),
+      render: (text) => <Text style={{ fontSize: '12px' }}>{text || '-'}</Text>,
     },
     {
       title: t('IP'),
@@ -295,14 +282,12 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       width: 120,
       render: (text) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Text style={{ fontSize: '12px' }}>
-            {text || '-'}
-          </Text>
+          <Text style={{ fontSize: '12px' }}>{text || '-'}</Text>
           {text && (
             <Button
-              theme="borderless"
-              type="tertiary"
-              size="small"
+              theme='borderless'
+              type='tertiary'
+              size='small'
               icon={<IconCopy />}
               onClick={(e) => copyText(e, text)}
               style={{ minWidth: 'auto', padding: '2px' }}
@@ -317,16 +302,15 @@ export const getFinancialLogsColumns = ({ t, COLUMN_KEYS, copyText }) => {
       key: COLUMN_KEYS.OTHER,
       width: 150,
       render: (text) => (
-        <div style={{ 
-          maxWidth: '130px', 
-          overflow: 'hidden', 
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap'
-        }}>
-          <Text 
-            style={{ fontSize: '12px' }}
-            ellipsis={{ showTooltip: true }}
-          >
+        <div
+          style={{
+            maxWidth: '130px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Text style={{ fontSize: '12px' }} ellipsis={{ showTooltip: true }}>
             {text || '-'}
           </Text>
         </div>

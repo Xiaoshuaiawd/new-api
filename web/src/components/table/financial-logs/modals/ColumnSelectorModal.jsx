@@ -78,11 +78,7 @@ const ColumnSelectorModal = ({
           >
             {t('全选')}
           </Checkbox>
-          <Button
-            type='tertiary'
-            size='small'
-            onClick={initDefaultColumns}
-          >
+          <Button type='tertiary' size='small' onClick={initDefaultColumns}>
             {t('恢复默认')}
           </Button>
         </div>

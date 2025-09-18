@@ -791,3 +791,18 @@ export const resetPricingFilters = ({
   setFilterTag?.(DEFAULT_PRICING_FILTERS.filterTag);
   setCurrentPage?.(DEFAULT_PRICING_FILTERS.currentPage);
 };
+
+// Format quota for display
+export const formatQuota = (quota) => {
+  if (quota >= 1000000) {
+    return `${(quota / 1000000).toFixed(1)}M`;
+  } else if (quota >= 1000) {
+    return `${(quota / 1000).toFixed(1)}K`;
+  }
+  return quota.toString();
+};
+
+// Format timestamp to readable time string
+export const timestampToTime = (timestamp) => {
+  return timestamp2string(timestamp);
+};

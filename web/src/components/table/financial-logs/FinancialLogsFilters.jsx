@@ -56,11 +56,13 @@ const FinancialLogsFilters = ({
               <div className='flex items-center gap-1'>
                 <span>{t('Token密钥')}</span>
                 <Tooltip content={t('请输入要查询的Token密钥，例如：sk-xxx')}>
-                  <IconInfoCircle size="small" />
+                  <IconInfoCircle size='small' />
                 </Tooltip>
               </div>
             }
-            placeholder={t('请输入Token密钥，例如：sk-LYjCRscuufA465EuJCADmweH7OnCnECg9ZzVJ8ZSYjsJ2Gru')}
+            placeholder={t(
+              '请输入Token密钥，例如：sk-LYjCRscuufA465EuJCADmweH7OnCnECg9ZzVJ8ZSYjsJ2Gru',
+            )}
             showClear
             pure
             size='small'
@@ -105,13 +107,13 @@ const FinancialLogsFilters = ({
         </div>
 
         <Divider margin='8px' />
-        
+
         {/* 高级选项 */}
         <div className='space-y-3'>
           <Text type='secondary' size='small' className='block'>
             {t('高级选项')}
           </Text>
-          
+
           <div className='grid grid-cols-1 md:grid-cols-1 gap-4'>
             <Form.Select
               field='type'

@@ -47,6 +47,8 @@ const routerMap = {
   models: '/console/models',
   playground: '/console/playground',
   personal: '/console/personal',
+  subscription: '/console/subscription',
+  'subscription-admin': '/console/subscription/admin',
 };
 
 const SiderBar = ({ onNavigate = () => {} }) => {
@@ -167,6 +169,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('用户管理'),
         itemKey: 'user',
         to: '/user',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('订阅套餐管理'),
+        itemKey: 'subscription',
+        to: '/console/subscription',
         className: isAdmin() ? '' : 'tableHiddle',
       },
       {

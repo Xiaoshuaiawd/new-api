@@ -44,6 +44,7 @@ import Task from './pages/Task';
 import ModelPage from './pages/Model';
 import Playground from './pages/Playground';
 import Financial from './pages/Financial';
+import Subscription from './pages/Subscription';
 import OAuth2Callback from './components/auth/OAuth2Callback';
 import PersonalSetting from './components/settings/PersonalSetting';
 import Setup from './pages/Setup';
@@ -144,6 +145,14 @@ function App() {
           element={
             <AdminRoute>
               <User />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/subscription'
+          element={
+            <AdminRoute>
+              <Subscription />
             </AdminRoute>
           }
         />

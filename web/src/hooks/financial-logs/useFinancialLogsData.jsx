@@ -88,7 +88,6 @@ export const useFinancialLogsData = () => {
   // Compact mode
   const [compactMode, setCompactMode] = useTableCompactMode('financial-logs');
 
-
   // Load saved column preferences from localStorage
   useEffect(() => {
     const savedColumns = localStorage.getItem('financial-logs-table-columns');
@@ -134,7 +133,10 @@ export const useFinancialLogsData = () => {
   const initDefaultColumns = () => {
     const defaults = getDefaultColumnVisibility();
     setVisibleColumns(defaults);
-    localStorage.setItem('financial-logs-table-columns', JSON.stringify(defaults));
+    localStorage.setItem(
+      'financial-logs-table-columns',
+      JSON.stringify(defaults),
+    );
   };
 
   // Handle column visibility change
@@ -158,7 +160,10 @@ export const useFinancialLogsData = () => {
   // Persist column settings
   useEffect(() => {
     if (Object.keys(visibleColumns).length > 0) {
-      localStorage.setItem('financial-logs-table-columns', JSON.stringify(visibleColumns));
+      localStorage.setItem(
+        'financial-logs-table-columns',
+        JSON.stringify(visibleColumns),
+      );
     }
   }, [visibleColumns]);
 
@@ -193,23 +198,23 @@ export const useFinancialLogsData = () => {
     for (let i = 0; i < logs.length; i++) {
       logs[i].timestamp2string = timestamp2string(logs[i].created_at);
       logs[i].key = logs[i].id;
-      
+
       // Format quota display
       logs[i].quota_display = renderQuota(logs[i].quota, 6);
-      
+
       // Format tokens display - use normal integer format
       logs[i].prompt_tokens_display = logs[i].prompt_tokens || 0;
       logs[i].completion_tokens_display = logs[i].completion_tokens || 0;
-      
+
       // Format price and amount from backend data
       logs[i].input_price_display = logs[i].input_price_display || '-';
       logs[i].output_price_display = logs[i].output_price_display || '-';
       logs[i].input_amount_display = logs[i].input_amount_display || '-';
       logs[i].output_amount_display = logs[i].output_amount_display || '-';
-      
+
       // Format stream status
       logs[i].is_stream_display = logs[i].is_stream ? t('是') : t('否');
-      
+
       // Format type
       const typeMap = {
         0: t('全部'),
@@ -229,14 +234,8 @@ export const useFinancialLogsData = () => {
   const loadLogs = async (page = 1, size = pageSize) => {
     setLoading(true);
 
-    const {
-      key,
-      type,
-      model_name,
-      group,
-      start_timestamp,
-      end_timestamp,
-    } = getFormValues();
+    const { key, type, model_name, group, start_timestamp, end_timestamp } =
+      getFormValues();
 
     if (!key || key.trim() === '') {
       showError(t('请输入Token密钥'));
@@ -246,7 +245,7 @@ export const useFinancialLogsData = () => {
 
     try {
       let url = `/api/log/token?key=${encodeURIComponent(key)}`;
-      
+
       // Add pagination parameters
       url += `&page=${page}&page_size=${size}`;
 
@@ -268,7 +267,7 @@ export const useFinancialLogsData = () => {
 
       const res = await API.get(url);
       const { success, message, data } = res.data;
-      
+
       if (success) {
         // Handle regular pagination response
         setActivePage(res.data.page || page);
@@ -321,14 +320,8 @@ export const useFinancialLogsData = () => {
 
   // Download logs function
   const downloadLogs = async () => {
-    const {
-      key,
-      type,
-      model_name,
-      group,
-      start_timestamp,
-      end_timestamp,
-    } = getFormValues();
+    const { key, type, model_name, group, start_timestamp, end_timestamp } =
+      getFormValues();
 
     if (!key || key.trim() === '') {
       showError(t('请输入Token密钥'));
@@ -359,15 +352,19 @@ export const useFinancialLogsData = () => {
       countUrl += `&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}`;
 
       const countRes = await API.get(countUrl);
-      const { success: countSuccess, message: countMessage, data: countData } = countRes.data;
-      
+      const {
+        success: countSuccess,
+        message: countMessage,
+        data: countData,
+      } = countRes.data;
+
       if (!countSuccess) {
         showError(countMessage || t('获取数据总数失败'));
         return;
       }
 
       const totalCount = countRes.data.total || 0;
-      
+
       if (totalCount === 0) {
         showError(t('没有数据可以下载'));
         return;
@@ -375,7 +372,12 @@ export const useFinancialLogsData = () => {
 
       // 显示下载确认信息
       if (totalCount > 50000) {
-        const confirmed = window.confirm(t('检测到大量数据（{{count}} 条），下载可能需要较长时间，是否继续？', { count: totalCount }));
+        const confirmed = window.confirm(
+          t(
+            '检测到大量数据（{{count}} 条），下载可能需要较长时间，是否继续？',
+            { count: totalCount },
+          ),
+        );
         if (!confirmed) {
           return;
         }
@@ -383,7 +385,7 @@ export const useFinancialLogsData = () => {
 
       // 第二步：根据数据量决定下载策略
       let allData = [];
-      
+
       if (totalCount <= 100000) {
         // 小于等于10万条，一次性下载
         let downloadUrl = `/api/log/token?key=${encodeURIComponent(key)}`;
@@ -403,7 +405,7 @@ export const useFinancialLogsData = () => {
 
         const res = await API.get(downloadUrl);
         const { success, message, data } = res.data;
-        
+
         if (success && data) {
           allData = data;
         } else {
@@ -414,9 +416,13 @@ export const useFinancialLogsData = () => {
         // 大于10万条，分批下载
         const batchSize = 50000; // 每批5万条
         const totalPages = Math.ceil(totalCount / batchSize);
-        
-        showSuccess(t('数据量较大，将分 {{pages}} 批下载，请稍候...', { pages: totalPages }));
-        
+
+        showSuccess(
+          t('数据量较大，将分 {{pages}} 批下载，请稍候...', {
+            pages: totalPages,
+          }),
+        );
+
         for (let page = 1; page <= totalPages; page++) {
           let batchUrl = `/api/log/token?key=${encodeURIComponent(key)}`;
           batchUrl += `&page=${page}&page_size=${batchSize}`;
@@ -434,15 +440,24 @@ export const useFinancialLogsData = () => {
           batchUrl += `&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}`;
 
           const batchRes = await API.get(batchUrl);
-          const { success: batchSuccess, message: batchMessage, data: batchData } = batchRes.data;
-          
+          const {
+            success: batchSuccess,
+            message: batchMessage,
+            data: batchData,
+          } = batchRes.data;
+
           if (batchSuccess && batchData) {
             allData = allData.concat(batchData);
             // 显示进度
             const progress = Math.round((page / totalPages) * 100);
             console.log(`下载进度: ${progress}% (${page}/${totalPages})`);
           } else {
-            showError(t('第 {{page}} 批数据下载失败: {{message}}', { page, message: batchMessage }));
+            showError(
+              t('第 {{page}} 批数据下载失败: {{message}}', {
+                page,
+                message: batchMessage,
+              }),
+            );
             return;
           }
         }
@@ -466,97 +481,116 @@ export const useFinancialLogsData = () => {
           totalCompletionTokens += log.completion_tokens || 0;
 
           return {
-            '序号': index + 1,
-            'ID': log.id,
-            '时间': timestamp2string(log.created_at),
-            '类型': getLogTypeText(log.type),
-            'Token名称': log.token_name || '-',
-            '模型': log.model_name || '-',
-            '配额': renderQuota(log.quota, 6),
-            '提示Token': (log.prompt_tokens || 0).toLocaleString(),
-            '完成Token': (log.completion_tokens || 0).toLocaleString(),
-            '输入价格': log.input_price_display && log.input_price_display !== '-' ? `$${parseFloat(log.input_price_display).toFixed(3)} / 1M` : '-',
-            '输出价格': log.output_price_display && log.output_price_display !== '-' ? `$${parseFloat(log.output_price_display).toFixed(3)} / 1M` : '-',
-            '输入金额': log.input_amount_display && log.input_amount_display !== '-' ? `$${parseFloat(log.input_amount_display).toFixed(6)}` : '-',
-            '输出金额': log.output_amount_display && log.output_amount_display !== '-' ? `$${parseFloat(log.output_amount_display).toFixed(6)}` : '-',
-            '流式': log.is_stream ? '是' : '否',
-            '渠道ID': log.channel_id || '-',
-            'TokenID': log.token_id || '-',
-            'IP': log.ip || '-',
-            '其他信息': log.other || '-',
+            序号: index + 1,
+            ID: log.id,
+            时间: timestamp2string(log.created_at),
+            类型: getLogTypeText(log.type),
+            Token名称: log.token_name || '-',
+            模型: log.model_name || '-',
+            配额: renderQuota(log.quota, 6),
+            提示Token: (log.prompt_tokens || 0).toLocaleString(),
+            完成Token: (log.completion_tokens || 0).toLocaleString(),
+            输入价格:
+              log.input_price_display && log.input_price_display !== '-'
+                ? `$${parseFloat(log.input_price_display).toFixed(3)} / 1M`
+                : '-',
+            输出价格:
+              log.output_price_display && log.output_price_display !== '-'
+                ? `$${parseFloat(log.output_price_display).toFixed(3)} / 1M`
+                : '-',
+            输入金额:
+              log.input_amount_display && log.input_amount_display !== '-'
+                ? `$${parseFloat(log.input_amount_display).toFixed(6)}`
+                : '-',
+            输出金额:
+              log.output_amount_display && log.output_amount_display !== '-'
+                ? `$${parseFloat(log.output_amount_display).toFixed(6)}`
+                : '-',
+            流式: log.is_stream ? '是' : '否',
+            渠道ID: log.channel_id || '-',
+            TokenID: log.token_id || '-',
+            IP: log.ip || '-',
+            其他信息: log.other || '-',
           };
         });
 
         // 添加空行
         excelData.push({
-          '序号': '',
-          'ID': '',
-          '时间': '',
-          '类型': '',
-          'Token名称': '',
-          '模型': '',
-          '配额': '',
-          '提示Token': '',
-          '完成Token': '',
-          '输入价格': '',
-          '输出价格': '',
-          '输入金额': '',
-          '输出金额': '',
-          '流式': '',
-          '渠道ID': '',
-          'TokenID': '',
-          'IP': '',
-          '其他信息': '',
+          序号: '',
+          ID: '',
+          时间: '',
+          类型: '',
+          Token名称: '',
+          模型: '',
+          配额: '',
+          提示Token: '',
+          完成Token: '',
+          输入价格: '',
+          输出价格: '',
+          输入金额: '',
+          输出金额: '',
+          流式: '',
+          渠道ID: '',
+          TokenID: '',
+          IP: '',
+          其他信息: '',
         });
 
         // 添加汇总行
         excelData.push({
-          '序号': '',
-          'ID': '',
-          '时间': '',
-          '类型': '',
-          'Token名称': '',
-          '模型': '汇总统计',
-          '配额': '',
-          '提示Token': totalPromptTokens.toLocaleString(),
-          '完成Token': totalCompletionTokens.toLocaleString(),
-          '输入价格': '',
-          '输出价格': '',
-          '输入金额': `$${totalInputAmount.toFixed(6)}`,
-          '输出金额': `$${totalOutputAmount.toFixed(6)}`,
-          '流式': '',
-          '渠道ID': '',
-          'TokenID': '',
-          'IP': '',
-          '其他信息': '',
+          序号: '',
+          ID: '',
+          时间: '',
+          类型: '',
+          Token名称: '',
+          模型: '汇总统计',
+          配额: '',
+          提示Token: totalPromptTokens.toLocaleString(),
+          完成Token: totalCompletionTokens.toLocaleString(),
+          输入价格: '',
+          输出价格: '',
+          输入金额: `$${totalInputAmount.toFixed(6)}`,
+          输出金额: `$${totalOutputAmount.toFixed(6)}`,
+          流式: '',
+          渠道ID: '',
+          TokenID: '',
+          IP: '',
+          其他信息: '',
         });
 
         // 添加总计行
         const totalAmount = totalInputAmount + totalOutputAmount;
         excelData.push({
-          '序号': '',
-          'ID': '',
-          '时间': '',
-          '类型': '',
-          'Token名称': '',
-          '模型': '总计金额',
-          '配额': '',
-          '提示Token': '',
-          '完成Token': '',
-          '输入价格': '',
-          '输出价格': '',
-          '输入金额': '',
-          '输出金额': `$${totalAmount.toFixed(6)}`,
-          '流式': '',
-          '渠道ID': '',
-          'TokenID': '',
-          'IP': '',
-          '其他信息': '',
+          序号: '',
+          ID: '',
+          时间: '',
+          类型: '',
+          Token名称: '',
+          模型: '总计金额',
+          配额: '',
+          提示Token: '',
+          完成Token: '',
+          输入价格: '',
+          输出价格: '',
+          输入金额: '',
+          输出金额: `$${totalAmount.toFixed(6)}`,
+          流式: '',
+          渠道ID: '',
+          TokenID: '',
+          IP: '',
+          其他信息: '',
         });
 
         // 创建Excel文件并下载
-        downloadExcel(excelData, `财务日志_${timestamp2string(Date.now() / 1000).replace(/[:\s]/g, '_')}.xlsx`);
-        showSuccess(t('下载成功，共导出 {{count}} 条记录，包含汇总统计', { count: allData.length }));
+        downloadExcel(
+          excelData,
+          `财务日志_${timestamp2string(Date.now() / 1000).replace(/[:\s]/g, '_')}.xlsx`,
+        );
+        showSuccess(
+          t('下载成功，共导出 {{count}} 条记录，包含汇总统计', {
+            count: allData.length,
+          }),
+        );
       } else {
         showError(t('没有数据可以下载'));
       }
@@ -585,17 +619,17 @@ export const useFinancialLogsData = () => {
   const downloadExcel = (data, filename) => {
     // 创建工作表
     const ws = XLSX.utils.json_to_sheet(data);
-    
+
     // 创建工作簿
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, '财务日志');
-    
+
     // 设置列宽
     const colWidths = [
-      { wch: 6 },  // 序号
+      { wch: 6 }, // 序号
       { wch: 10 }, // ID
       { wch: 20 }, // 时间
-      { wch: 8 },  // 类型
+      { wch: 8 }, // 类型
       { wch: 20 }, // Token名称
       { wch: 15 }, // 模型
       { wch: 12 }, // 配额
@@ -605,14 +639,14 @@ export const useFinancialLogsData = () => {
       { wch: 18 }, // 输出价格
       { wch: 15 }, // 输入金额
       { wch: 15 }, // 输出金额
-      { wch: 8 },  // 流式
+      { wch: 8 }, // 流式
       { wch: 10 }, // 渠道ID
       { wch: 10 }, // TokenID
       { wch: 15 }, // IP
       { wch: 20 }, // 其他信息
     ];
     ws['!cols'] = colWidths;
-    
+
     // 下载文件
     XLSX.writeFile(wb, filename);
   };
