@@ -100,17 +100,30 @@ const TopUp = () => {
       const { success, message, data } = res.data;
       if (success) {
         showSuccess(t('兑换成功！'));
-        Modal.success({
-          title: t('兑换成功！'),
-          content: t('成功兑换额度：') + renderQuota(data),
-          centered: true,
-        });
-        if (userState.user) {
-          const updatedUser = {
-            ...userState.user,
-            quota: userState.user.quota + data,
-          };
-          userDispatch({ type: 'login', payload: updatedUser });
+
+        // 根据兑换类型显示不同的成功信息
+        if (data.type === 'subscription') {
+          Modal.success({
+            title: t('兑换成功！'),
+            content: t('成功激活套餐：') + data.package_name,
+            centered: true,
+          });
+        } else {
+          // 传统额度兑换（向后兼容）
+          const quotaAmount = typeof data === 'object' ? data.quota : data;
+          Modal.success({
+            title: t('兑换成功！'),
+            content: t('成功兑换额度：') + renderQuota(quotaAmount),
+            centered: true,
+          });
+          // 只有传统额度兑换才更新用户额度
+          if (userState.user) {
+            const updatedUser = {
+              ...userState.user,
+              quota: userState.user.quota + quotaAmount,
+            };
+            userDispatch({ type: 'login', payload: updatedUser });
+          }
         }
         setRedemptionCode('');
       } else {
