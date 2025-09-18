@@ -134,27 +134,84 @@ const renderStatistics = (text, record, showEnableDisableModal, t) => {
 // Render separate quota usage column
 const renderQuotaUsage = (text, record, t) => {
   const { Paragraph } = Typography;
-  const used = parseInt(record.used_quota) || 0;
-  const remain = parseInt(record.quota) || 0;
-  const total = used + remain;
-  const percent = total > 0 ? (remain / total) * 100 : 0;
-  const popoverContent = (
-    <div className='text-xs p-2'>
-      <Paragraph copyable={{ content: renderQuota(used) }}>
-        {t('已用额度')}: {renderQuota(used)}
-      </Paragraph>
-      <Paragraph copyable={{ content: renderQuota(remain) }}>
-        {t('剩余额度')}: {renderQuota(remain)} ({percent.toFixed(0)}%)
-      </Paragraph>
-      <Paragraph copyable={{ content: renderQuota(total) }}>
-        {t('总额度')}: {renderQuota(total)}
-      </Paragraph>
-    </div>
-  );
+
+  // 检查用户是否有订阅套餐
+  const hasSubscription = record.has_subscription;
+
+  let used, remain, total, percent;
+  let popoverContent;
+
+  if (hasSubscription) {
+    // 订阅用户：显示总可用额度信息
+    const permanentQuota = parseInt(record.permanent_quota) || 0;
+    const permanentUsed = parseInt(record.permanent_quota_used) || 0;
+    const monthlyQuota = parseInt(record.monthly_quota) || 0;
+    const monthlyUsed = parseInt(record.monthly_quota_used) || 0;
+    const dailyQuota = parseInt(record.daily_quota) || 0;
+    const dailyUsed = parseInt(record.daily_quota_used) || 0;
+
+    // 计算总额度和已用额度
+    total = permanentQuota + monthlyQuota + dailyQuota;
+    used = permanentUsed + monthlyUsed + dailyUsed;
+    remain = total - used;
+    percent = total > 0 ? (remain / total) * 100 : 0;
+
+    popoverContent = (
+      <div className='text-xs p-2'>
+        <div className='mb-2 font-semibold text-blue-600'>
+          📦 {record.package_name || t('套餐用户')}
+        </div>
+        <Paragraph copyable={{ content: renderQuota(permanentQuota - permanentUsed) }}>
+          {t('永久额度')}: {renderQuota(permanentQuota - permanentUsed)} / {renderQuota(permanentQuota)}
+        </Paragraph>
+        <Paragraph copyable={{ content: renderQuota(monthlyQuota - monthlyUsed) }}>
+          {t('月卡额度')}: {renderQuota(monthlyQuota - monthlyUsed)} / {renderQuota(monthlyQuota)}
+        </Paragraph>
+        <Paragraph copyable={{ content: renderQuota(dailyQuota - dailyUsed) }}>
+          {t('每日额度')}: {renderQuota(dailyQuota - dailyUsed)} / {renderQuota(dailyQuota)}
+        </Paragraph>
+        <div className='border-t pt-2 mt-2'>
+          <Paragraph copyable={{ content: renderQuota(used) }}>
+            {t('总已用额度')}: {renderQuota(used)}
+          </Paragraph>
+          <Paragraph copyable={{ content: renderQuota(remain) }}>
+            {t('总剩余额度')}: {renderQuota(remain)} ({percent.toFixed(0)}%)
+          </Paragraph>
+          <Paragraph copyable={{ content: renderQuota(total) }}>
+            {t('总额度')}: {renderQuota(total)}
+          </Paragraph>
+        </div>
+      </div>
+    );
+  } else {
+    // 传统用户：使用原有逻辑
+    used = parseInt(record.used_quota) || 0;
+    remain = parseInt(record.quota) || 0;
+    total = used + remain;
+    percent = total > 0 ? (remain / total) * 100 : 0;
+
+    popoverContent = (
+      <div className='text-xs p-2'>
+        <Paragraph copyable={{ content: renderQuota(used) }}>
+          {t('已用额度')}: {renderQuota(used)}
+        </Paragraph>
+        <Paragraph copyable={{ content: renderQuota(remain) }}>
+          {t('剩余额度')}: {renderQuota(remain)} ({percent.toFixed(0)}%)
+        </Paragraph>
+        <Paragraph copyable={{ content: renderQuota(total) }}>
+          {t('总额度')}: {renderQuota(total)}
+        </Paragraph>
+      </div>
+    );
+  }
+
   return (
     <Popover content={popoverContent} position='top'>
-      <Tag color='white' shape='circle'>
+      <Tag color={hasSubscription ? 'blue' : 'white'} shape='circle'>
         <div className='flex flex-col items-end'>
+          {hasSubscription && (
+            <span className='text-xs leading-none text-blue-600 mb-1'>📦</span>
+          )}
           <span className='text-xs leading-none'>{`${renderQuota(remain)} / ${renderQuota(total)}`}</span>
           <Progress
             percent={percent}
@@ -293,7 +350,7 @@ export const getUsersColumns = ({
         renderStatistics(text, record, showEnableDisableModal, t),
     },
     {
-      title: t('剩余额度/总额度'),
+      title: t('额度使用情况'),
       key: 'quota_usage',
       render: (text, record) => renderQuotaUsage(text, record, t),
     },
