@@ -45,6 +45,16 @@ type User struct {
 	Setting          string         `json:"setting" gorm:"type:text;column:setting"`
 	Remark           string         `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
 	StripeCustomer   string         `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
+
+	// 套餐相关字段（不存储在数据库中，仅用于API响应）
+	HasSubscription      bool   `json:"has_subscription" gorm:"-:all"`
+	PackageName          string `json:"package_name,omitempty" gorm:"-:all"`
+	PermanentQuota       int    `json:"permanent_quota,omitempty" gorm:"-:all"`
+	PermanentQuotaUsed   int    `json:"permanent_quota_used,omitempty" gorm:"-:all"`
+	MonthlyQuota         int    `json:"monthly_quota,omitempty" gorm:"-:all"`
+	MonthlyQuotaUsed     int    `json:"monthly_quota_used,omitempty" gorm:"-:all"`
+	DailyQuota           int    `json:"daily_quota,omitempty" gorm:"-:all"`
+	DailyQuotaUsed       int    `json:"daily_quota_used,omitempty" gorm:"-:all"`
 }
 
 func (user *User) ToBaseUser() *UserBase {
@@ -212,6 +222,15 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 	// Commit transaction
 	if err = tx.Commit().Error; err != nil {
 		return nil, 0, err
+	}
+
+	// 为每个用户添加套餐信息
+	for _, user := range users {
+		err = enrichUserWithSubscriptionInfo(user)
+		if err != nil {
+			// 记录错误但不中断处理
+			common.SysLog(fmt.Sprintf("Error enriching user %d with subscription info: %v", user.Id, err))
+		}
 	}
 
 	return users, total, nil
@@ -914,4 +933,39 @@ func RootUserExists() bool {
 		return false
 	}
 	return true
+}
+
+// enrichUserWithSubscriptionInfo 为用户添加套餐信息
+func enrichUserWithSubscriptionInfo(user *User) error {
+	// 查询用户是否有活跃的订阅
+	var userSubscription UserSubscription
+	err := DB.Where("user_id = ? AND status = 1 AND end_time > ?", user.Id, common.GetTimestamp()).First(&userSubscription).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 用户没有订阅，设置为传统额度用户
+			user.HasSubscription = false
+			return nil
+		}
+		return err
+	}
+
+	// 用户有订阅，获取套餐信息
+	var subscriptionPackage SubscriptionPackage
+	err = DB.Where("id = ?", userSubscription.PackageId).First(&subscriptionPackage).Error
+	if err != nil {
+		return err
+	}
+
+	// 设置套餐相关字段
+	user.HasSubscription = true
+	user.PackageName = subscriptionPackage.Name
+	user.PermanentQuota = int(subscriptionPackage.PermanentQuota)
+	user.PermanentQuotaUsed = int(userSubscription.PermanentQuotaUsed)
+	user.MonthlyQuota = int(subscriptionPackage.MonthlyQuota)
+	user.MonthlyQuotaUsed = int(userSubscription.MonthlyQuotaUsed)
+	user.DailyQuota = int(subscriptionPackage.DailyQuota)
+	user.DailyQuotaUsed = int(userSubscription.DailyQuotaUsed)
+
+	return nil
 }

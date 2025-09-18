@@ -62,9 +62,11 @@ const EditUserModal = (props) => {
   const [addQuotaLocal, setAddQuotaLocal] = useState('');
   const isMobile = useIsMobile();
   const [groupOptions, setGroupOptions] = useState([]);
+  const [userInfo, setUserInfo] = useState(null);
   const formApiRef = useRef(null);
 
   const isEdit = Boolean(userId);
+  const hasSubscription = userInfo?.has_subscription || false;
 
   const getInitValues = () => ({
     username: '',
@@ -98,6 +100,7 @@ const EditUserModal = (props) => {
     const { success, message, data } = res.data;
     if (success) {
       data.password = '';
+      setUserInfo(data);
       formApiRef.current?.setValues({ ...getInitValues(), ...data });
     } else {
       showError(message);
@@ -267,7 +270,7 @@ const EditUserModal = (props) => {
                           {t('权限设置')}
                         </Text>
                         <div className='text-xs text-gray-600'>
-                          {t('用户分组和额度管理')}
+                          {hasSubscription ? t('用户分组和套餐管理') : t('用户分组和额度管理')}
                         </div>
                       </div>
                     </div>
@@ -285,26 +288,68 @@ const EditUserModal = (props) => {
                         />
                       </Col>
 
-                      <Col span={10}>
-                        <Form.InputNumber
-                          field='quota'
-                          label={t('剩余额度')}
-                          placeholder={t('请输入新的剩余额度')}
-                          step={500000}
-                          extraText={renderQuotaWithPrompt(values.quota || 0)}
-                          rules={[{ required: true, message: t('请输入额度') }]}
-                          style={{ width: '100%' }}
-                        />
-                      </Col>
+                      {hasSubscription ? (
+                        // 套餐用户显示套餐信息（只读）
+                        <Col span={24}>
+                          <div className='p-4 bg-blue-50 rounded-lg border border-blue-200'>
+                            <div className='flex items-center mb-3'>
+                              <Tag color='blue' size='large' className='mb-0'>
+                                📦 {userInfo?.package_name || t('套餐用户')}
+                              </Tag>
+                            </div>
 
-                      <Col span={14}>
-                        <Form.Slot label={t('添加额度')}>
-                          <Button
-                            icon={<IconPlus />}
-                            onClick={() => setIsModalOpen(true)}
-                          />
-                        </Form.Slot>
-                      </Col>
+                            <div className='space-y-2 text-sm'>
+                              <div className='flex justify-between'>
+                                <span>{t('永久额度')}:</span>
+                                <span className='font-mono'>
+                                  {renderQuota((userInfo?.permanent_quota || 0) - (userInfo?.permanent_quota_used || 0))} / {renderQuota(userInfo?.permanent_quota || 0)}
+                                </span>
+                              </div>
+                              <div className='flex justify-between'>
+                                <span>{t('月卡额度')}:</span>
+                                <span className='font-mono'>
+                                  {renderQuota((userInfo?.monthly_quota || 0) - (userInfo?.monthly_quota_used || 0))} / {renderQuota(userInfo?.monthly_quota || 0)}
+                                </span>
+                              </div>
+                              <div className='flex justify-between'>
+                                <span>{t('每日额度')}:</span>
+                                <span className='font-mono'>
+                                  {renderQuota((userInfo?.daily_quota || 0) - (userInfo?.daily_quota_used || 0))} / {renderQuota(userInfo?.daily_quota || 0)}
+                                </span>
+                              </div>
+                              <div className='border-t pt-2 mt-2 text-gray-600'>
+                                <div className='text-xs'>
+                                  {t('套餐用户的额度由套餐系统管理，无法在此处直接编辑')}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </Col>
+                      ) : (
+                        // 传统用户显示额度编辑
+                        <>
+                          <Col span={10}>
+                            <Form.InputNumber
+                              field='quota'
+                              label={t('剩余额度')}
+                              placeholder={t('请输入新的剩余额度')}
+                              step={500000}
+                              extraText={renderQuotaWithPrompt(values.quota || 0)}
+                              rules={[{ required: true, message: t('请输入额度') }]}
+                              style={{ width: '100%' }}
+                            />
+                          </Col>
+
+                          <Col span={14}>
+                            <Form.Slot label={t('添加额度')}>
+                              <Button
+                                icon={<IconPlus />}
+                                onClick={() => setIsModalOpen(true)}
+                              />
+                            </Form.Slot>
+                          </Col>
+                        </>
+                      )}
                     </Row>
                   </Card>
                 )}
