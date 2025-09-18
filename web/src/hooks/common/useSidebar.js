@@ -52,6 +52,7 @@ export const useSidebar = () => {
       models: true,
       redemption: true,
       user: true,
+      subscription: true,
       setting: true,
     },
   };

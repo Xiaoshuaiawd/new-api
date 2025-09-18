@@ -235,5 +235,19 @@ func SetApiRouter(router *gin.Engine) {
 			modelsRoute.PUT("/", controller.UpdateModelMeta)
 			modelsRoute.DELETE("/:id", controller.DeleteModelMeta)
 		}
+
+		subscriptionRoute := apiRouter.Group("/subscription")
+		subscriptionRoute.Use(middleware.AdminAuth())
+		{
+			subscriptionRoute.GET("/packages", controller.GetSubscriptionPackages)
+			subscriptionRoute.GET("/packages/:id", controller.GetSubscriptionPackage)
+			subscriptionRoute.POST("/packages", controller.CreateSubscriptionPackage)
+			subscriptionRoute.PUT("/packages", controller.UpdateSubscriptionPackage)
+			subscriptionRoute.DELETE("/packages/:id", controller.DeleteSubscriptionPackage)
+			subscriptionRoute.GET("/users", controller.GetUserSubscriptions)
+			subscriptionRoute.POST("/users", controller.SubscribeToPackage)
+			subscriptionRoute.DELETE("/users/:id", controller.CancelUserSubscription)
+			subscriptionRoute.GET("/stats", controller.GetSubscriptionStats)
+		}
 	}
 }
