@@ -52,9 +52,10 @@ export const useSubscriptionPackagesData = () => {
       const params = new URLSearchParams();
       if (status !== '') params.append('status', status);
 
-      const response = await API.get(
-        `/api/subscription/packages?${params.toString()}`,
-      );
+      const queryString = params.toString();
+      const url = queryString ? `/api/subscription/packages?${queryString}` : '/api/subscription/packages';
+
+      const response = await API.get(url);
 
       if (response.data.success) {
         setPackages(response.data.data || []);
@@ -79,9 +80,10 @@ export const useSubscriptionPackagesData = () => {
       const params = new URLSearchParams();
       if (values.status) params.append('status', values.status);
 
-      const response = await API.get(
-        `/api/subscription/packages?${params.toString()}`,
-      );
+      const queryString = params.toString();
+      const url = queryString ? `/api/subscription/packages?${queryString}` : '/api/subscription/packages';
+
+      const response = await API.get(url);
 
       if (response.data.success) {
         setPackages(response.data.data || []);

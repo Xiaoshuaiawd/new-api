@@ -97,24 +97,49 @@ export const getRedemptionsColumns = ({
       dataIndex: 'name',
     },
     {
+      title: t('兑换类型'),
+      dataIndex: 'redemption_type',
+      render: (text, record) => {
+        if (text === 2) {
+          return (
+            <Tag color='blue' shape='circle'>
+              {t('套餐兑换')}
+            </Tag>
+          );
+        }
+        return (
+          <Tag color='green' shape='circle'>
+            {t('额度兑换')}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: t('内容'),
+      dataIndex: 'content',
+      render: (text, record) => {
+        if (record.redemption_type === 2) {
+          // 套餐兑换码显示套餐ID（可以后续优化为套餐名称）
+          return (
+            <Tag color='orange' shape='circle'>
+              {t('套餐ID')}: {record.subscription_package_id}
+            </Tag>
+          );
+        }
+        // 额度兑换码显示额度
+        return (
+          <Tag color='grey' shape='circle'>
+            {renderQuota(parseInt(record.quota))}
+          </Tag>
+        );
+      },
+    },
+    {
       title: t('状态'),
       dataIndex: 'status',
       key: 'status',
       render: (text, record) => {
         return <div>{renderStatus(text, record, t)}</div>;
-      },
-    },
-    {
-      title: t('额度'),
-      dataIndex: 'quota',
-      render: (text) => {
-        return (
-          <div>
-            <Tag color='grey' shape='circle'>
-              {renderQuota(parseInt(text))}
-            </Tag>
-          </div>
-        );
       },
     },
     {

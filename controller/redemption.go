@@ -89,16 +89,56 @@ func AddRedemption(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+
+	// 验证兑换码类型
+	if redemption.RedemptionType != 1 && redemption.RedemptionType != 2 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "无效的兑换码类型",
+		})
+		return
+	}
+
+	// 如果是套餐兑换码，验证套餐是否存在且有效
+	if redemption.RedemptionType == 2 {
+		if redemption.SubscriptionPackageId <= 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "套餐兑换码必须选择有效的套餐",
+			})
+			return
+		}
+
+		// 验证套餐是否存在且启用
+		subscriptionPackage, err := model.GetSubscriptionPackageById(redemption.SubscriptionPackageId)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "选择的套餐不存在",
+			})
+			return
+		}
+		if subscriptionPackage.Status != 1 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "选择的套餐已被禁用",
+			})
+			return
+		}
+	}
+
 	var keys []string
 	for i := 0; i < redemption.Count; i++ {
 		key := common.GetUUID()
 		cleanRedemption := model.Redemption{
-			UserId:      c.GetInt("id"),
-			Name:        redemption.Name,
-			Key:         key,
-			CreatedTime: common.GetTimestamp(),
-			Quota:       redemption.Quota,
-			ExpiredTime: redemption.ExpiredTime,
+			UserId:                c.GetInt("id"),
+			Name:                  redemption.Name,
+			Key:                   key,
+			CreatedTime:           common.GetTimestamp(),
+			Quota:                 redemption.Quota,
+			RedemptionType:        redemption.RedemptionType,
+			SubscriptionPackageId: redemption.SubscriptionPackageId,
+			ExpiredTime:           redemption.ExpiredTime,
 		}
 		err = cleanRedemption.Insert()
 		if err != nil {
@@ -151,9 +191,49 @@ func UpdateRedemption(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 			return
 		}
+
+		// 验证兑换码类型
+		if redemption.RedemptionType != 1 && redemption.RedemptionType != 2 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "无效的兑换码类型",
+			})
+			return
+		}
+
+		// 如果是套餐兑换码，验证套餐是否存在且有效
+		if redemption.RedemptionType == 2 {
+			if redemption.SubscriptionPackageId <= 0 {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": "套餐兑换码必须选择有效的套餐",
+				})
+				return
+			}
+
+			// 验证套餐是否存在且启用
+			subscriptionPackage, err := model.GetSubscriptionPackageById(redemption.SubscriptionPackageId)
+			if err != nil {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": "选择的套餐不存在",
+				})
+				return
+			}
+			if subscriptionPackage.Status != 1 {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": "选择的套餐已被禁用",
+				})
+				return
+			}
+		}
+
 		// If you add more fields, please also update redemption.Update()
 		cleanRedemption.Name = redemption.Name
 		cleanRedemption.Quota = redemption.Quota
+		cleanRedemption.RedemptionType = redemption.RedemptionType
+		cleanRedemption.SubscriptionPackageId = redemption.SubscriptionPackageId
 		cleanRedemption.ExpiredTime = redemption.ExpiredTime
 	}
 	if statusOnly != "" {

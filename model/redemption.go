@@ -11,18 +11,20 @@ import (
 )
 
 type Redemption struct {
-	Id           int            `json:"id"`
-	UserId       int            `json:"user_id"`
-	Key          string         `json:"key" gorm:"type:char(32);uniqueIndex"`
-	Status       int            `json:"status" gorm:"default:1"`
-	Name         string         `json:"name" gorm:"index"`
-	Quota        int            `json:"quota" gorm:"default:100"`
-	CreatedTime  int64          `json:"created_time" gorm:"bigint"`
-	RedeemedTime int64          `json:"redeemed_time" gorm:"bigint"`
-	Count        int            `json:"count" gorm:"-:all"` // only for api request
-	UsedUserId   int            `json:"used_user_id"`
-	DeletedAt    gorm.DeletedAt `gorm:"index"`
-	ExpiredTime  int64          `json:"expired_time" gorm:"bigint"` // 过期时间，0 表示不过期
+	Id                     int            `json:"id"`
+	UserId                 int            `json:"user_id"`
+	Key                    string         `json:"key" gorm:"type:char(32);uniqueIndex"`
+	Status                 int            `json:"status" gorm:"default:1"`
+	Name                   string         `json:"name" gorm:"index"`
+	Quota                  int            `json:"quota" gorm:"default:100"`
+	RedemptionType         int            `json:"redemption_type" gorm:"default:1"` // 1: 额度, 2: 套餐
+	SubscriptionPackageId  int            `json:"subscription_package_id" gorm:"default:0"` // 套餐ID，仅当type=2时有效
+	CreatedTime            int64          `json:"created_time" gorm:"bigint"`
+	RedeemedTime           int64          `json:"redeemed_time" gorm:"bigint"`
+	Count                  int            `json:"count" gorm:"-:all"` // only for api request
+	UsedUserId             int            `json:"used_user_id"`
+	DeletedAt              gorm.DeletedAt `gorm:"index"`
+	ExpiredTime            int64          `json:"expired_time" gorm:"bigint"` // 过期时间，0 表示不过期
 }
 
 func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
@@ -111,14 +113,15 @@ func GetRedemptionById(id int) (*Redemption, error) {
 	return &redemption, err
 }
 
-func Redeem(key string, userId int) (quota int, err error) {
+func Redeem(key string, userId int) (result map[string]interface{}, err error) {
 	if key == "" {
-		return 0, errors.New("未提供兑换码")
+		return nil, errors.New("未提供兑换码")
 	}
 	if userId == 0 {
-		return 0, errors.New("无效的 user id")
+		return nil, errors.New("无效的 user id")
 	}
 	redemption := &Redemption{}
+	result = make(map[string]interface{})
 
 	keyCol := "`key`"
 	if common.UsingPostgreSQL {
@@ -136,10 +139,58 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if redemption.ExpiredTime != 0 && redemption.ExpiredTime < common.GetTimestamp() {
 			return errors.New("该兑换码已过期")
 		}
-		err = tx.Model(&User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error
-		if err != nil {
-			return err
+
+		// 根据兑换码类型处理不同逻辑
+		if redemption.RedemptionType == 1 { // 额度兑换
+			err = tx.Model(&User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error
+			if err != nil {
+				return err
+			}
+			result["type"] = "quota"
+			result["quota"] = redemption.Quota
+			RecordLog(userId, LogTypeTopup, fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id))
+		} else if redemption.RedemptionType == 2 { // 套餐兑换
+			if redemption.SubscriptionPackageId == 0 {
+				return errors.New("套餐兑换码配置错误")
+			}
+
+			// 获取套餐信息
+			subscriptionPackage := &SubscriptionPackage{}
+			err = tx.Where("id = ? AND status = 1", redemption.SubscriptionPackageId).First(subscriptionPackage).Error
+			if err != nil {
+				return errors.New("套餐不存在或已禁用")
+			}
+
+			// 创建用户订阅
+			userSubscription := &UserSubscription{
+				UserId:              userId,
+				PackageId:           redemption.SubscriptionPackageId,
+				Status:              1, // 激活状态
+				StartTime:           common.GetTimestamp(),
+				EndTime:             common.GetTimestamp() + int64(subscriptionPackage.Duration*24*3600),
+				PermanentQuotaUsed:  0,
+				MonthlyQuotaUsed:    0,
+				DailyQuotaUsed:      0,
+				LastMonthlyReset:    common.GetTimestamp(),
+				LastDailyReset:      common.GetTimestamp(),
+				TotalUsage:          0,
+				CreatedTime:         common.GetTimestamp(),
+				UpdatedTime:         common.GetTimestamp(),
+			}
+
+			err = tx.Create(userSubscription).Error
+			if err != nil {
+				return err
+			}
+
+			result["type"] = "subscription"
+			result["package_name"] = subscriptionPackage.Name
+			result["package_id"] = subscriptionPackage.Id
+			RecordLog(userId, LogTypeTopup, fmt.Sprintf("通过兑换码激活套餐 %s，兑换码ID %d", subscriptionPackage.Name, redemption.Id))
+		} else {
+			return errors.New("无效的兑换码类型")
 		}
+
 		redemption.RedeemedTime = common.GetTimestamp()
 		redemption.Status = common.RedemptionCodeStatusUsed
 		redemption.UsedUserId = userId
@@ -147,10 +198,10 @@ func Redeem(key string, userId int) (quota int, err error) {
 		return err
 	})
 	if err != nil {
-		return 0, errors.New("兑换失败，" + err.Error())
+		return nil, errors.New("兑换失败，" + err.Error())
 	}
-	RecordLog(userId, LogTypeTopup, fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id))
-	return redemption.Quota, nil
+
+	return result, nil
 }
 
 func (redemption *Redemption) Insert() error {
@@ -167,7 +218,7 @@ func (redemption *Redemption) SelectUpdate() error {
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (redemption *Redemption) Update() error {
 	var err error
-	err = DB.Model(redemption).Select("name", "status", "quota", "redeemed_time", "expired_time").Updates(redemption).Error
+	err = DB.Model(redemption).Select("name", "status", "quota", "redemption_type", "subscription_package_id", "redeemed_time", "expired_time").Updates(redemption).Error
 	return err
 }
 
