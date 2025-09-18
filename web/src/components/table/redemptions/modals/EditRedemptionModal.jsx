@@ -48,7 +48,7 @@ import {
   IconSave,
   IconClose,
   IconGift,
-  IconPackage,
+  IconBox,
 } from '@douyinfe/semi-icons';
 
 const { Text, Title } = Typography;
@@ -419,7 +419,7 @@ const EditRedemptionModal = (props) => {
                         color='orange'
                         className='mr-2 shadow-md'
                       >
-                        <IconPackage size={16} />
+                        <IconBox size={16} />
                       </Avatar>
                       <div>
                         <Text className='text-lg font-medium'>
