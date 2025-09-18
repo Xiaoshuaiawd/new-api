@@ -18,7 +18,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 
-	"one-api/common"
 	"one-api/constant"
 	"one-api/dto"
 	"one-api/relay/channel"
@@ -89,26 +88,14 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 // ValidateRequestAndSetAction parses body, validates fields and sets default action.
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
 	// Accept only POST /v1/video/generations as "generate" action.
-	action := constant.TaskActionGenerate
-	info.Action = action
-
-	req := relaycommon.TaskSubmitReq{}
-	if err := common.UnmarshalBodyReusable(c, &req); err != nil {
-		taskErr = service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
-		return
-	}
-	if strings.TrimSpace(req.Prompt) == "" {
-		taskErr = service.TaskErrorWrapperLocal(fmt.Errorf("prompt is required"), "invalid_request", http.StatusBadRequest)
-		return
-	}
-
-	// Store into context for later usage
-	c.Set("task_request", req)
-	return nil
+	return relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate)
 }
 
 // BuildRequestURL constructs the upstream URL.
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if isNewAPIRelay(info.ApiKey) {
+		return fmt.Sprintf("%s/jimeng/?Action=CVSync2AsyncSubmitTask&Version=2022-08-31", a.baseURL), nil
+	}
 	return fmt.Sprintf("%s/?Action=CVSync2AsyncSubmitTask&Version=2022-08-31", a.baseURL), nil
 }
 
@@ -116,7 +103,12 @@ func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, erro
 func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	return a.signRequest(req, a.accessKey, a.secretKey)
+	if isNewAPIRelay(info.ApiKey) {
+		req.Header.Set("Authorization", "Bearer "+info.ApiKey)
+	} else {
+		return a.signRequest(req, a.accessKey, a.secretKey)
+	}
+	return nil
 }
 
 // BuildRequestBody converts request into Jimeng specific format.
@@ -176,6 +168,9 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any) (*http
 	}
 
 	uri := fmt.Sprintf("%s/?Action=CVSync2AsyncGetResult&Version=2022-08-31", baseUrl)
+	if isNewAPIRelay(key) {
+		uri = fmt.Sprintf("%s/jimeng/?Action=CVSync2AsyncGetResult&Version=2022-08-31", a.baseURL)
+	}
 	payload := map[string]string{
 		"req_key": "jimeng_vgfm_t2v_l20", // This is fixed value from doc: https://www.volcengine.com/docs/85621/1544774
 		"task_id": taskID,
@@ -193,17 +188,20 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any) (*http
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 
-	keyParts := strings.Split(key, "|")
-	if len(keyParts) != 2 {
-		return nil, fmt.Errorf("invalid api key format for jimeng: expected 'ak|sk'")
-	}
-	accessKey := strings.TrimSpace(keyParts[0])
-	secretKey := strings.TrimSpace(keyParts[1])
+	if isNewAPIRelay(key) {
+		req.Header.Set("Authorization", "Bearer "+key)
+	} else {
+		keyParts := strings.Split(key, "|")
+		if len(keyParts) != 2 {
+			return nil, fmt.Errorf("invalid api key format for jimeng: expected 'ak|sk'")
+		}
+		accessKey := strings.TrimSpace(keyParts[0])
+		secretKey := strings.TrimSpace(keyParts[1])
 
-	if err := a.signRequest(req, accessKey, secretKey); err != nil {
-		return nil, errors.Wrap(err, "sign request failed")
+		if err := a.signRequest(req, accessKey, secretKey); err != nil {
+			return nil, errors.Wrap(err, "sign request failed")
+		}
 	}
-
 	return service.GetHttpClient().Do(req)
 }
 
@@ -334,11 +332,11 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 	}
 
 	// Handle one-of image_urls or binary_data_base64
-	if req.Image != "" {
-		if strings.HasPrefix(req.Image, "http") {
-			r.ImageUrls = []string{req.Image}
+	if req.HasImage() {
+		if strings.HasPrefix(req.Images[0], "http") {
+			r.ImageUrls = req.Images
 		} else {
-			r.BinaryDataBase64 = []string{req.Image}
+			r.BinaryDataBase64 = req.Images
 		}
 	}
 	metadata := req.Metadata
@@ -377,4 +375,8 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	}
 	taskResult.Url = resTask.Data.VideoUrl
 	return &taskResult, nil
+}
+
+func isNewAPIRelay(apiKey string) bool {
+	return strings.HasPrefix(apiKey, "sk-")
 }
