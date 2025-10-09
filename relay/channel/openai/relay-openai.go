@@ -930,6 +930,8 @@ func buildStreamMESResponseData(responseText string, usage *dto.Usage, responseI
 	}
 
 	return responseData
+}
+
 func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, responseBody []byte) {
 	if info == nil || usage == nil {
 		return
