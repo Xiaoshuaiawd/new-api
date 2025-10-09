@@ -225,9 +225,13 @@ export default function ModelRatioSettings(props) {
         <Row gutter={16}>
           <Col xs={24} sm={16}>
             <Form.TextArea
-              label={t('图片倍率')}
-              extraText={t('图片输入相关的倍率设置，键为模型名称，值为倍率')}
-              placeholder={t('为一个 JSON 文本，键为模型名称，值为倍率，例如：{"gpt-image-1": 2}')}
+              label={t('图片输入倍率（仅部分模型支持该计费）')}
+              extraText={t(
+                '图片输入相关的倍率设置，键为模型名称，值为倍率，仅部分模型支持该计费',
+              )}
+              placeholder={t(
+                '为一个 JSON 文本，键为模型名称，值为倍率，例如：{"gpt-image-1": 2}',
+              )}
               field={'ImageRatio'}
               autosize={{ minRows: 6, maxRows: 12 }}
               trigger='blur'
@@ -238,18 +242,18 @@ export default function ModelRatioSettings(props) {
                   message: '不是合法的 JSON 字符串',
                 },
               ]}
-              onChange={(value) =>
-                setInputs({ ...inputs, ImageRatio: value })
-              }
+              onChange={(value) => setInputs({ ...inputs, ImageRatio: value })}
             />
           </Col>
         </Row>
         <Row gutter={16}>
           <Col xs={24} sm={16}>
             <Form.TextArea
-              label={t('音频倍率')}
+              label={t('音频倍率（仅部分模型支持该计费）')}
               extraText={t('音频输入相关的倍率设置，键为模型名称，值为倍率')}
-              placeholder={t('为一个 JSON 文本，键为模型名称，值为倍率，例如：{"gpt-4o-audio-preview": 16}')}
+              placeholder={t(
+                '为一个 JSON 文本，键为模型名称，值为倍率，例如：{"gpt-4o-audio-preview": 16}',
+              )}
               field={'AudioRatio'}
               autosize={{ minRows: 6, maxRows: 12 }}
               trigger='blur'
@@ -260,18 +264,20 @@ export default function ModelRatioSettings(props) {
                   message: '不是合法的 JSON 字符串',
                 },
               ]}
-              onChange={(value) =>
-                setInputs({ ...inputs, AudioRatio: value })
-              }
+              onChange={(value) => setInputs({ ...inputs, AudioRatio: value })}
             />
           </Col>
         </Row>
         <Row gutter={16}>
           <Col xs={24} sm={16}>
             <Form.TextArea
-              label={t('音频补全倍率')}
-              extraText={t('音频输出补全相关的倍率设置，键为模型名称，值为倍率')}
-              placeholder={t('为一个 JSON 文本，键为模型名称，值为倍率，例如：{"gpt-4o-realtime": 2}')}
+              label={t('音频补全倍率（仅部分模型支持该计费）')}
+              extraText={t(
+                '音频输出补全相关的倍率设置，键为模型名称，值为倍率',
+              )}
+              placeholder={t(
+                '为一个 JSON 文本，键为模型名称，值为倍率，例如：{"gpt-4o-realtime": 2}',
+              )}
               field={'AudioCompletionRatio'}
               autosize={{ minRows: 6, maxRows: 12 }}
               trigger='blur'
