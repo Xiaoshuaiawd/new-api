@@ -194,13 +194,14 @@ type GeminiPart struct {
 	VideoMetadata       *GeminiVideoMetadata           `json:"videoMetadata,omitempty"`
 }
 
-// UnmarshalJSON custom unmarshaler for GeminiPart to support snake_case and camelCase for InlineData
+// UnmarshalJSON custom unmarshaler for GeminiPart to support snake_case and camelCase for InlineData and VideoMetadata
 func (p *GeminiPart) UnmarshalJSON(data []byte) error {
 	// Alias to avoid recursion during unmarshalling
 	type Alias GeminiPart
 	var aux struct {
 		Alias
-		InlineDataSnake *GeminiInlineData `json:"inline_data,omitempty"` // snake_case variant
+		InlineDataSnake    *GeminiInlineData    `json:"inline_data,omitempty"`    // snake_case variant
+		VideoMetadataSnake *GeminiVideoMetadata `json:"video_metadata,omitempty"` // snake_case variant
 	}
 
 	if err := common.Unmarshal(data, &aux); err != nil {
@@ -215,6 +216,13 @@ func (p *GeminiPart) UnmarshalJSON(data []byte) error {
 		p.InlineData = aux.InlineDataSnake
 	} else if aux.InlineData != nil { // Fallback to camelCase from Alias
 		p.InlineData = aux.InlineData
+	}
+
+	// Prioritize snake_case for VideoMetadata if present
+	if aux.VideoMetadataSnake != nil {
+		p.VideoMetadata = aux.VideoMetadataSnake
+	} else if aux.VideoMetadata != nil { // Fallback to camelCase from Alias
+		p.VideoMetadata = aux.VideoMetadata
 	}
 	// Other fields like Text, FunctionCall etc. are already populated via aux.Alias
 

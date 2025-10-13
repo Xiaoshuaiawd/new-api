@@ -22,18 +22,21 @@ type Adaptor struct {
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
 	if len(request.Contents) > 0 {
-		for i, content := range request.Contents {
+		for i := range request.Contents {
 			if i == 0 {
 				if request.Contents[0].Role == "" {
 					request.Contents[0].Role = "user"
 				}
 			}
-			for _, part := range content.Parts {
+			// 使用索引直接修改，而不是使用副本
+			for j := range request.Contents[i].Parts {
+				part := &request.Contents[i].Parts[j]
 				if part.FileData != nil {
 					if part.FileData.MimeType == "" && strings.Contains(part.FileData.FileUri, "www.youtube.com") {
 						part.FileData.MimeType = "video/webm"
 					}
 				}
+				// videoMetadata 已经在结构体中定义，会自动序列化，无需额外处理
 			}
 		}
 	}
