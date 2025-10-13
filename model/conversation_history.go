@@ -3,10 +3,10 @@ package model
 import (
 	"encoding/json"
 	"fmt"
-	"one-api/common"
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
 )
 

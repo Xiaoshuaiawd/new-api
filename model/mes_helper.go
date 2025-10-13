@@ -3,10 +3,10 @@ package model
 import (
 	"encoding/json"
 	"fmt"
-	"one-api/common"
-	"one-api/dto"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/gin-gonic/gin"
 )
 

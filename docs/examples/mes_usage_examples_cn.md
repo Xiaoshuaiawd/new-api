@@ -88,9 +88,10 @@ CREATE DATABASE IF NOT EXISTS `new-api-mes` CHARACTER SET utf8mb4 COLLATE utf8mb
 package main
 
 import (
-    "one-api/model"
-    "github.com/gin-gonic/gin"
     "fmt"
+
+    "github.com/QuantumNous/new-api/model"
+    "github.com/gin-gonic/gin"
 )
 
 func handleChatCompletion(c *gin.Context) {

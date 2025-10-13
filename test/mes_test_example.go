@@ -4,11 +4,11 @@ package test
 
 import (
 	"fmt"
-	"one-api/common"
-	"one-api/model"
 	"os"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 )
 
