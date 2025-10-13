@@ -58,6 +58,11 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		return types.NewErrorWithStatusCode(fmt.Errorf("invalid request type, expected *dto.GeminiChatRequest, got %T", info.Request), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 
+	// 打印接收到的原始请求以便调试
+	if originalJson, err := common.Marshal(geminiReq); err == nil {
+		logger.LogInfo(c, "=== 接收到的原始 Gemini 请求 ===\n"+string(originalJson)+"\n=== 原始请求结束 ===")
+	}
+
 	request, err := common.DeepCopy(geminiReq)
 	if err != nil {
 		return types.NewError(fmt.Errorf("failed to copy request to GeminiChatRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
@@ -134,7 +139,8 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			}
 		}
 
-		logger.LogDebug(c, "Gemini request body: "+string(jsonData))
+		// 强制打印请求体以便调试
+		logger.LogInfo(c, "=== Gemini 上游请求体 ===\n"+string(jsonData)+"\n=== 请求体结束 ===")
 
 		requestBody = bytes.NewReader(jsonData)
 	}
