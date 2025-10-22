@@ -47,13 +47,15 @@ type Log struct {
 	OutputAmountDisplay string `json:"output_amount_display" gorm:"-"`
 }
 
+// don't use iota, avoid change log type value
 const (
-	LogTypeUnknown = iota
-	LogTypeTopup
-	LogTypeConsume
-	LogTypeManage
-	LogTypeSystem
-	LogTypeError
+	LogTypeUnknown = 0
+	LogTypeTopup   = 1
+	LogTypeConsume = 2
+	LogTypeManage  = 3
+	LogTypeSystem  = 4
+	LogTypeError   = 5
+	LogTypeRefund  = 6
 )
 
 // PricingModelData 定义模型价格数据结构

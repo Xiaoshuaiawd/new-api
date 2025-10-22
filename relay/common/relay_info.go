@@ -263,6 +263,7 @@ var streamSupportedChannels = map[int]bool{
 	constant.ChannelTypeDeepSeek:   true,
 	constant.ChannelTypeBaiduV2:    true,
 	constant.ChannelTypeZhipu_v4:   true,
+	constant.ChannelTypeAli:        true,
 }
 
 func GenRelayInfoWs(c *gin.Context, ws *websocket.Conn) *RelayInfo {
@@ -510,6 +511,13 @@ type TaskInfo struct {
 	Progress         string `json:"progress,omitempty"`
 	CompletionTokens int    `json:"completion_tokens,omitempty"` // 用于按倍率计费
 	TotalTokens      int    `json:"total_tokens,omitempty"`      // 用于按倍率计费
+}
+
+func FailTaskInfo(reason string) *TaskInfo {
+	return &TaskInfo{
+		Status: "FAILURE",
+		Reason: reason,
+	}
 }
 
 // RemoveDisabledFields 从请求 JSON 数据中移除渠道设置中禁用的字段
