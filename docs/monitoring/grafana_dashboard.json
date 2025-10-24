@@ -39,12 +39,6 @@
       "id": "table",
       "name": "Table",
       "version": ""
-    },
-    {
-      "type": "panel",
-      "id": "bargauge",
-      "name": "Bar gauge",
-      "version": ""
     }
   ],
   "title": "New API 监控总览",
@@ -66,7 +60,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(app_api_request_total{path=\"/v1/chat/completions\",status=\"200\"}[5m])) / sum(rate(app_api_request_total{path=\"/v1/chat/completions\"}[5m]))",
+          "expr": "sum(increase(app_api_request_total{path=\"/v1/chat/completions\",status=~\"2..\"}[$__interval])) / sum(increase(app_api_request_total{path=\"/v1/chat/completions\"}[$__interval]))",
           "interval": "",
           "legendFormat": "成功率"
         }
@@ -163,7 +157,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(channel_request_total{status=\"success\"}[5m])) by (channel) / sum(rate(channel_request_total[5m])) by (channel)",
+          "expr": "sum(increase(channel_request_total{status=\"success\"}[$__interval])) by (channel) / sum(increase(channel_request_total[$__interval])) by (channel)",
           "legendFormat": "{{channel}}"
         }
       ],
@@ -185,8 +179,8 @@
       }
     },
     {
-      "type": "bargauge",
-      "title": "渠道错误状态码（15分钟）",
+      "type": "table",
+      "title": "渠道错误明细（15分钟）",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -194,16 +188,32 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(channel_error_total[15m])) by (channel, status_code)",
-          "legendFormat": "{{channel}} {{status_code}}"
+          "expr": "sum(increase(channel_error_total[$__interval])) by (channel, channel_id, model, status_code, detail)",
+          "legendFormat": ""
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "decimals": 0
+          "decimals": 0,
+          "custom": {
+            "align": "auto"
+          }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -212,7 +222,22 @@
         "y": 6
       },
       "options": {
-        "displayMode": "gradient"
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "enablePagination": true,
+          "fields": "",
+          "reducer": [
+            "lastNotNull"
+          ]
+        },
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Value"
+          }
+        ]
       }
     },
     {

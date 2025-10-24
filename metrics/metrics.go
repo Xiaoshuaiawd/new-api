@@ -3,9 +3,12 @@ package metrics
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -51,7 +54,7 @@ var (
 			Name: "channel_error_total",
 			Help: "Total number of downstream channel errors grouped by status code and error type.",
 		},
-		[]string{"channel", "status_code", "error_type"},
+		[]string{"channel", "channel_id", "model", "status_code", "error_type", "detail"},
 	)
 
 	// 渠道调用延迟直方图
@@ -111,12 +114,19 @@ func ObserveChannelSuccess(channel string, duration time.Duration) {
 	rollingStoreInstance.add(label, 1, 0)
 }
 
-// ObserveChannelError records metrics for a failed downstream call.
-func ObserveChannelError(channel string, statusCode int, errType string, duration time.Duration) {
+// ObserveChannelError 记录渠道请求失败的次数、耗时及错误详情
+func ObserveChannelError(channel string, channelID int, model string, statusCode int, errType string, detail string, duration time.Duration) {
 	label := normalizeChannelLabel(channel)
 	channelRequestTotal.WithLabelValues(label, "error").Inc()
 	channelLatency.WithLabelValues(label).Observe(duration.Seconds())
-	channelErrorTotal.WithLabelValues(label, strconv.Itoa(statusCode), errType).Inc()
+	channelErrorTotal.WithLabelValues(
+		label,
+		strconv.Itoa(channelID),
+		model,
+		strconv.Itoa(statusCode),
+		errType,
+		sanitizeErrorDetail(detail),
+	).Inc()
 	rollingStoreInstance.add(label, 1, 0)
 }
 
@@ -272,4 +282,19 @@ func (rs *rollingStore) loop() {
 		}
 		rs.mu.Unlock()
 	}
+}
+
+var requestIDPattern = regexp.MustCompile(`\(request id:[^)]+\)`)
+
+func sanitizeErrorDetail(detail string) string {
+	detail = requestIDPattern.ReplaceAllString(detail, "")
+	detail = strings.TrimSpace(detail)
+	if detail == "" {
+		return "unknown"
+	}
+	if utf8.RuneCountInString(detail) > 80 {
+		runes := []rune(detail)
+		detail = string(runes[:80]) + "…"
+	}
+	return detail
 }

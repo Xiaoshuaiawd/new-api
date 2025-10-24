@@ -213,7 +213,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			return
 		}
 		// 下游异常同样计入指标，便于排查重试风暴
-		metrics.ObserveChannelError(channelName, newAPIError.StatusCode, string(newAPIError.GetErrorType()), callDuration)
+		metrics.ObserveChannelError(
+			channelName,
+			channel.Id,
+			relayInfo.OriginModelName,
+			newAPIError.StatusCode,
+			string(newAPIError.GetErrorType()),
+			newAPIError.Error(),
+			callDuration,
+		)
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 

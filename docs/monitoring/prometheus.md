@@ -74,7 +74,7 @@ scrape_configs:
  - 接口成功率（Stat）
  - 聊天补全 P95 延迟（Time series）
  - 渠道成功率（Table）
- - 渠道错误状态码分布（Bar gauge）
+ - 渠道错误明细表（Table）
  - 渠道 RPM / TPM（Time series）
 
 在 Grafana 中导入该 JSON 文件即可生成看板，确认数据源指向上述 Prometheus 实例。
