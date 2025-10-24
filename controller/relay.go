@@ -7,11 +7,13 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/metrics"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay"
@@ -66,11 +68,29 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	requestId := c.GetString(common.RequestIdKey)
 	group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
+	path := c.FullPath()
+	if path == "" {
+		path = c.Request.URL.Path
+	}
+	method := c.Request.Method
+	startTime := time.Now()
 
 	var (
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
 	)
+
+	defer func() {
+		// 统一记录 /v1 入口的请求指标（无论成功与否）
+		status := c.Writer.Status()
+		if newAPIError != nil && newAPIError.StatusCode != 0 {
+			status = newAPIError.StatusCode
+		}
+		if status == 0 {
+			status = http.StatusOK
+		}
+		metrics.ObserveAPIRequest(path, method, status, time.Since(startTime))
+	}()
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
 		var err error
@@ -168,6 +188,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		requestBody, _ := common.GetRequestBody(c)
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 
+		callStart := time.Now()
 		switch relayFormat {
 		case types.RelayFormatOpenAIRealtime:
 			newAPIError = relay.WssHelper(c, relayInfo)
@@ -178,10 +199,21 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		default:
 			newAPIError = relayHandler(c, relayInfo)
 		}
-
+		channelName := channel.Name
+		if channelName == "" {
+			channelName = c.GetString("channel_name")
+			if channelName == "" {
+				channelName = fmt.Sprintf("#%d", channel.Id)
+			}
+		}
+		callDuration := time.Since(callStart)
 		if newAPIError == nil {
+			// 下游调用成功，统计渠道耗时与请求计数
+			metrics.ObserveChannelSuccess(channelName, callDuration)
 			return
 		}
+		// 下游异常同样计入指标，便于排查重试风暴
+		metrics.ObserveChannelError(channelName, newAPIError.StatusCode, string(newAPIError.GetErrorType()), callDuration)
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 

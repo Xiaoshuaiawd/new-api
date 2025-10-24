@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/metrics"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -233,6 +234,12 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
+	totalObservedTokens := usage.TotalTokens
+	if totalObservedTokens == 0 {
+		totalObservedTokens = usage.InputTokens + usage.OutputTokens
+	}
+	// 实时流式接口同样需要统计 Token 指标
+	metrics.ObserveChannelTokens(ctx.GetString("channel_name"), usage.InputTokens, usage.OutputTokens, totalObservedTokens)
 }
 
 func PostClaudeConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage) {
@@ -337,7 +344,12 @@ func PostClaudeConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, 
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
-
+	totalObservedTokens := usage.TotalTokens
+	if totalObservedTokens == 0 {
+		totalObservedTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	// Claude 渠道的 Token 消耗也写入统一指标。
+	metrics.ObserveChannelTokens(ctx.GetString("channel_name"), usage.PromptTokens, usage.CompletionTokens, totalObservedTokens)
 }
 
 func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData) int {
@@ -462,6 +474,12 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
+	totalObservedTokens := usage.TotalTokens
+	if totalObservedTokens == 0 {
+		totalObservedTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	// 音频补全路径的 Token 数据用于频道性能面板。
+	metrics.ObserveChannelTokens(ctx.GetString("channel_name"), usage.PromptTokens, usage.CompletionTokens, totalObservedTokens)
 }
 
 func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {

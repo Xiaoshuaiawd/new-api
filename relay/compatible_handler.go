@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/metrics"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -479,6 +480,14 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
+	promptObserved := usage.PromptTokens
+	completionObserved := usage.CompletionTokens
+	totalObservedTokens := usage.TotalTokens
+	if totalObservedTokens == 0 {
+		totalObservedTokens = promptObserved + completionObserved
+	}
+	// Token 指标用于渠道 TPM 面板展示
+	metrics.ObserveChannelTokens(ctx.GetString("channel_name"), promptObserved, completionObserved, totalObservedTokens)
 }
 
 // saveErrorToMES 保存错误信息到MES数据库
