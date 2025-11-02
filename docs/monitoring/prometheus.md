@@ -13,7 +13,7 @@
 | `channel_request_total` | Counter | `channel`, `status` | 渠道请求次数（成功/失败） |
 | `channel_latency_seconds` | Histogram | `channel` | 渠道请求耗时分布 |
 | `channel_error_total` | Counter | `channel`, `status_code`, `error_type` | 渠道错误统计 |
-| `channel_error_event_total` | Counter | `channel`, `status_code`, `error_type`, `event_time`, `event_id` | 渠道单次错误事件（含发生时间） |
+| `channel_error_event_total` | Counter | `channel`, `status_code`, `error_type`, `event_time`, `event_id` | 渠道单次错误事件（含发生时间，默认使用本地时区，可通过 `CHANNEL_ERROR_EVENT_TZ` 指定） |
 | `channel_tokens_total` | Counter | `channel`, `token_type` | 渠道 Token 消耗（Prompt/Completion/Total） |
 | `channel_rpm` | Gauge | `channel` | 1 分钟窗口请求数（Requests per minute） |
 | `channel_tpm` | Gauge | `channel` | 1 分钟窗口 Token 数（Tokens per minute） |

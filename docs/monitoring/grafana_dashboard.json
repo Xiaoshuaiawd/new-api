@@ -145,7 +145,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "channel_error_event_total",
+          "expr": "increase(channel_error_event_total[$__range])",
           "legendFormat": "",
           "format": "table",
           "instant": true
@@ -230,9 +230,7 @@
             "excludeByName": {
               "Metric": true,
               "__name__": true,
-              "Time": true,
-              "Value": true,
-              "event_id": true
+              "Value": true
             },
             "renameByName": {
               "channel": "渠道名称",

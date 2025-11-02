@@ -2,7 +2,9 @@
 package metrics
 
 import (
+	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -100,7 +102,19 @@ var (
 		},
 		[]string{"channel"},
 	)
+
+	errorEventLocation = time.Local
 )
+
+func init() {
+	if tz := os.Getenv("CHANNEL_ERROR_EVENT_TZ"); tz != "" {
+		if loc, err := time.LoadLocation(tz); err == nil {
+			errorEventLocation = loc
+		} else {
+			log.Printf("metrics: failed to load CHANNEL_ERROR_EVENT_TZ=%s: %v", tz, err)
+		}
+	}
+}
 
 // Handler exposes the Prometheus metrics HTTP handler.
 func Handler() http.Handler {
@@ -147,7 +161,7 @@ func RecordChannelErrorEvent(channel string, channelID int, model string, status
 		strconv.Itoa(statusCode),
 		errType,
 		sanitizeErrorDetail(detail),
-		eventTime.UTC().Format(time.RFC3339Nano),
+		eventTime.In(errorEventLocation).Format(time.RFC3339Nano),
 		eventID,
 	).Inc()
 }
