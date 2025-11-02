@@ -24,12 +24,6 @@
     },
     {
       "type": "panel",
-      "id": "stat",
-      "name": "Stat",
-      "version": ""
-    },
-    {
-      "type": "panel",
       "id": "timeseries",
       "name": "Time series",
       "version": ""
@@ -51,8 +45,8 @@
   "refresh": "30s",
   "panels": [
     {
-      "type": "stat",
-      "title": "聊天补全成功率",
+      "type": "table",
+      "title": "渠道成功率",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -60,122 +54,85 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(app_api_request_total{path=\"/v1/chat/completions\",status=~\"2..\"}[$__interval])) / sum(increase(app_api_request_total{path=\"/v1/chat/completions\"}[$__interval]))",
-          "interval": "",
-          "legendFormat": "成功率"
+          "expr": "sum(increase(channel_request_total{status=\"success\"}[$__range])) by (channel) / clamp_min(sum(increase(channel_request_total[$__range])) by (channel), 1)",
+          "legendFormat": "{{channel}}",
+          "format": "table",
+          "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
-          "decimals": 2,
-          "thresholds": {
-            "mode": "percentage",
-            "steps": [
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "渠道名称"
+            },
+            "properties": [
               {
-                "color": "red",
-                "value": null
-              },
+                "id": "custom.width",
+                "value": 200
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "成功率"
+            },
+            "properties": [
               {
-                "color": "orange",
-                "value": 0.95
-              },
-              {
-                "color": "green",
-                "value": 0.98
+                "id": "custom.width",
+                "value": 120
               }
             ]
           }
-        },
-        "overrides": []
+        ]
       },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "horizontal",
-        "colorMode": "value",
-        "graphMode": "area",
-        "textMode": "value_and_name"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 0,
-        "y": 0
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "聊天补全 P95 延迟",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "targets": [
+      "transformations": [
         {
-          "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(app_api_request_duration_seconds_bucket{path=\"/v1/chat/completions\"}[5m])))",
-          "legendFormat": "P95 延迟"
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Metric": true,
+              "__name__": true
+            },
+            "indexByName": {
+              "channel": 0,
+              "Value": 1
+            },
+            "renameByName": {
+              "channel": "渠道名称",
+              "Value": "成功率"
+            }
+          }
         }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "decimals": 2
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 16,
-        "x": 8,
-        "y": 0
-      },
       "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
+        "showHeader": true,
+        "showTimeColumn": false,
+        "showRowNumbers": false,
+        "showColumnFilters": false,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "enablePagination": false,
+          "countRows": false
         },
-        "tooltip": {
-          "mode": "single"
-        }
-      }
-    },
-    {
-      "type": "table",
-      "title": "渠道成功率（5分钟）",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(increase(channel_request_total{status=\"success\"}[$__interval])) by (channel) / sum(increase(channel_request_total[$__interval])) by (channel)",
-          "legendFormat": "{{channel}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "decimals": 2
+        "search": {
+          "enabled": false
         },
-        "overrides": []
-      },
-      "options": {
-        "showHeader": true
+        "showColumnPicker": false
       },
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 6
+        "y": 0
       }
     },
     {
@@ -188,8 +145,10 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(channel_error_total[$__interval])) by (channel, channel_id, model, status_code, detail)",
-          "legendFormat": ""
+          "expr": "channel_error_event_total",
+          "legendFormat": "",
+          "format": "table",
+          "instant": true
         }
       ],
       "fieldConfig": {
@@ -200,45 +159,102 @@
             "align": "auto"
           }
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Value"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 120
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 6
+        "y": 0
       },
       "options": {
         "showHeader": true,
         "cellHeight": "sm",
         "footer": {
           "countRows": false,
-          "enablePagination": true,
+          "enablePagination": false,
           "fields": "",
           "reducer": [
             "lastNotNull"
-          ]
+          ],
+          "show": false
         },
         "sortBy": [
           {
             "desc": true,
             "displayName": "Value"
           }
-        ]
-      }
+        ],
+        "showColumnFilters": false,
+        "showTimeColumn": false,
+        "showRowNumbers": false,
+        "search": {
+          "enabled": false
+        },
+        "columns": [
+          {
+            "text": "发生时间",
+            "field": "发生时间"
+          },
+          {
+            "text": "渠道名称",
+            "field": "渠道名称"
+          },
+          {
+            "text": "渠道ID",
+            "field": "渠道ID"
+          },
+          {
+            "text": "模型名称",
+            "field": "模型名称"
+          },
+          {
+            "text": "状态码",
+            "field": "状态码"
+          },
+          {
+            "text": "错误信息",
+            "field": "错误信息"
+          },
+          {
+            "text": "错误类型",
+            "field": "错误类型"
+          }
+        ],
+        "showColumnPicker": false
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Metric": true,
+              "__name__": true,
+              "Time": true,
+              "Value": true,
+              "event_id": true
+            },
+            "renameByName": {
+              "channel": "渠道名称",
+              "channel_id": "渠道ID",
+              "model": "模型名称",
+              "status_code": "状态码",
+              "detail": "错误信息",
+              "error_type": "错误类型",
+              "event_time": "发生时间"
+            },
+            "indexByName": {
+              "event_time": 0,
+              "channel": 1,
+              "channel_id": 2,
+              "model": 3,
+              "status_code": 4,
+              "detail": 5,
+              "error_type": 6
+            }
+          }
+        }
+      ]
     },
     {
       "type": "timeseries",
@@ -265,7 +281,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 14
+        "y": 8
       },
       "options": {
         "legend": {
@@ -302,7 +318,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 14
+        "y": 8
       },
       "options": {
         "legend": {

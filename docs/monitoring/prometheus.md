@@ -13,6 +13,7 @@
 | `channel_request_total` | Counter | `channel`, `status` | 渠道请求次数（成功/失败） |
 | `channel_latency_seconds` | Histogram | `channel` | 渠道请求耗时分布 |
 | `channel_error_total` | Counter | `channel`, `status_code`, `error_type` | 渠道错误统计 |
+| `channel_error_event_total` | Counter | `channel`, `status_code`, `error_type`, `event_time`, `event_id` | 渠道单次错误事件（含发生时间） |
 | `channel_tokens_total` | Counter | `channel`, `token_type` | 渠道 Token 消耗（Prompt/Completion/Total） |
 | `channel_rpm` | Gauge | `channel` | 1 分钟窗口请求数（Requests per minute） |
 | `channel_tpm` | Gauge | `channel` | 1 分钟窗口 Token 数（Tokens per minute） |
@@ -38,6 +39,9 @@ channel_request_total{channel="openai",status="error"} 17
 # HELP channel_error_total Total number of downstream channel errors grouped by status code and error type.
 # TYPE channel_error_total counter
 channel_error_total{channel="azure",error_type="upstream_error",status_code="504"} 12
+# HELP channel_error_event_total Individual downstream channel error events with occurrence timestamp.
+# TYPE channel_error_event_total counter
+channel_error_event_total{channel="openai",channel_id="2",detail="无效的令牌",error_type="openai_error",event_id="req-123",event_time="2025-10-29T15:21:03.456789Z",model="gpt-4o-mini",status_code="401"} 1
 # HELP channel_tokens_total Total number of tokens consumed per channel grouped by token type.
 # TYPE channel_tokens_total counter
 channel_tokens_total{channel="openai",token_type="total"} 84533
@@ -71,8 +75,6 @@ scrape_configs:
 
 目录 `docs/monitoring/grafana_dashboard.json` 提供示例仪表盘，包含以下关键可视化：
 
- - 接口成功率（Stat）
- - 聊天补全 P95 延迟（Time series）
  - 渠道成功率（Table）
  - 渠道错误明细表（Table）
  - 渠道 RPM / TPM（Time series）

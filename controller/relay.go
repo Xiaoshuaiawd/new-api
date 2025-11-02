@@ -222,6 +222,16 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError.Error(),
 			callDuration,
 		)
+		metrics.RecordChannelErrorEvent(
+			channelName,
+			channel.Id,
+			relayInfo.OriginModelName,
+			newAPIError.StatusCode,
+			string(newAPIError.GetErrorType()),
+			newAPIError.Error(),
+			requestId,
+			time.Now(),
+		)
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 

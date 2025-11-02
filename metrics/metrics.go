@@ -57,6 +57,14 @@ var (
 		[]string{"channel", "channel_id", "model", "status_code", "error_type", "detail"},
 	)
 
+	channelErrorEventTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "channel_error_event_total",
+			Help: "Individual downstream channel error events with occurrence timestamp.",
+		},
+		[]string{"channel", "channel_id", "model", "status_code", "error_type", "detail", "event_time", "event_id"},
+	)
+
 	// 渠道调用延迟直方图
 	channelLatency = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -128,6 +136,20 @@ func ObserveChannelError(channel string, channelID int, model string, statusCode
 		sanitizeErrorDetail(detail),
 	).Inc()
 	rollingStoreInstance.add(label, 1, 0)
+}
+
+// RecordChannelErrorEvent 单独记录一次错误事件的发生时间
+func RecordChannelErrorEvent(channel string, channelID int, model string, statusCode int, errType string, detail string, eventID string, eventTime time.Time) {
+	channelErrorEventTotal.WithLabelValues(
+		normalizeChannelLabel(channel),
+		strconv.Itoa(channelID),
+		model,
+		strconv.Itoa(statusCode),
+		errType,
+		sanitizeErrorDetail(detail),
+		eventTime.UTC().Format(time.RFC3339Nano),
+		eventID,
+	).Inc()
 }
 
 // ObserveChannelTokens records token consumption for a channel.
