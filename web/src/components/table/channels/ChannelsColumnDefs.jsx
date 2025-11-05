@@ -203,9 +203,10 @@ export const getChannelsColumns = ({
   setEditingTag,
   copySelectedChannel,
   refresh,
-  fetchChannelRPM, // 列操作回调：手动刷新渠道RPM。
   channelRPMs, // 渠道RPM缓存，用于展示。
   channelRPMLoading, // 渠道RPM刷新状态，控制按钮loading。
+  refreshAllChannelRPMs, // 列头刷新所有可见渠道RPM。
+  refreshingAllRPM, // 列头刷新按钮loading状态。
   activePage,
   channels,
   setShowMultiKeyManageModal,
@@ -330,31 +331,34 @@ export const getChannelsColumns = ({
     },
     {
       key: COLUMN_KEYS.RPM,
-      title: t('实时RPM'),
+      title: (
+        <div className='flex items-center gap-2'>
+          <span>{t('实时RPM')}</span>
+          <Tooltip content={t('刷新')}>
+            <Button
+              size='small'
+              icon={<IconRefresh />}
+              theme='borderless'
+              loading={refreshingAllRPM}
+              onClick={(e) => {
+                e.stopPropagation();
+                refreshAllChannelRPMs(); // 列头按钮刷新当前可见渠道全部RPM。
+              }}
+            />
+          </Tooltip>
+        </div>
+      ),
       dataIndex: 'rpm',
       render: (text, record) => {
         if (record.children !== undefined) {
           return '--'; // 标签聚合行不展示实时RPM。
         }
-        const isLoading = channelRPMLoading[record.id];
         const rpmValue = channelRPMs[record.id];
+        const isLoading = channelRPMLoading[record.id];
         return (
-          <Space spacing={2}>
-            <Tag color='white' type='ghost' shape='circle'>
-              {rpmValue !== undefined ? rpmValue : '--'}
-            </Tag>
-            <Button
-              size='small'
-              icon={<IconRefresh />}
-              loading={!!isLoading}
-              onClick={(e) => {
-                e.stopPropagation();
-                fetchChannelRPM(record.id); // 点击后触发实时请求。
-              }}
-            >
-              {t('刷新')}
-            </Button>
-          </Space>
+          <Tag color='white' type='ghost' shape='circle'>
+            {isLoading ? '...' : rpmValue !== undefined ? rpmValue : '--'}
+          </Tag>
         );
       },
     },

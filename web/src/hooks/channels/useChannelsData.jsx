@@ -96,6 +96,7 @@ export const useChannelsData = () => {
   // Channel realtime metrics
   const [channelRPMs, setChannelRPMs] = useState({}); // 缓存每个渠道的最近一次RPM，减少重复请求。
   const [channelRPMLoading, setChannelRPMLoading] = useState({}); // 记录刷新状态，驱动按钮loading效果。
+  const [refreshingAllRPM, setRefreshingAllRPM] = useState(false); // 控制列头刷新按钮的loading。
 
   // Refs
   const requestCounter = useRef(0);
@@ -200,20 +201,7 @@ export const useChannelsData = () => {
 
   useEffect(() => {
     // 渠道列表变动时清理已删除渠道的RPM信息，避免残留脏数据。
-    const collectIds = (list) => {
-      const ids = [];
-      list.forEach((channel) => {
-        if (channel.children !== undefined) {
-          channel.children.forEach((child) => {
-            ids.push(child.id);
-          });
-        } else {
-          ids.push(channel.id);
-        }
-      });
-      return ids;
-    };
-    const validIds = new Set(collectIds(channels));
+    const validIds = new Set(collectChannelIds(channels));
     setChannelRPMs((prev) => {
       const next = {};
       validIds.forEach((id) => {
@@ -521,6 +509,35 @@ export const useChannelsData = () => {
       // 全局错误处理会处理提示
     } finally {
       setChannelRPMLoading((prev) => ({ ...prev, [channelId]: false }));
+    }
+  };
+
+  const collectChannelIds = (list) => {
+    // 收集当前展示的渠道ID列表，包含标签模式下的子节点。
+    const ids = [];
+    list.forEach((channel) => {
+      if (channel.children !== undefined) {
+        channel.children.forEach((child) => {
+          ids.push(child.id);
+        });
+      } else {
+        ids.push(channel.id);
+      }
+    });
+    return ids;
+  };
+
+  const refreshAllChannelRPMs = async () => {
+    // 列头刷新按钮触发，批量刷新当前列表中所有渠道的RPM。
+    const ids = collectChannelIds(channels);
+    if (ids.length === 0) {
+      return;
+    }
+    setRefreshingAllRPM(true);
+    try {
+      await Promise.all(ids.map((id) => fetchChannelRPM(id)));
+    } finally {
+      setRefreshingAllRPM(false);
     }
   };
 
@@ -1097,6 +1114,7 @@ export const useChannelsData = () => {
     compactMode,
     channelRPMs,
     channelRPMLoading,
+    refreshingAllRPM,
 
     // UI states
     showEdit,
@@ -1165,6 +1183,7 @@ export const useChannelsData = () => {
     searchChannels,
     refresh,
     fetchChannelRPM,
+    refreshAllChannelRPMs,
     manageChannel,
     manageTag,
     handlePageChange,

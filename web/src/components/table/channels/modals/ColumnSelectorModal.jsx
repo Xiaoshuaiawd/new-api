@@ -46,9 +46,10 @@ const ColumnSelectorModal = ({
   refresh,
   activePage,
   channels,
-  fetchChannelRPM, // 实时RPM刷新方法，传递给列定义以支持按钮点击。
   channelRPMs, // 实时RPM缓存，列定义中直接读取。
   channelRPMLoading, // 实时RPM加载状态，控制按钮loading。
+  refreshAllChannelRPMs, // 列头刷新所有渠道RPM。
+  refreshingAllRPM, // 列头刷新按钮loading。
   setShowMultiKeyManageModal,
   setCurrentMultiKeyChannel,
 }) => {
@@ -71,9 +72,10 @@ const ColumnSelectorModal = ({
     refresh,
     activePage,
     channels,
-    fetchChannelRPM,
     channelRPMs,
     channelRPMLoading,
+    refreshAllChannelRPMs,
+    refreshingAllRPM,
     setShowMultiKeyManageModal,
     setCurrentMultiKeyChannel,
   });
