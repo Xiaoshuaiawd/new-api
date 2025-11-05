@@ -366,6 +366,17 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	return stat
 }
 
+// GetChannelRealtimeMetrics 返回指定渠道最近60秒内的调用统计（RPM、TPM），用于前端手动刷新实时数据。
+func GetChannelRealtimeMetrics(channelID int) (Stat, error) {
+	stat := Stat{}
+	err := LOG_DB.
+		Table("logs").
+		Select("count(*) as rpm, COALESCE(sum(prompt_tokens) + sum(completion_tokens), 0) as tpm").
+		Where("channel_id = ? AND type = ? AND created_at >= ?", channelID, LogTypeConsume, time.Now().Add(-60*time.Second).Unix()).
+		Scan(&stat).Error
+	return stat, err
+}
+
 func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string) (token int) {
 	tx := LOG_DB.Table("logs").Select("ifnull(sum(prompt_tokens),0) + ifnull(sum(completion_tokens),0)")
 	if username != "" {

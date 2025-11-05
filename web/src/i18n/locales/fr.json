@@ -783,6 +783,7 @@
     "常见问答管理，为用户提供常见问题的答案（最多50个，前端显示最新20条）": "Gestion de la FAQ, fournissant des réponses aux questions courantes des utilisateurs (maximum 50, afficher les 20 dernières sur le front-end)",
     "平台": "plateforme",
     "平均RPM": "RPM moyen",
+    "实时RPM": "RPM en temps réel",
     "平均TPM": "TPM moyen",
     "平移": "Panoramique",
     "应用同步": "Appliquer la synchronisation",

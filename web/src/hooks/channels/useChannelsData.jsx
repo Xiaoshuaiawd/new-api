@@ -93,6 +93,10 @@ export const useChannelsData = () => {
   const [showMultiKeyManageModal, setShowMultiKeyManageModal] = useState(false);
   const [currentMultiKeyChannel, setCurrentMultiKeyChannel] = useState(null);
 
+  // Channel realtime metrics
+  const [channelRPMs, setChannelRPMs] = useState({}); // 缓存每个渠道的最近一次RPM，减少重复请求。
+  const [channelRPMLoading, setChannelRPMLoading] = useState({}); // 记录刷新状态，驱动按钮loading效果。
+
   // Refs
   const requestCounter = useRef(0);
   const allSelectingRef = useRef(false);
@@ -112,6 +116,7 @@ export const useChannelsData = () => {
     TYPE: 'type',
     STATUS: 'status',
     RESPONSE_TIME: 'response_time',
+    RPM: 'rpm', // 新增实时RPM列标识，便于统一管理列显示。
     BALANCE: 'balance',
     PRIORITY: 'priority',
     WEIGHT: 'weight',
@@ -151,6 +156,8 @@ export const useChannelsData = () => {
       [COLUMN_KEYS.TYPE]: true,
       [COLUMN_KEYS.STATUS]: true,
       [COLUMN_KEYS.RESPONSE_TIME]: true,
+      // 默认展示实时RPM列，保持与新增功能一致。
+      [COLUMN_KEYS.RPM]: true,
       [COLUMN_KEYS.BALANCE]: true,
       [COLUMN_KEYS.PRIORITY]: true,
       [COLUMN_KEYS.WEIGHT]: true,
@@ -190,6 +197,42 @@ export const useChannelsData = () => {
       );
     }
   }, [visibleColumns]);
+
+  useEffect(() => {
+    // 渠道列表变动时清理已删除渠道的RPM信息，避免残留脏数据。
+    const collectIds = (list) => {
+      const ids = [];
+      list.forEach((channel) => {
+        if (channel.children !== undefined) {
+          channel.children.forEach((child) => {
+            ids.push(child.id);
+          });
+        } else {
+          ids.push(channel.id);
+        }
+      });
+      return ids;
+    };
+    const validIds = new Set(collectIds(channels));
+    setChannelRPMs((prev) => {
+      const next = {};
+      validIds.forEach((id) => {
+        if (prev[id] !== undefined) {
+          next[id] = prev[id];
+        }
+      });
+      return next;
+    });
+    setChannelRPMLoading((prev) => {
+      const next = {};
+      validIds.forEach((id) => {
+        if (prev[id] !== undefined) {
+          next[id] = prev[id];
+        }
+      });
+      return next;
+    });
+  }, [channels]);
 
   const handleColumnVisibilityChange = (columnKey, checked) => {
     const updatedColumns = { ...visibleColumns, [columnKey]: checked };
@@ -452,6 +495,32 @@ export const useChannelsData = () => {
       setChannels(newChannels);
     } else {
       showError(message);
+    }
+  };
+
+  const fetchChannelRPM = async (channelId) => {
+    // 手动触发指定渠道的实时RPM查询。
+    if (!channelId) {
+      return;
+    }
+    setChannelRPMLoading((prev) => ({ ...prev, [channelId]: true }));
+    try {
+      const res = await API.get(`/api/channel/${channelId}/rpm`, {
+        disableDuplicate: true,
+      });
+      const { success, message, data } = res.data;
+      if (success) {
+        setChannelRPMs((prev) => ({
+          ...prev,
+          [channelId]: data?.rpm ?? 0,
+        }));
+      } else {
+        showError(message);
+      }
+    } catch (error) {
+      // 全局错误处理会处理提示
+    } finally {
+      setChannelRPMLoading((prev) => ({ ...prev, [channelId]: false }));
     }
   };
 
@@ -1026,6 +1095,8 @@ export const useChannelsData = () => {
     enableBatchDelete,
     statusFilter,
     compactMode,
+    channelRPMs,
+    channelRPMLoading,
 
     // UI states
     showEdit,
@@ -1093,6 +1164,7 @@ export const useChannelsData = () => {
     loadChannels,
     searchChannels,
     refresh,
+    fetchChannelRPM,
     manageChannel,
     manageTag,
     handlePageChange,

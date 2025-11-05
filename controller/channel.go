@@ -165,6 +165,29 @@ func GetAllChannels(c *gin.Context) {
 	return
 }
 
+func GetChannelRealtimeStats(c *gin.Context) {
+	channelID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || channelID <= 0 {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "invalid channel id"})
+		return
+	}
+	// 查询模型层实时调用统计，供前端刷新展示。
+	stat, statErr := model.GetChannelRealtimeMetrics(channelID)
+	if statErr != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": statErr.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"channel_id": channelID,
+			"rpm":        stat.Rpm,
+			"tpm":        stat.Tpm,
+		},
+	})
+}
+
 func FetchUpstreamModels(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {

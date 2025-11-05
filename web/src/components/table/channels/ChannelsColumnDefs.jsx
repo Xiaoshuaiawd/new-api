@@ -39,7 +39,7 @@ import {
   showError,
 } from '../../../helpers';
 import { CHANNEL_OPTIONS } from '../../../constants';
-import { IconTreeTriangleDown, IconMore } from '@douyinfe/semi-icons';
+import { IconTreeTriangleDown, IconMore, IconRefresh } from '@douyinfe/semi-icons';
 import { FaRandom } from 'react-icons/fa';
 
 // Render functions
@@ -203,6 +203,9 @@ export const getChannelsColumns = ({
   setEditingTag,
   copySelectedChannel,
   refresh,
+  fetchChannelRPM, // 列操作回调：手动刷新渠道RPM。
+  channelRPMs, // 渠道RPM缓存，用于展示。
+  channelRPMLoading, // 渠道RPM刷新状态，控制按钮loading。
   activePage,
   channels,
   setShowMultiKeyManageModal,
@@ -324,6 +327,36 @@ export const getChannelsColumns = ({
       title: t('响应时间'),
       dataIndex: 'response_time',
       render: (text, record, index) => <div>{renderResponseTime(text, t)}</div>,
+    },
+    {
+      key: COLUMN_KEYS.RPM,
+      title: t('实时RPM'),
+      dataIndex: 'rpm',
+      render: (text, record) => {
+        if (record.children !== undefined) {
+          return '--'; // 标签聚合行不展示实时RPM。
+        }
+        const isLoading = channelRPMLoading[record.id];
+        const rpmValue = channelRPMs[record.id];
+        return (
+          <Space spacing={2}>
+            <Tag color='white' type='ghost' shape='circle'>
+              {rpmValue !== undefined ? rpmValue : '--'}
+            </Tag>
+            <Button
+              size='small'
+              icon={<IconRefresh />}
+              loading={!!isLoading}
+              onClick={(e) => {
+                e.stopPropagation();
+                fetchChannelRPM(record.id); // 点击后触发实时请求。
+              }}
+            >
+              {t('刷新')}
+            </Button>
+          </Space>
+        );
+      },
     },
     {
       key: COLUMN_KEYS.BALANCE,

@@ -57,6 +57,9 @@ const ChannelsTable = (channelsData) => {
     setEditingTag,
     copySelectedChannel,
     refresh,
+    fetchChannelRPM, // 新增手动刷新渠道RPM的方法。
+    channelRPMs, // 渠道RPM缓存数据。
+    channelRPMLoading, // 渠道RPM刷新状态。
     // Multi-key management
     setShowMultiKeyManageModal,
     setCurrentMultiKeyChannel,
@@ -80,6 +83,9 @@ const ChannelsTable = (channelsData) => {
       setEditingTag,
       copySelectedChannel,
       refresh,
+      fetchChannelRPM,
+      channelRPMs,
+      channelRPMLoading,
       activePage,
       channels,
       setShowMultiKeyManageModal,
@@ -101,6 +107,9 @@ const ChannelsTable = (channelsData) => {
     setEditingTag,
     copySelectedChannel,
     refresh,
+    fetchChannelRPM,
+    channelRPMs,
+    channelRPMLoading,
     activePage,
     channels,
     setShowMultiKeyManageModal,
