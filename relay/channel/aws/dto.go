@@ -1,15 +1,18 @@
 package aws
 
 import (
+	"encoding/json"
 	"io"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/gin-gonic/gin"
 )
 
 type AwsClaudeRequest struct {
 	// AnthropicVersion should be "bedrock-2023-05-31"
 	AnthropicVersion string              `json:"anthropic_version"`
+	AnthropicBeta    []string            `json:"anthropic_beta,omitempty"`
 	System           any                 `json:"system,omitempty"`
 	Messages         []dto.ClaudeMessage `json:"messages"`
 	MaxTokens        uint                `json:"max_tokens,omitempty"`
@@ -38,13 +41,32 @@ func copyRequest(req *dto.ClaudeRequest) *AwsClaudeRequest {
 	}
 }
 
-func formatRequest(requestBody io.Reader) (*AwsClaudeRequest, error) {
+func formatRequest(requestBody io.Reader, c *gin.Context) (*AwsClaudeRequest, error) {
 	var awsClaudeRequest AwsClaudeRequest
 	err := common.DecodeJson(requestBody, &awsClaudeRequest)
 	if err != nil {
 		return nil, err
 	}
+
+	// 设置默认值
 	awsClaudeRequest.AnthropicVersion = "bedrock-2023-05-31"
+
+	// 如果有传入 Context，则处理 header
+	if c != nil {
+		// 处理 anthropic-version header
+		if version := c.Request.Header.Get("anthropic-version"); version != "" {
+			awsClaudeRequest.AnthropicVersion = version
+		}
+
+		// 处理 anthropic-beta header
+		if anthropicBeta := c.Request.Header.Get("anthropic-beta"); anthropicBeta != "" {
+			var betaFeatures []string
+			// 忽略 unmarshal 错误
+			_ = json.Unmarshal([]byte(anthropicBeta), &betaFeatures)
+			awsClaudeRequest.AnthropicBeta = betaFeatures
+		}
+	}
+
 	return &awsClaudeRequest, nil
 }
 
