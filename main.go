@@ -139,8 +139,27 @@ func main() {
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())
 	middleware.SetUpLogger(server)
-	// Initialize session store
-	store := cookie.NewStore([]byte(common.SessionSecret))
+	// Initialize session store with optional SITE_ID isolation
+	var (
+		store       sessions.Store
+		sessionName string
+	)
+
+	siteId := os.Getenv("SITE_ID")
+	if siteId == "" {
+		siteId = "default"
+	}
+
+	sessionName = fmt.Sprintf("session_%s", siteId)
+
+	siteSessionSecret := common.SessionSecret + "_" + siteId
+	store = cookie.NewStore([]byte(siteSessionSecret))
+
+	if common.RedisEnabled {
+		common.SysLog(fmt.Sprintf("Using cookie session store with site ID: %s (Redis available)", siteId))
+	} else {
+		common.SysLog(fmt.Sprintf("Using cookie session store with site ID: %s", siteId))
+	}
 	store.Options(sessions.Options{
 		Path:     "/",
 		MaxAge:   2592000, // 30 days
@@ -148,7 +167,7 @@ func main() {
 		Secure:   false,
 		SameSite: http.SameSiteStrictMode,
 	})
-	server.Use(sessions.Sessions("session", store))
+	server.Use(sessions.Sessions(sessionName, store))
 
 	InjectUmamiAnalytics()
 	InjectGoogleAnalytics()
