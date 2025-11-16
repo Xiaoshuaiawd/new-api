@@ -15,6 +15,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
 
 var commonGroupCol string
@@ -24,6 +25,54 @@ var commonFalseVal string
 
 var logKeyCol string
 var logGroupCol string
+
+type dialectorOptions struct {
+	isLog         bool
+	updateGlobals bool
+}
+
+func buildDialectorFromDSN(dsn string, opts dialectorOptions) (gorm.Dialector, string, error) {
+	switch {
+	case strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://"):
+		if opts.updateGlobals {
+			if opts.isLog {
+				common.LogSqlType = common.DatabaseTypePostgreSQL
+			} else {
+				common.UsingPostgreSQL = true
+			}
+		}
+		return postgres.New(postgres.Config{
+			DSN:                  dsn,
+			PreferSimpleProtocol: true,
+		}), common.DatabaseTypePostgreSQL, nil
+	case strings.HasPrefix(dsn, "local"):
+		if opts.updateGlobals {
+			if opts.isLog {
+				common.LogSqlType = common.DatabaseTypeSQLite
+			} else {
+				common.UsingSQLite = true
+			}
+		}
+		return sqlite.Open(common.SQLitePath), common.DatabaseTypeSQLite, nil
+	default:
+		dsnVal := dsn
+		if !strings.Contains(dsnVal, "parseTime") {
+			if strings.Contains(dsnVal, "?") {
+				dsnVal += "&parseTime=true"
+			} else {
+				dsnVal += "?parseTime=true"
+			}
+		}
+		if opts.updateGlobals {
+			if opts.isLog {
+				common.LogSqlType = common.DatabaseTypeMySQL
+			} else {
+				common.UsingMySQL = true
+			}
+		}
+		return mysql.Open(dsnVal), common.DatabaseTypeMySQL, nil
+	}
+}
 
 func initCol() {
 	// init common column names
@@ -121,66 +170,84 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, error) {
 	}()
 	dsn := os.Getenv(envName)
 	if dsn != "" {
-		if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
-			// Use PostgreSQL
-			common.SysLog("using PostgreSQL as database")
-			if !isLog {
-				common.UsingPostgreSQL = true
-			} else {
-				common.LogSqlType = common.DatabaseTypePostgreSQL
-			}
-			return gorm.Open(postgres.New(postgres.Config{
-				DSN:                  dsn,
-				PreferSimpleProtocol: true, // disables implicit prepared statement usage
-			}), &gorm.Config{
-				PrepareStmt: true, // precompile SQL
-			})
+		dialector, dbType, err := buildDialectorFromDSN(dsn, dialectorOptions{isLog: isLog, updateGlobals: true})
+		if err != nil {
+			return nil, err
 		}
-		if strings.HasPrefix(dsn, "local") {
-			common.SysLog("SQL_DSN not set, using SQLite as database")
-			if !isLog {
-				common.UsingSQLite = true
-			} else {
-				common.LogSqlType = common.DatabaseTypeSQLite
-			}
-			return gorm.Open(sqlite.Open(common.SQLitePath), &gorm.Config{
-				PrepareStmt: true, // precompile SQL
-			})
-		}
-		// Use MySQL
-		common.SysLog("using MySQL as database")
-		// check parseTime
-		if !strings.Contains(dsn, "parseTime") {
-			if strings.Contains(dsn, "?") {
-				dsn += "&parseTime=true"
-			} else {
-				dsn += "?parseTime=true"
-			}
-		}
-		if !isLog {
-			common.UsingMySQL = true
+		if isLog {
+			common.SysLog("using " + dbType + " as log database")
 		} else {
-			common.LogSqlType = common.DatabaseTypeMySQL
+			common.SysLog("using " + dbType + " as database")
 		}
-		return gorm.Open(mysql.Open(dsn), &gorm.Config{
+		return gorm.Open(dialector, &gorm.Config{
 			PrepareStmt: true, // precompile SQL
 		})
 	}
 	// Use SQLite
 	common.SysLog("SQL_DSN not set, using SQLite as database")
-	common.UsingSQLite = true
+	if isLog {
+		common.LogSqlType = common.DatabaseTypeSQLite
+	} else {
+		common.UsingSQLite = true
+	}
 	return gorm.Open(sqlite.Open(common.SQLitePath), &gorm.Config{
 		PrepareStmt: true, // precompile SQL
 	})
 }
 
+func registerReadReplicas(db *gorm.DB) error {
+	readDSN := strings.TrimSpace(os.Getenv("SQL_READ_DSN"))
+	if readDSN == "" {
+		return nil
+	}
+	var dialectors []gorm.Dialector
+	var replicaTypes []string
+	splitter := func(r rune) bool { return r == ',' || r == ';' }
+	for _, raw := range strings.FieldsFunc(readDSN, splitter) {
+		dsn := strings.TrimSpace(raw)
+		if dsn == "" {
+			continue
+		}
+		dialector, dbType, err := buildDialectorFromDSN(dsn, dialectorOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to initialize read replica: %w", err)
+		}
+		dialectors = append(dialectors, dialector)
+		replicaTypes = append(replicaTypes, dbType)
+	}
+	if len(dialectors) == 0 {
+		return nil
+	}
+	maxIdle := common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100)
+	maxOpen := common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000)
+	maxLifetime := time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60))
+	resolver := dbresolver.Register(dbresolver.Config{
+		Replicas: dialectors,
+		Policy:   dbresolver.RandomPolicy{},
+	}).SetMaxIdleConns(maxIdle).
+		SetMaxOpenConns(maxOpen).
+		SetConnMaxLifetime(maxLifetime)
+	if err := db.Use(resolver); err != nil {
+		return err
+	}
+	common.SysLog(fmt.Sprintf("registered %d read replica(s): %s", len(dialectors), strings.Join(replicaTypes, ", ")))
+	return nil
+}
+
 func InitDB() (err error) {
-	db, err := chooseDB("SQL_DSN", false)
+	writeEnv := "SQL_DSN"
+	if os.Getenv("SQL_WRITE_DSN") != "" {
+		writeEnv = "SQL_WRITE_DSN"
+	}
+	db, err := chooseDB(writeEnv, false)
 	if err == nil {
 		if common.DebugEnabled {
 			db = db.Debug()
 		}
 		DB = db
+		if err := registerReadReplicas(DB); err != nil {
+			return err
+		}
 		// MySQL charset/collation startup check: ensure Chinese-capable charset
 		if common.UsingMySQL {
 			if err := checkMySQLChineseSupport(DB); err != nil {

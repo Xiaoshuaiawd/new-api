@@ -47,9 +47,10 @@ require (
 	golang.org/x/image v0.23.0
 	golang.org/x/net v0.43.0
 	golang.org/x/sync v0.17.0
-	gorm.io/driver/mysql v1.4.3
+	gorm.io/driver/mysql v1.5.7
 	gorm.io/driver/postgres v1.5.2
-	gorm.io/gorm v1.25.2
+	gorm.io/gorm v1.26.0
+	gorm.io/plugin/dbresolver v1.6.2
 )
 
 require (
