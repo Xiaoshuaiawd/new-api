@@ -1,0 +1,29 @@
+kind: pipeline
+type: docker
+name: docker-build
+
+steps:
+  # 构建并推送Docker镜像到DockerHub
+  - name: docker-build-push
+    image: plugins/docker
+    settings:
+      dockerfile: Dockerfile
+      repo: aliin/new-api
+      registry: docker.io
+      username:
+        from_secret: docker_username
+      password:
+        from_secret: docker_password
+      tags:
+        - latest
+        - ${DRONE_TAG:-v0.0.${DRONE_BUILD_NUMBER}}
+      auto_tag: false
+      force_tag: true
+
+# 触发条件
+trigger:
+  event:
+    - push
+    - tag
+  branch:
+    - feature/*
