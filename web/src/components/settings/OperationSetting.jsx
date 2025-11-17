@@ -41,6 +41,8 @@ const OperationSetting = () => {
     TopUpLink: '',
     'general_setting.docs_link': '',
     QuotaPerUnit: 0,
+    // BillingQuotaPerUnit：仅用于按量计费（基于模型价格的扣费），不影响余额 / 展示等其他逻辑
+    BillingQuotaPerUnit: 0,
     USDExchangeRate: 0,
     RetryTimes: 0,
     'general_setting.quota_display_type': 'USD',

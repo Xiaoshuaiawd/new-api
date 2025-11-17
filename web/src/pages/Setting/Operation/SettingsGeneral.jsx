@@ -149,6 +149,12 @@ export default function GeneralSettings(props) {
         currentInputs[key] = props.options[key];
       }
     }
+    // 确保所有受控字段都有初始值（包括可能在后端尚未创建的配置项，例如 BillingQuotaPerUnit）
+    for (let key of Object.keys(inputs)) {
+      if (currentInputs[key] === undefined) {
+        currentInputs[key] = inputs[key];
+      }
+    }
     // 若旧字段存在且新字段缺失，则做一次兜底映射
     if (
       currentInputs['general_setting.quota_display_type'] === undefined &&
