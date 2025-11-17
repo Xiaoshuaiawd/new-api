@@ -36,6 +36,7 @@ import {
   showError,
   showSuccess,
   showWarning,
+  setStatusData,
 } from '../../../helpers';
 import { useTranslation } from 'react-i18next';
 
@@ -62,12 +63,6 @@ export default function GeneralSettings(props) {
 
   function handleFieldChange(fieldName) {
     return (value) => {
-      // 当修改单位美元额度时给出一次性风险提示
-      if (fieldName === 'QuotaPerUnit') {
-        if (value !== inputsRow.QuotaPerUnit) {
-          setShowQuotaWarning(true);
-        }
-      }
       setInputs((inputs) => ({ ...inputs, [fieldName]: value }));
     };
   }
@@ -96,8 +91,21 @@ export default function GeneralSettings(props) {
           if (res.includes(undefined))
             return showError(t('部分保存失败，请重试'));
         }
-        showSuccess(t('保存成功'));
-        props.refresh();
+        // 保存成功后刷新一次全局状态（包括 quota_per_unit 等），保证日志花费等展示用到最新倍率
+        API.get('/api/status')
+          .then((statusRes) => {
+            const { success, data } = statusRes.data || {};
+            if (success && data) {
+              setStatusData(data);
+            }
+          })
+          .catch(() => {
+            // 静默失败，不影响主流程
+          })
+          .finally(() => {
+            showSuccess(t('保存成功'));
+            props.refresh();
+          });
       })
       .catch(() => {
         showError(t('保存失败，请重试'));
