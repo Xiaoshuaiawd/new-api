@@ -88,7 +88,8 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.
 		taskErr = service.TaskErrorWrapper(err, "get_user_quota_failed", http.StatusInternalServerError)
 		return
 	}
-	quota := int(ratio * common.QuotaPerUnit)
+	// 任务预估扣费：使用基础 QuotaPerUnit，并乘以全局扣费系数，保持与实际扣费逻辑一致
+	quota := int(ratio * common.QuotaPerUnit * common.GetBillingFactor())
 	if userQuota-quota < 0 {
 		taskErr = service.TaskErrorWrapperLocal(errors.New("user quota is not enough"), "quota_not_enough", http.StatusForbidden)
 		return

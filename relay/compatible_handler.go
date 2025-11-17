@@ -236,7 +236,10 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 	// dBillingQuotaPerUnit：仅用于按量计费（模型价格相关的扣费），可以单独调整利润空间
 	dBillingQuotaPerUnit := decimal.NewFromFloat(common.BillingQuotaPerUnit)
 
+	// ratio：模型倍率 * 分组倍率
 	ratio := dModelRatio.Mul(dGroupRatio)
+	// 全局扣费系数，控制所有 ratio 模式下的最终扣费倍率
+	dBillingFactor := decimal.NewFromFloat(common.GetBillingFactor())
 
 	// openai web search 工具计费
 	var dWebSearchQuota decimal.Decimal
@@ -338,7 +341,8 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 
 		completionQuota := dCompletionTokens.Mul(dCompletionRatio)
 
-		quotaCalculateDecimal = promptQuota.Add(completionQuota).Mul(ratio)
+		// ratio 模式文本扣费：基础配额 * 模型倍率 * 分组倍率 * 全局扣费系数
+		quotaCalculateDecimal = promptQuota.Add(completionQuota).Mul(ratio).Mul(dBillingFactor)
 
 		if !ratio.IsZero() && quotaCalculateDecimal.LessThanOrEqual(decimal.Zero) {
 			quotaCalculateDecimal = decimal.NewFromInt(1)

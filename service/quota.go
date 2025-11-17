@@ -50,7 +50,8 @@ func hasCustomModelRatio(modelName string, currentRatio float64) bool {
 func calculateAudioQuota(info QuotaInfo) int {
 	if info.UsePrice {
 		modelPrice := decimal.NewFromFloat(info.ModelPrice)
-		quotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
+		// 按价格计费音频：使用 BillingQuotaPerUnit 控制扣费倍率
+		quotaPerUnit := decimal.NewFromFloat(common.BillingQuotaPerUnit)
 		groupRatio := decimal.NewFromFloat(info.GroupRatio)
 
 		quota := modelPrice.Mul(quotaPerUnit).Mul(groupRatio)
@@ -76,7 +77,8 @@ func calculateAudioQuota(info QuotaInfo) int {
 	quota = quota.Add(inputAudioTokens.Mul(audioRatio))
 	quota = quota.Add(outputAudioTokens.Mul(audioRatio).Mul(audioCompletionRatio))
 
-	quota = quota.Mul(ratio)
+	// ratio 模式音频扣费：基础配额 * 模型倍率 * 分组倍率 * 全局扣费系数
+	quota = quota.Mul(ratio).Mul(decimal.NewFromFloat(common.GetBillingFactor()))
 
 	// If ratio is not zero and quota is less than or equal to zero, set quota to 1
 	if !ratio.IsZero() && quota.LessThanOrEqual(decimal.Zero) {
@@ -280,7 +282,8 @@ func PostClaudeConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, 
 			calculateQuota += float64(remainingCacheCreationTokens) * cacheCreationRatio
 		}
 		calculateQuota += float64(completionTokens) * completionRatio
-		calculateQuota = calculateQuota * groupRatio * modelRatio
+		// ratio 模式文本扣费：基础配额 * 模型倍率 * 分组倍率 * 全局扣费系数
+		calculateQuota = calculateQuota * groupRatio * modelRatio * common.GetBillingFactor()
 	} else {
 		// 按量计费：最终配额 = 模型单价（美元） * 计费用每美元对应配额 * 分组倍率
 		// 只在这里使用 BillingQuotaPerUnit，保持余额展示等其他逻辑仍基于 QuotaPerUnit

@@ -23,6 +23,17 @@ var QuotaPerUnit = 500 * 1000.0 // $0.002 / 1K tokens
 // BillingQuotaPerUnit 只用于按量计费（基于模型价格 ModelPrice 的扣费），可以单独调整利润空间，不影响余额展示 / 令牌展示等其他逻辑
 // 默认与 QuotaPerUnit 相同，若未单独配置则相当于倍率为 1
 var BillingQuotaPerUnit = QuotaPerUnit
+
+// GetBillingFactor 统一的扣费系数：
+// - 当 BillingQuotaPerUnit < QuotaPerUnit 时，factor > 1，同样请求会扣更多配额（变贵）
+// - 当 BillingQuotaPerUnit > QuotaPerUnit 时，factor < 1，同样请求会扣更少配额（变便宜）
+// - 当 BillingQuotaPerUnit == 0 时，退回到基础 QuotaPerUnit（factor = 1）
+func GetBillingFactor() float64 {
+	if BillingQuotaPerUnit <= 0 {
+		return 1
+	}
+	return QuotaPerUnit / BillingQuotaPerUnit
+}
 // 保留旧变量以兼容历史逻辑，实际展示由 general_setting.quota_display_type 控制
 var DisplayInCurrencyEnabled = true
 var DisplayTokenStatEnabled = true
