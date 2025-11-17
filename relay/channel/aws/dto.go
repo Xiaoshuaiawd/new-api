@@ -3,6 +3,7 @@ package aws
 import (
 	"encoding/json"
 	"io"
+	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -12,7 +13,7 @@ import (
 type AwsClaudeRequest struct {
 	// AnthropicVersion should be "bedrock-2023-05-31"
 	AnthropicVersion string              `json:"anthropic_version"`
-	AnthropicBeta    []string            `json:"anthropic_beta,omitempty"`
+	AnthropicBeta    json.RawMessage     `json:"anthropic_beta,omitempty"`
 	System           any                 `json:"system,omitempty"`
 	Messages         []dto.ClaudeMessage `json:"messages"`
 	MaxTokens        uint                `json:"max_tokens,omitempty"`
@@ -25,23 +26,7 @@ type AwsClaudeRequest struct {
 	Thinking         *dto.Thinking       `json:"thinking,omitempty"`
 }
 
-func copyRequest(req *dto.ClaudeRequest) *AwsClaudeRequest {
-	return &AwsClaudeRequest{
-		AnthropicVersion: "bedrock-2023-05-31",
-		System:           req.System,
-		Messages:         req.Messages,
-		MaxTokens:        req.MaxTokens,
-		Temperature:      req.Temperature,
-		TopP:             req.TopP,
-		TopK:             req.TopK,
-		StopSequences:    req.StopSequences,
-		Tools:            req.Tools,
-		ToolChoice:       req.ToolChoice,
-		Thinking:         req.Thinking,
-	}
-}
-
-func formatRequest(requestBody io.Reader, c *gin.Context) (*AwsClaudeRequest, error) {
+func formatRequest(requestBody io.Reader, requestHeader http.Header, c *gin.Context) (*AwsClaudeRequest, error) {
 	var awsClaudeRequest AwsClaudeRequest
 	err := common.DecodeJson(requestBody, &awsClaudeRequest)
 	if err != nil {
@@ -60,13 +45,22 @@ func formatRequest(requestBody io.Reader, c *gin.Context) (*AwsClaudeRequest, er
 
 		// 处理 anthropic-beta header
 		if anthropicBeta := c.Request.Header.Get("anthropic-beta"); anthropicBeta != "" {
-			var betaFeatures []string
-			// 忽略 unmarshal 错误
-			_ = json.Unmarshal([]byte(anthropicBeta), &betaFeatures)
-			awsClaudeRequest.AnthropicBeta = betaFeatures
+			awsClaudeRequest.AnthropicBeta = json.RawMessage(anthropicBeta)
 		}
 	}
 
+	// check header anthropic-beta
+	anthropicBetaValues := requestHeader.Values("anthropic-beta")
+	if len(anthropicBetaValues) > 0 {
+		betaJson, err := json.Marshal(anthropicBetaValues)
+		if err != nil {
+			return nil, err
+		}
+		var tempArray []string
+		if err := json.Unmarshal(betaJson, &tempArray); err == nil && len(tempArray) != 0 && len(betaJson) > 0 {
+			awsClaudeRequest.AnthropicBeta = json.RawMessage(betaJson)
+		}
+	}
 	return &awsClaudeRequest, nil
 }
 

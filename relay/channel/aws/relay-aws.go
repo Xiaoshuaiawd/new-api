@@ -73,7 +73,6 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 	}
 	a.AwsClient = awsCli
 
-	println(info.UpstreamModelName)
 	// 获取对应的AWS模型ID
 	awsModelId := getAwsModelID(info.UpstreamModelName)
 
@@ -82,6 +81,10 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 	if canCrossRegion {
 		awsModelId = awsModelCrossRegion(awsModelId, awsRegionPrefix)
 	}
+
+	// init empty request.header
+	requestHeader := http.Header{}
+	a.SetupRequestHeader(c, &requestHeader, info)
 
 	if isNovaModel(awsModelId) {
 		var novaReq *NovaRequest
@@ -102,9 +105,10 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 			return nil, types.NewError(errors.Wrap(err, "marshal nova request"), types.ErrorCodeBadResponseBody)
 		}
 		awsReq.Body = reqBody
+		a.AwsReq = awsReq
 		return nil, nil
 	} else {
-		awsClaudeReq, err := formatRequest(requestBody, c)
+		awsClaudeReq, err := formatRequest(requestBody, requestHeader, c)
 		if err != nil {
 			return nil, types.NewError(errors.Wrap(err, "format aws request fail"), types.ErrorCodeBadRequestBody)
 		}
