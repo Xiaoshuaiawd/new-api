@@ -361,7 +361,9 @@ func testChannel(channel *model.Channel, testModel string, endpointType string) 
 			quota = 1
 		}
 	} else {
-		quota = int(priceData.ModelPrice * common.QuotaPerUnit)
+		// 通道测试场景下的按量计费：仅用于测算本次调用会扣多少配额
+		// 使用 BillingQuotaPerUnit，保持与实际扣费逻辑一致
+		quota = int(priceData.ModelPrice * common.BillingQuotaPerUnit)
 	}
 	tok := time.Now()
 	milliseconds := tok.Sub(tik).Milliseconds()

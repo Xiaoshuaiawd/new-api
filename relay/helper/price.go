@@ -93,7 +93,9 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		if meta.ImagePriceRatio != 0 {
 			modelPrice = modelPrice * meta.ImagePriceRatio
 		}
-		preConsumedQuota = int(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+		// 按量计费：模型单价（美元） * 计费用每美元对应配额 * 分组倍率
+		// 仅这里使用 BillingQuotaPerUnit，避免影响余额展示等其他逻辑
+		preConsumedQuota = int(modelPrice * common.BillingQuotaPerUnit * groupRatioInfo.GroupRatio)
 	}
 
 	// check if free model pre-consume is disabled
@@ -150,7 +152,8 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) types.
 			modelPrice = defaultPrice
 		}
 	}
-	quota := int(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
+	// 按次计费场景：模型单价（美元） * 计费用每美元对应配额 * 分组倍率
+	quota := int(modelPrice * common.BillingQuotaPerUnit * groupRatioInfo.GroupRatio)
 	priceData := types.PerCallPriceData{
 		ModelPrice:     modelPrice,
 		Quota:          quota,

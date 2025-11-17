@@ -124,7 +124,10 @@ func InitOptionMap() {
 	common.OptionMap["TopUpLink"] = common.TopUpLink
 	//common.OptionMap["ChatLink"] = common.ChatLink
 	//common.OptionMap["ChatLink2"] = common.ChatLink2
+	// QuotaPerUnit：用于额度 <-> 美元 / Token 的基础换算，保持系统内部统一精度
 	common.OptionMap["QuotaPerUnit"] = strconv.FormatFloat(common.QuotaPerUnit, 'f', -1, 64)
+	// BillingQuotaPerUnit：仅用于按量计费（基于模型单价的扣费），用于单独调整扣费倍率，不影响余额展示等其他逻辑
+	common.OptionMap["BillingQuotaPerUnit"] = strconv.FormatFloat(common.BillingQuotaPerUnit, 'f', -1, 64)
 	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
 	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
 	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime
@@ -440,6 +443,9 @@ func updateOptionMap(key string, value string) (err error) {
 		common.ChannelDisableThreshold, _ = strconv.ParseFloat(value, 64)
 	case "QuotaPerUnit":
 		common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
+	case "BillingQuotaPerUnit":
+		// 仅影响按量计费（ModelPrice -> 配额）的扣费倍率，其他展示与逻辑仍然使用 QuotaPerUnit
+		common.BillingQuotaPerUnit, _ = strconv.ParseFloat(value, 64)
 	case "SensitiveWords":
 		setting.SensitiveWordsFromString(value)
 	case "AutomaticDisableKeywords":

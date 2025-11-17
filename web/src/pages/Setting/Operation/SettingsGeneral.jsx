@@ -50,7 +50,9 @@ export default function GeneralSettings(props) {
     'general_setting.quota_display_type': 'USD',
     'general_setting.custom_currency_symbol': '¤',
     'general_setting.custom_currency_exchange_rate': '',
+    // QuotaPerUnit：旧字段，作为基础换算使用；BillingQuotaPerUnit：仅用于按量计费扣费
     QuotaPerUnit: '',
+    BillingQuotaPerUnit: '',
     RetryTimes: '',
     USDExchangeRate: '',
     DisplayTokenStatEnabled: false,
@@ -133,6 +135,7 @@ export default function GeneralSettings(props) {
     if (type === 'CNY') {
       handleFieldChange('USDExchangeRate')(val);
     } else if (type === 'TOKENS') {
+      // TOKENS 模式下编辑的是基础换算用的 QuotaPerUnit，而非实际扣费倍率
       handleFieldChange('QuotaPerUnit')(val);
     } else if (type === 'CUSTOM') {
       handleFieldChange('general_setting.custom_currency_exchange_rate')(val);
@@ -216,11 +219,11 @@ export default function GeneralSettings(props) {
               </Col>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
                 <Form.Input
-                  field={'QuotaPerUnit'}
-                  label={t('每 1 USD 对应的 Tokens 数量')}
+                  field={'BillingQuotaPerUnit'}
+                  label={t('按量计费时每 1 USD 对应的 Tokens 数量')}
                   initValue={''}
-                  placeholder={t('例如 500000（默认约等于 OpenAI 官方价格）')}
-                  onChange={handleFieldChange('QuotaPerUnit')}
+                  placeholder={t('例如 500000，调小该值会提高按量计费的实际扣费')}
+                  onChange={handleFieldChange('BillingQuotaPerUnit')}
                   showClear
                 />
               </Col>

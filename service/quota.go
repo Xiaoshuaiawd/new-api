@@ -282,7 +282,9 @@ func PostClaudeConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, 
 		calculateQuota += float64(completionTokens) * completionRatio
 		calculateQuota = calculateQuota * groupRatio * modelRatio
 	} else {
-		calculateQuota = modelPrice * common.QuotaPerUnit * groupRatio
+		// 按量计费：最终配额 = 模型单价（美元） * 计费用每美元对应配额 * 分组倍率
+		// 只在这里使用 BillingQuotaPerUnit，保持余额展示等其他逻辑仍基于 QuotaPerUnit
+		calculateQuota = modelPrice * common.BillingQuotaPerUnit * groupRatio
 	}
 
 	if modelRatio != 0 && calculateQuota <= 0 {

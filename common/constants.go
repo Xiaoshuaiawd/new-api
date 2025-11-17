@@ -18,7 +18,11 @@ var TopUpLink = ""
 
 // var ChatLink = ""
 // var ChatLink2 = ""
+// QuotaPerUnit 用于「额度 <-> 美元 / Token」的基础换算，保持系统内部统一精度（默认 1 USD = 500000 配额单位）
 var QuotaPerUnit = 500 * 1000.0 // $0.002 / 1K tokens
+// BillingQuotaPerUnit 只用于按量计费（基于模型价格 ModelPrice 的扣费），可以单独调整利润空间，不影响余额展示 / 令牌展示等其他逻辑
+// 默认与 QuotaPerUnit 相同，若未单独配置则相当于倍率为 1
+var BillingQuotaPerUnit = QuotaPerUnit
 // 保留旧变量以兼容历史逻辑，实际展示由 general_setting.quota_display_type 控制
 var DisplayInCurrencyEnabled = true
 var DisplayTokenStatEnabled = true
