@@ -1212,6 +1212,8 @@
     "此项可选，用于覆盖请求参数。不支持覆盖 stream 参数": "This is optional, used to override request parameters. Overriding stream parameter is not supported.",
     "此项可选，用于覆盖请求头参数": "This is optional, used to override request header parameters.",
     "此项可选，用于通过自定义API地址来进行 API 调用，末尾不要带/v1和/": "Optional for API calls through custom API address, do not add /v1 and / at the end",
+    "每 1 USD 对应的 Tokens 数量": "Tokens amount per 1 USD",
+    "例如 500000（默认约等于 OpenAI 官方价格）": "e.g. 500000 (roughly equals the default OpenAI pricing)",
     "每隔多少分钟测试一次所有通道": "How many minutes between testing all channels",
     "永不过期": "Never expires",
     "永久删除您的两步验证设置": "Permanently delete your two-factor authentication settings",

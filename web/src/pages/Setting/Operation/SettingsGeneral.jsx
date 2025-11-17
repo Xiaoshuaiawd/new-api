@@ -62,6 +62,12 @@ export default function GeneralSettings(props) {
 
   function handleFieldChange(fieldName) {
     return (value) => {
+      // 当修改单位美元额度时给出一次性风险提示
+      if (fieldName === 'QuotaPerUnit') {
+        if (value !== inputsRow.QuotaPerUnit) {
+          setShowQuotaWarning(true);
+        }
+      }
       setInputs((inputs) => ({ ...inputs, [fieldName]: value }));
     };
   }
@@ -197,6 +203,16 @@ export default function GeneralSettings(props) {
                   initValue={''}
                   placeholder={t('失败重试次数')}
                   onChange={handleFieldChange('RetryTimes')}
+                  showClear
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Input
+                  field={'QuotaPerUnit'}
+                  label={t('每 1 USD 对应的 Tokens 数量')}
+                  initValue={''}
+                  placeholder={t('例如 500000（默认约等于 OpenAI 官方价格）')}
+                  onChange={handleFieldChange('QuotaPerUnit')}
                   showClear
                 />
               </Col>
