@@ -28,6 +28,7 @@ ENV GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64}
 WORKDIR /build
 
 ADD go.mod go.sum ./
+RUN go mod tidy
 RUN go mod download
 
 COPY . .
