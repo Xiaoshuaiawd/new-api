@@ -18,6 +18,18 @@ import (
 	"gorm.io/gorm"
 )
 
+// ChannelStatusUpdateCallback 渠道状态更新回调函数类型
+type ChannelStatusUpdateCallback func(channelID int, channelName string, channelType int, status int)
+
+// channelStatusCallback 渠道状态更新回调函数（用于 Prometheus metrics）
+var channelStatusCallback ChannelStatusUpdateCallback
+
+// SetChannelStatusCallback 设置渠道状态更新回调函数
+func SetChannelStatusCallback(callback ChannelStatusUpdateCallback) {
+	channelStatusCallback = callback
+}
+
+
 type Channel struct {
 	Id                 int     `json:"id"`
 	Type               int     `json:"type" gorm:"default:0"`
@@ -667,6 +679,11 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 		if err != nil {
 			common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
 			return false
+		}
+
+		// 调用 Prometheus metrics 更新回调
+		if channelStatusCallback != nil {
+			channelStatusCallback(channel.Id, channel.Name, channel.Type, channel.Status)
 		}
 	}
 	return true

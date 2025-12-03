@@ -70,6 +70,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	var (
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
+		metricsCtx  *middleware.MetricsContext
 	)
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
@@ -83,6 +84,19 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	defer func() {
+		// 记录 Prometheus metrics
+		if metricsCtx != nil {
+			statusCode := 200
+			errorMessage := ""
+			if newAPIError != nil {
+				statusCode = newAPIError.StatusCode
+				errorMessage = newAPIError.Error()
+			} else if c.Writer.Status() != 0 {
+				statusCode = c.Writer.Status()
+			}
+			middleware.RecordRequestEnd(metricsCtx, statusCode, errorMessage)
+		}
+
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", newAPIError.Error()))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
@@ -163,6 +177,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			logger.LogError(c, err.Error())
 			newAPIError = err
 			break
+		}
+
+		// 初始化 Prometheus metrics context（仅在第一次循环）
+		if i == 0 && middleware.IsPrometheusEnabled() {
+			metricsCtx = &middleware.MetricsContext{
+				ChannelID:   channel.Id,
+				ChannelName: channel.Name,
+				ChannelType: channel.Type,
+				ModelName:   originalModel,
+			}
+			middleware.RecordRequestStart(metricsCtx)
 		}
 
 		addUsedChannel(c, channel.Id)

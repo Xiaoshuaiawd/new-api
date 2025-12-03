@@ -1,0 +1,45 @@
+groups:
+  - name: model_alerts
+    interval: 30s
+    rules:
+      # 模型成功率低于90%
+      - alert: ModelLowSuccessRate
+        expr: |
+          sum by (model_name, channel_name) (rate(new_api_model_requests_total{status="success"}[5m]))
+          /
+          sum by (model_name, channel_name) (rate(new_api_model_requests_total[5m]))
+          * 100 < 90
+        for: 5m
+        labels:
+          severity: warning
+          component: model
+        annotations:
+          summary: "模型 {{ $labels.model_name }} 在渠道 {{ $labels.channel_name }} 成功率低于90%"
+          description: "模型 {{ $labels.model_name }} 在渠道 {{ $labels.channel_name }} 的成功率为 {{ $value | humanize }}%"
+
+      # 模型成功率低于80%（严重告警）
+      - alert: ModelCriticalSuccessRate
+        expr: |
+          sum by (model_name, channel_name) (rate(new_api_model_requests_total{status="success"}[5m]))
+          /
+          sum by (model_name, channel_name) (rate(new_api_model_requests_total[5m]))
+          * 100 < 80
+        for: 2m
+        labels:
+          severity: critical
+          component: model
+        annotations:
+          summary: "模型 {{ $labels.model_name }} 在渠道 {{ $labels.channel_name }} 成功率低于80%（严重）"
+          description: "模型 {{ $labels.model_name }} 在渠道 {{ $labels.channel_name }} 的成功率为 {{ $value | humanize }}%，请立即检查"
+
+      # 模型响应时间过长
+      - alert: ModelHighLatency
+        expr: |
+          histogram_quantile(0.95, sum by (model_name, channel_name, le) (rate(new_api_model_request_duration_seconds_bucket[5m]))) > 30
+        for: 5m
+        labels:
+          severity: warning
+          component: model
+        annotations:
+          summary: "模型 {{ $labels.model_name }} 在渠道 {{ $labels.channel_name }} 响应时间过长"
+          description: "模型 {{ $labels.model_name }} 在渠道 {{ $labels.channel_name }} 的 P95 响应时间为 {{ $value | humanize }}s"

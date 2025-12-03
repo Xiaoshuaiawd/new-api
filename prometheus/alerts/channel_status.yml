@@ -1,0 +1,40 @@
+groups:
+  - name: channel_status_alerts
+    interval: 30s
+    rules:
+      # 渠道离线或被禁用
+      - alert: ChannelDisabled
+        expr: new_api_channel_status{status=~"manually_disabled|auto_disabled"} > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: channel_status
+        annotations:
+          summary: "渠道 {{ $labels.channel_name }} 已被禁用"
+          description: "渠道 {{ $labels.channel_name }} (ID: {{ $labels.channel_id }}) 状态为 {{ $labels.status }}，请检查渠道配置"
+
+      # 渠道无请求（可能异常）
+      - alert: ChannelNoRequests
+        expr: |
+          sum by (channel_name, channel_id) (rate(new_api_model_requests_total[5m])) == 0
+          and
+          new_api_channel_status{status="online"} > 0
+        for: 10m
+        labels:
+          severity: info
+          component: channel_status
+        annotations:
+          summary: "渠道 {{ $labels.channel_name }} 在过去10分钟无请求"
+          description: "渠道 {{ $labels.channel_name }} (ID: {{ $labels.channel_id }}) 状态为在线但在过去10分钟没有收到任何请求，可能存在路由或负载均衡问题"
+
+      # 活跃请求数过高
+      - alert: HighActiveRequests
+        expr: |
+          sum by (channel_name) (new_api_active_requests) > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: channel_status
+        annotations:
+          summary: "渠道 {{ $labels.channel_name }} 活跃请求数过高"
+          description: "渠道 {{ $labels.channel_name }} 当前活跃请求数为 {{ $value }}，可能存在请求堆积或处理缓慢"

@@ -135,6 +135,12 @@ func main() {
 			},
 		})
 	}))
+
+	// 初始化 Prometheus metrics
+	middleware.InitPrometheusMetrics()
+	// 设置渠道状态更新回调
+	model.SetChannelStatusCallback(middleware.UpdateChannelStatusMetrics)
+
 	// This will cause SSE not to work!!!
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())

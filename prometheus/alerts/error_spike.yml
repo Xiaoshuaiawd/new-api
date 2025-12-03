@@ -1,0 +1,54 @@
+groups:
+  - name: error_alerts
+    interval: 30s
+    rules:
+      # 特定错误码激增
+      - alert: HighErrorRate
+        expr: |
+          sum by (error_code, channel_name) (rate(new_api_model_request_errors_total[5m])) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: error
+        annotations:
+          summary: "错误码 {{ $labels.error_code }} 在渠道 {{ $labels.channel_name }} 出现频率过高"
+          description: "错误码 {{ $labels.error_code }} 在渠道 {{ $labels.channel_name }} 的发生率为 {{ $value | humanize }} 次/秒"
+
+      # 429限流告警
+      - alert: RateLimitErrors
+        expr: |
+          sum by (channel_name) (rate(new_api_model_request_errors_total{error_code="429"}[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: rate_limit
+        annotations:
+          summary: "渠道 {{ $labels.channel_name }} 出现大量限流错误"
+          description: "渠道 {{ $labels.channel_name }} 的429限流错误发生率为 {{ $value | humanize }} 次/秒，可能需要调整请求速率"
+
+      # 500服务器错误告警
+      - alert: ServerErrors
+        expr: |
+          sum by (channel_name) (rate(new_api_model_request_errors_total{error_code=~"5.."}[5m])) > 3
+        for: 3m
+        labels:
+          severity: critical
+          component: error
+        annotations:
+          summary: "渠道 {{ $labels.channel_name }} 出现大量服务器错误"
+          description: "渠道 {{ $labels.channel_name }} 的5xx错误发生率为 {{ $value | humanize }} 次/秒，上游服务可能出现问题"
+
+      # 总错误率过高
+      - alert: HighOverallErrorRate
+        expr: |
+          sum(rate(new_api_model_requests_total{status="failed"}[5m]))
+          /
+          sum(rate(new_api_model_requests_total[5m]))
+          * 100 > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: error
+        annotations:
+          summary: "系统整体错误率过高"
+          description: "系统整体错误率为 {{ $value | humanize }}%，超过10%阈值，请立即检查"

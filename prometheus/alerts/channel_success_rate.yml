@@ -1,0 +1,47 @@
+groups:
+  - name: channel_alerts
+    interval: 30s
+    rules:
+      # 渠道成功率低于95%
+      - alert: ChannelLowSuccessRate
+        expr: |
+          sum by (channel_name, channel_id) (rate(new_api_model_requests_total{status="success"}[5m]))
+          /
+          sum by (channel_name, channel_id) (rate(new_api_model_requests_total[5m]))
+          * 100 < 95
+        for: 5m
+        labels:
+          severity: warning
+          component: channel
+        annotations:
+          summary: "渠道 {{ $labels.channel_name }} 成功率低于95%"
+          description: "渠道 {{ $labels.channel_name }} (ID: {{ $labels.channel_id }}) 在过去5分钟的成功率为 {{ $value | humanize }}%，低于95%阈值"
+
+      # 渠道成功率低于90%（严重告警）
+      - alert: ChannelCriticalSuccessRate
+        expr: |
+          sum by (channel_name, channel_id) (rate(new_api_model_requests_total{status="success"}[5m]))
+          /
+          sum by (channel_name, channel_id) (rate(new_api_model_requests_total[5m]))
+          * 100 < 90
+        for: 2m
+        labels:
+          severity: critical
+          component: channel
+        annotations:
+          summary: "渠道 {{ $labels.channel_name }} 成功率低于90%（严重）"
+          description: "渠道 {{ $labels.channel_name }} (ID: {{ $labels.channel_id }}) 在过去5分钟的成功率为 {{ $value | humanize }}%，低于90%阈值，请立即检查"
+
+      # 渠道请求量突然下降（可能出现问题）
+      - alert: ChannelLowTraffic
+        expr: |
+          sum by (channel_name, channel_id) (rate(new_api_model_requests_total[5m])) < 0.1
+          and
+          sum by (channel_name, channel_id) (rate(new_api_model_requests_total[1h] offset 1h)) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: channel
+        annotations:
+          summary: "渠道 {{ $labels.channel_name }} 请求量异常下降"
+          description: "渠道 {{ $labels.channel_name }} (ID: {{ $labels.channel_id }}) 当前请求量 {{ $value | humanize }} req/s，显著低于历史水平"

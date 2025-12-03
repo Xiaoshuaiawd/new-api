@@ -1,0 +1,51 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'new-api-prod'
+    environment: 'production'
+
+# AlertManager 配置
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# 告警规则文件
+rule_files:
+  - "/etc/prometheus/alerts/*.yml"
+
+# 抓取配置
+scrape_configs:
+  # New API 应用指标
+  - job_name: 'new-api'
+    static_configs:
+      # 如果 new-api 在 Docker Compose 网络中，使用服务名
+      - targets: ['new-api:3000']
+        labels:
+          app: 'new-api'
+          env: 'production'
+      # 如果 new-api 在宿主机上运行，使用 host.docker.internal
+      # - targets: ['host.docker.internal:3000']
+      #   labels:
+      #     app: 'new-api'
+      #     env: 'production'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: '/metrics'
+
+  # Prometheus 自身指标
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Grafana 指标
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+
+  # AlertManager 指标
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']
