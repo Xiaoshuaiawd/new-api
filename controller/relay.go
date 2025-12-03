@@ -73,6 +73,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		metricsCtx  *middleware.MetricsContext
 	)
 
+	// 初始化 Prometheus metrics context（使用上下文中已有的渠道信息）
+	if middleware.IsPrometheusEnabled() {
+		metricsCtx = &middleware.MetricsContext{
+			ChannelID:   common.GetContextKeyInt(c, constant.ContextKeyChannelId),
+			ChannelName: common.GetContextKeyString(c, constant.ContextKeyChannelName),
+			ChannelType: common.GetContextKeyInt(c, constant.ContextKeyChannelType),
+			ModelName:   originalModel,
+		}
+		middleware.RecordRequestStart(metricsCtx)
+	}
+
 	if relayFormat == types.RelayFormatOpenAIRealtime {
 		var err error
 		ws, err = upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -179,15 +190,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 
-		// 初始化 Prometheus metrics context（仅在第一次循环）
-		if i == 0 && middleware.IsPrometheusEnabled() {
-			metricsCtx = &middleware.MetricsContext{
-				ChannelID:   channel.Id,
-				ChannelName: channel.Name,
-				ChannelType: channel.Type,
-				ModelName:   originalModel,
-			}
-			middleware.RecordRequestStart(metricsCtx)
+		// 更新 Prometheus metrics context（重试时可能切换到不同的渠道）
+		if i > 0 && metricsCtx != nil {
+			metricsCtx.ChannelID = channel.Id
+			metricsCtx.ChannelName = channel.Name
+			metricsCtx.ChannelType = channel.Type
 		}
 
 		addUsedChannel(c, channel.Id)

@@ -12,12 +12,6 @@
   "__elements": {},
   "__requires": [
     {
-      "type": "panel",
-      "id": "bargauge",
-      "name": "Bar gauge",
-      "version": ""
-    },
-    {
       "type": "grafana",
       "id": "grafana",
       "name": "Grafana",
@@ -96,7 +90,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "过去5分钟的总体成功率",
+      "description": "选定时间范围内的总体成功率",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -113,11 +107,11 @@
               },
               {
                 "color": "orange",
-                "value": 95
+                "value": 80
               },
               {
                 "color": "yellow",
-                "value": 98
+                "value": 95
               },
               {
                 "color": "green",
@@ -130,14 +124,14 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 6,
+        "h": 8,
+        "w": 12,
         "x": 0,
         "y": 1
       },
       "id": 1,
       "options": {
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "center",
         "orientation": "auto",
@@ -148,7 +142,8 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value_and_name",
+        "wideLayout": true
       },
       "pluginVersion": "10.0.0",
       "targets": [
@@ -158,10 +153,10 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(new_api_model_requests_total{status=\"success\", site_id=~\"$site_id\", channel_name=~\"$channel\"}[5m])) / sum(rate(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}[5m])) * 100",
-          "instant": false,
+          "expr": "(sum(increase(new_api_model_requests_total{status=\"success\", site_id=~\"$site_id\", channel_name=~\"$channel\"}[$__range])) or vector(0)) / (sum(increase(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}[$__range])) or vector(1)) * 100",
+          "instant": true,
           "legendFormat": "总成功率",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -179,6 +174,7 @@
           "color": {
             "mode": "thresholds"
           },
+          "decimals": 0,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -189,11 +185,11 @@
               },
               {
                 "color": "green",
-                "value": 1000
+                "value": 100
               },
               {
-                "color": "yellow",
-                "value": 10000
+                "color": "purple",
+                "value": 1000
               }
             ]
           },
@@ -202,14 +198,14 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 6,
-        "x": 6,
+        "h": 8,
+        "w": 12,
+        "x": 12,
         "y": 1
       },
       "id": 2,
       "options": {
-        "colorMode": "background",
+        "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "center",
         "orientation": "auto",
@@ -220,7 +216,8 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value_and_name",
+        "wideLayout": true
       },
       "pluginVersion": "10.0.0",
       "targets": [
@@ -230,166 +227,14 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}[$__range]))",
-          "instant": false,
+          "expr": "sum(increase(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}[$__range])) or vector(0)",
+          "instant": true,
           "legendFormat": "总请求数",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
       "title": "📈 总请求数",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "当前正在处理的请求数",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 50
-              },
-              {
-                "color": "orange",
-                "value": 100
-              },
-              {
-                "color": "red",
-                "value": 200
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 6,
-        "x": 12,
-        "y": 1
-      },
-      "id": 3,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum(new_api_active_requests{site_id=~\"$site_id\", channel_name=~\"$channel\"})",
-          "instant": false,
-          "legendFormat": "活跃请求",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "⚡ 活跃请求数",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "P50 响应时间（中位数）",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1000
-              },
-              {
-                "color": "orange",
-                "value": 3000
-              },
-              {
-                "color": "red",
-                "value": 5000
-              }
-            ]
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 6,
-        "x": 18,
-        "y": 1
-      },
-      "id": 4,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value_and_name"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum(rate(new_api_model_request_duration_seconds_bucket{site_id=~\"$site_id\", channel_name=~\"$channel\"}[5m])) by (le)) * 1000",
-          "instant": false,
-          "legendFormat": "P50 延迟",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "⏱️ P50 延迟",
       "type": "stat"
     },
     {
@@ -398,92 +243,12 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 7
+        "y": 9
       },
       "id": 101,
       "panels": [],
       "title": "📊 渠道维度分析",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "各渠道在过去5分钟的成功率排名",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "decimals": 2,
-          "mappings": [],
-          "max": 100,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 95
-              },
-              {
-                "color": "yellow",
-                "value": 98
-              },
-              {
-                "color": "green",
-                "value": 99.5
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "id": 5,
-      "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 10,
-        "minVizWidth": 0,
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true,
-        "valueMode": "color"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum by (channel_name) (rate(new_api_model_requests_total{status=\"success\", site_id=~\"$site_id\"}[5m])) / sum by (channel_name) (rate(new_api_model_requests_total{site_id=~\"$site_id\"}[5m])) * 100",
-          "instant": false,
-          "legendFormat": "{{channel_name}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "🎯 渠道成功率排名",
-      "type": "bargauge"
     },
     {
       "datasource": {
@@ -503,8 +268,8 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
             "hideFrom": {
               "tooltip": false,
               "viz": false,
@@ -544,22 +309,22 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 10
       },
       "id": 6,
       "options": {
         "legend": {
           "calcs": [
-            "lastNotNull",
+            "last",
             "min",
             "max",
             "mean"
           ],
           "displayMode": "table",
-          "placement": "bottom",
+          "placement": "right",
           "showLegend": true
         },
         "tooltip": {
@@ -575,7 +340,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (channel_name) (rate(new_api_model_requests_total{status=\"success\", site_id=~\"$site_id\"}[5m])) / sum by (channel_name) (rate(new_api_model_requests_total{site_id=~\"$site_id\"}[5m])) * 100",
+          "expr": "sum by (channel_name) (increase(new_api_model_requests_total{status=\"success\", site_id=~\"$site_id\"}[5m])) / sum by (channel_name) (increase(new_api_model_requests_total{site_id=~\"$site_id\"}[5m])) * 100",
           "instant": false,
           "legendFormat": "{{channel_name}}",
           "range": true,
@@ -586,249 +351,17 @@
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "各渠道的请求量分布占比",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            }
-          },
-          "mappings": [],
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 16
-      },
-      "id": 7,
-      "options": {
-        "displayLabels": [
-          "name",
-          "percent"
-        ],
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "showLegend": true,
-          "values": [
-            "value",
-            "percent"
-          ]
-        },
-        "pieType": "donut",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum by (channel_name) (increase(new_api_model_requests_total{site_id=~\"$site_id\"}[$__range]))",
-          "instant": false,
-          "legendFormat": "{{channel_name}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "📊 渠道请求量分布",
-      "type": "piechart"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "各渠道的 P95 响应时间对比",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1000
-              },
-              {
-                "color": "orange",
-                "value": 3000
-              },
-              {
-                "color": "red",
-                "value": 5000
-              }
-            ]
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 16
-      },
-      "id": 8,
-      "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 10,
-        "minVizWidth": 0,
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true,
-        "valueMode": "color"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (channel_name, le) (rate(new_api_model_request_duration_seconds_bucket{site_id=~\"$site_id\"}[5m]))) * 1000",
-          "instant": false,
-          "legendFormat": "{{channel_name}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "⚡ 渠道 P95 响应时间",
-      "type": "bargauge"
-    },
-    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 20
       },
       "id": 102,
       "panels": [],
       "title": "🔬 模型维度分析",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "各模型在选定渠道中的成功率排名",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "decimals": 2,
-          "mappings": [],
-          "max": 100,
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 95
-              },
-              {
-                "color": "yellow",
-                "value": 98
-              },
-              {
-                "color": "green",
-                "value": 99.5
-              }
-            ]
-          },
-          "unit": "percent"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 25
-      },
-      "id": 9,
-      "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 10,
-        "minVizWidth": 0,
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true,
-        "valueMode": "color"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum by (model_name) (rate(new_api_model_requests_total{status=\"success\", site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) / sum by (model_name) (rate(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) * 100",
-          "instant": false,
-          "legendFormat": "{{model_name}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "🎯 模型成功率排名",
-      "type": "bargauge"
     },
     {
       "datasource": {
@@ -848,8 +381,8 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
             "hideFrom": {
               "tooltip": false,
               "viz": false,
@@ -889,16 +422,16 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 10,
         "w": 12,
-        "x": 12,
-        "y": 25
+        "x": 0,
+        "y": 21
       },
       "id": 10,
       "options": {
         "legend": {
           "calcs": [
-            "lastNotNull",
+            "last",
             "min",
             "max",
             "mean"
@@ -920,7 +453,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (model_name) (rate(new_api_model_requests_total{status=\"success\", site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) / sum by (model_name) (rate(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) * 100",
+          "expr": "sum by (model_name) (increase(new_api_model_requests_total{status=\"success\", site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) / sum by (model_name) (increase(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) * 100",
           "instant": false,
           "legendFormat": "{{model_name}}",
           "range": true,
@@ -929,83 +462,6 @@
       ],
       "title": "📉 模型成功率趋势",
       "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "各模型的平均响应时间对比",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 500
-              },
-              {
-                "color": "orange",
-                "value": 1000
-              },
-              {
-                "color": "red",
-                "value": 2000
-              }
-            ]
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 33
-      },
-      "id": 11,
-      "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 10,
-        "minVizWidth": 0,
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true,
-        "valueMode": "color"
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum by (model_name) (rate(new_api_model_request_duration_seconds_sum{site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) / sum by (model_name) (rate(new_api_model_request_duration_seconds_count{site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) * 1000",
-          "instant": false,
-          "legendFormat": "{{model_name}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "⚡ 模型平均响应时间",
-      "type": "bargauge"
     },
     {
       "datasource": {
@@ -1025,16 +481,17 @@
               "legend": false
             }
           },
+          "decimals": 0,
           "mappings": [],
           "unit": "short"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 10,
         "w": 12,
         "x": 12,
-        "y": 33
+        "y": 21
       },
       "id": 12,
       "options": {
@@ -1072,10 +529,10 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (model_name) (increase(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[$__range]))",
-          "instant": false,
+          "expr": "sum by (model_name) (increase(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[$__range])) or vector(0)",
+          "instant": true,
           "legendFormat": "{{model_name}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1088,7 +545,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 41
+        "y": 31
       },
       "id": 103,
       "panels": [],
@@ -1100,7 +557,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "过去1小时出现次数最多的10个错误",
+      "description": "选定时间范围内的所有错误",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1114,6 +571,7 @@
             "filterable": true,
             "inspect": false
           },
+          "decimals": 0,
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -1124,42 +582,20 @@
               },
               {
                 "color": "yellow",
-                "value": 100
+                "value": 10
               },
               {
                 "color": "orange",
-                "value": 500
+                "value": 50
               },
               {
                 "color": "red",
-                "value": 1000
+                "value": 100
               }
             ]
           }
         },
         "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Value"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "次数"
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background"
-                }
-              },
-              {
-                "id": "custom.width",
-                "value": 100
-              }
-            ]
-          },
           {
             "matcher": {
               "id": "byName",
@@ -1172,39 +608,7 @@
               },
               {
                 "id": "custom.width",
-                "value": 100
-              },
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "429": {
-                        "text": "429 限流",
-                        "color": "orange"
-                      }
-                    }
-                  },
-                  {
-                    "type": "value",
-                    "options": {
-                      "500": {
-                        "text": "500 服务器错误",
-                        "color": "red"
-                      }
-                    }
-                  },
-                  {
-                    "type": "value",
-                    "options": {
-                      "503": {
-                        "text": "503 服务不可用",
-                        "color": "red"
-                      }
-                    }
-                  }
-                ]
+                "value": 120
               }
             ]
           },
@@ -1236,7 +640,7 @@
               },
               {
                 "id": "custom.width",
-                "value": 150
+                "value": 200
               }
             ]
           },
@@ -1252,37 +656,30 @@
               },
               {
                 "id": "custom.width",
-                "value": 400
+                "value": 600
               }
             ]
           }
         ]
       },
       "gridPos": {
-        "h": 10,
+        "h": 12,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 32
       },
       "id": 13,
       "options": {
         "cellHeight": "sm",
         "footer": {
-          "countRows": false,
-          "enablePagination": false,
+          "countRows": true,
+          "enablePagination": true,
           "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
+          "reducer": [],
+          "show": true
         },
         "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "次数"
-          }
-        ]
+        "sortBy": []
       },
       "pluginVersion": "10.0.0",
       "targets": [
@@ -1293,7 +690,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "topk(10, sum by (error_code, channel_name, model_name, error_message) (increase(new_api_model_request_errors_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}[1h])))",
+          "expr": "sort_desc(sum by (error_code, channel_name, model_name, error_message) (increase(new_api_model_request_errors_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}[$__range])))",
           "format": "table",
           "instant": true,
           "legendFormat": "__auto",
@@ -1301,222 +698,26 @@
           "refId": "A"
         }
       ],
-      "title": "🔴 Top 10 错误详情（最近1小时）",
+      "title": "🔴 错误详情",
       "transformations": [
         {
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true
+              "Time": true,
+              "Value": true
             },
             "indexByName": {
-              "Time": 0,
-              "Value": 2,
-              "channel_name": 3,
-              "error_code": 1,
-              "error_message": 5,
-              "model_name": 4
+              "error_code": 0,
+              "channel_name": 1,
+              "model_name": 2,
+              "error_message": 3
             },
             "renameByName": {}
           }
         }
       ],
       "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "过去1小时各错误码的分布占比",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            }
-          },
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "429": {
-                  "text": "429 限流"
-                }
-              }
-            },
-            {
-              "type": "value",
-              "options": {
-                "500": {
-                  "text": "500 服务器错误"
-                }
-              }
-            },
-            {
-              "type": "value",
-              "options": {
-                "503": {
-                  "text": "503 服务不可用"
-                }
-              }
-            }
-          ],
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 52
-      },
-      "id": 14,
-      "options": {
-        "displayLabels": [
-          "name",
-          "percent"
-        ],
-        "legend": {
-          "displayMode": "table",
-          "placement": "right",
-          "showLegend": true,
-          "values": [
-            "value",
-            "percent"
-          ]
-        },
-        "pieType": "donut",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum by (error_code) (increase(new_api_model_request_errors_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}[1h]))",
-          "instant": false,
-          "legendFormat": "{{error_code}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "📊 错误码分布（最近1小时）",
-      "type": "piechart"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "description": "各错误码随时间的变化趋势（堆叠显示）",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 70,
-            "gradientMode": "none",
-            "hideFrom": {
-              "tooltip": false,
-              "viz": false,
-              "legend": false
-            },
-            "lineInterpolation": "smooth",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "normal"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 52
-      },
-      "id": 15,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull",
-            "sum"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "sum by (error_code) (rate(new_api_model_request_errors_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}[5m]))",
-          "instant": false,
-          "legendFormat": "{{error_code}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "📈 错误趋势（按错误码堆叠）",
-      "type": "timeseries"
     }
   ],
   "refresh": "30s",
@@ -1622,7 +823,7 @@
     ]
   },
   "time": {
-    "from": "now-24h",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {},
