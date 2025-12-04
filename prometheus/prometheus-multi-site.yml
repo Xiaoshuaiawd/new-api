@@ -1,6 +1,6 @@
 global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
+  scrape_interval: 5s
+  evaluation_interval: 3s
   external_labels:
     cluster: 'new-api-prod'
     environment: 'production'
@@ -24,25 +24,25 @@ scrape_configs:
       - targets: ['new-api:3000']
         labels:
           app: 'new-api'
-          site: '172.93.101.143:3004'
+          site: 'main'
           env: 'production'
     scrape_interval: 5s
     scrape_timeout: 3s
     metrics_path: '/metrics'
 
-  # New API 备用站 (实际上抓取同一个实例，但用不同的 site label)
+  # New API 备用站
   - job_name: 'new-api-backup'
     static_configs:
       - targets: ['new-api:3000']
         labels:
           app: 'new-api'
-          site: '172.93.101.143:3005'
+          site: 'backup'
           env: 'production'
     scrape_interval: 5s
     scrape_timeout: 3s
     metrics_path: '/metrics'
 
-  # New API 测试站 (实际上抓取同一个实例，但用不同的 site label)
+  # New API 测试站
   - job_name: 'new-api-test'
     static_configs:
       - targets: ['new-api:3000']

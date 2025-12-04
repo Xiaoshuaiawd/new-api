@@ -153,7 +153,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "(sum(increase(new_api_model_requests_total{status=\"success\", site_id=~\"$site_id\", channel_name=~\"$channel\"}[$__range])) or vector(0)) / (sum(increase(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}[$__range])) or vector(1)) * 100",
+          "expr": "(sum(increase(new_api_model_requests_total{status=\"success\", site=~\"$site_id\", channel_name=~\"$channel\"}[$__range])) or vector(0)) / (sum(increase(new_api_model_requests_total{site=~\"$site_id\", channel_name=~\"$channel\"}[$__range])) or vector(1)) * 100",
           "instant": true,
           "legendFormat": "总成功率",
           "range": false,
@@ -227,7 +227,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}[$__range])) or vector(0)",
+          "expr": "sum(increase(new_api_model_requests_total{site=~\"$site_id\", channel_name=~\"$channel\"}[$__range])) or vector(0)",
           "instant": true,
           "legendFormat": "总请求数",
           "range": false,
@@ -340,7 +340,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (channel_name) (increase(new_api_model_requests_total{status=\"success\", site_id=~\"$site_id\"}[5m])) / sum by (channel_name) (increase(new_api_model_requests_total{site_id=~\"$site_id\"}[5m])) * 100",
+          "expr": "sum by (channel_name) (increase(new_api_model_requests_total{status=\"success\", site=~\"$site_id\"}[5m])) / sum by (channel_name) (increase(new_api_model_requests_total{site=~\"$site_id\"}[5m])) * 100",
           "instant": false,
           "legendFormat": "{{channel_name}}",
           "range": true,
@@ -453,7 +453,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (model_name) (increase(new_api_model_requests_total{status=\"success\", site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) / sum by (model_name) (increase(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) * 100",
+          "expr": "sum by (model_name) (increase(new_api_model_requests_total{status=\"success\", site=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) / sum by (model_name) (increase(new_api_model_requests_total{site=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[5m])) * 100",
           "instant": false,
           "legendFormat": "{{model_name}}",
           "range": true,
@@ -529,7 +529,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (model_name) (increase(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[$__range])) or vector(0)",
+          "expr": "sum by (model_name) (increase(new_api_model_requests_total{site=~\"$site_id\", channel_name=~\"$channel\", model_name=~\"$model\"}[$__range])) or vector(0)",
           "instant": true,
           "legendFormat": "{{model_name}}",
           "range": false,
@@ -690,7 +690,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sort_desc(sum by (error_code, channel_name, model_name, error_message) (increase(new_api_model_request_errors_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}[$__range])))",
+          "expr": "sort_desc(sum by (error_code, channel_name, model_name, error_message) (increase(new_api_model_request_errors_total{site=~\"$site_id\", channel_name=~\"$channel\"}[$__range])))",
           "format": "table",
           "instant": true,
           "legendFormat": "__auto",
@@ -732,55 +732,20 @@
   "templating": {
     "list": [
       {
-        "current": {
-          "selected": false,
-          "text": "default",
-          "value": "default"
-        },
+        "current": {},
         "datasource": {
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(new_api_model_requests_total, site_id)",
+        "definition": "label_values(new_api_model_requests_total, site)",
         "hide": 0,
-        "includeAll": false,
+        "includeAll": true,
         "label": "站点",
-        "multi": false,
+        "multi": true,
         "name": "site_id",
         "options": [],
         "query": {
-          "query": "label_values(new_api_model_requests_total, site_id)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
-        "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
-        "type": "query"
-      },
-      {
-        "current": {
-          "selected": true,
-          "text": [
-            "All"
-          ],
-          "value": [
-            "$__all"
-          ]
-        },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
-        },
-        "definition": "label_values(new_api_model_requests_total{site_id=~\"$site_id\"}, channel_name)",
-        "hide": 0,
-        "includeAll": true,
-        "label": "渠道",
-        "multi": true,
-        "name": "channel",
-        "options": [],
-        "query": {
-          "query": "label_values(new_api_model_requests_total{site_id=~\"$site_id\"}, channel_name)",
+          "query": "label_values(new_api_model_requests_total, site)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -803,7 +768,38 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}, model_name)",
+        "definition": "label_values(new_api_model_requests_total{site=~\"$site_id\"}, channel_name)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "渠道",
+        "multi": true,
+        "name": "channel",
+        "options": [],
+        "query": {
+          "query": "label_values(new_api_model_requests_total{site=~\"$site_id\"}, channel_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(new_api_model_requests_total{site=~\"$site_id\", channel_name=~\"$channel\"}, model_name)",
         "hide": 0,
         "includeAll": true,
         "label": "模型",
@@ -811,7 +807,7 @@
         "name": "model",
         "options": [],
         "query": {
-          "query": "label_values(new_api_model_requests_total{site_id=~\"$site_id\", channel_name=~\"$channel\"}, model_name)",
+          "query": "label_values(new_api_model_requests_total{site=~\"$site_id\", channel_name=~\"$channel\"}, model_name)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
