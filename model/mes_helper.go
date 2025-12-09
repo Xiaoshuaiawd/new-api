@@ -564,6 +564,30 @@ func (h *MESHelper) buildAssistantMessage(response map[string]interface{}) map[s
 			assistantMessage["content"] = content
 		}
 
+		// Gemini 原生格式：candidates[0].content.parts[].text
+		if candidates, ok := response["candidates"].([]interface{}); ok && len(candidates) > 0 {
+			if first, ok := candidates[0].(map[string]interface{}); ok {
+				if contentMap, ok := first["content"].(map[string]interface{}); ok {
+					if parts, ok := contentMap["parts"].([]interface{}); ok {
+						var sb strings.Builder
+						for _, part := range parts {
+							if pm, ok := part.(map[string]interface{}); ok {
+								if t, ok := pm["text"].(string); ok {
+									sb.WriteString(t)
+								}
+							}
+						}
+						if sb.Len() > 0 {
+							assistantMessage["content"] = sb.String()
+						}
+					}
+				}
+				if finishReason, ok := first["finishReason"].(string); ok && finishReason != "" {
+					assistantMessage["finish_reason"] = finishReason
+				}
+			}
+		}
+
 		if common.DebugEnabled {
 			common.SysLog("MES调试: 最终assistant消息 = " + fmt.Sprintf("%v", assistantMessage))
 		}
