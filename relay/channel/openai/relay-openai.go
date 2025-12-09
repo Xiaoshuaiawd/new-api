@@ -199,7 +199,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				common.SysError("MES流式记录出现panic: " + fmt.Sprintf("%v", r))
 			}
 		}()
-		if info.RelayMode == relayconstant.RelayModeChatCompletions {
+		if info.RelayMode == relayconstant.RelayModeChatCompletions || info.RelayMode == relayconstant.RelayModeGemini {
 			saveStreamChatCompletionToMES(c, info, responseTextBuilder.String(), usage, responseId, createAt, model)
 		}
 	}()
@@ -309,7 +309,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 				common.SysError("MES记录出现panic: " + fmt.Sprintf("%v", r))
 			}
 		}()
-		if info.RelayMode == relayconstant.RelayModeChatCompletions {
+		if info.RelayMode == relayconstant.RelayModeChatCompletions || info.RelayMode == relayconstant.RelayModeGemini {
 			saveChatCompletionToMES(c, info, &simpleResponse)
 		}
 	}()
