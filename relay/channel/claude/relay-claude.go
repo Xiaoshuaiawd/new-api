@@ -699,8 +699,17 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 		helper.Done(c)
 	}
 
-	streamResponse := helper.BuildStreamTextResponse(claudeInfo.ResponseText.String(), claudeInfo.Usage, claudeInfo.ResponseId, claudeInfo.Created, info.UpstreamModelName)
-	helper.SaveMESWithTextResponseAsync(c, info, streamResponse)
+	// 流式场景，将聚合文本和使用量以原生结构记录
+	streamRespMap := map[string]interface{}{
+		"stream": true,
+		"text":   claudeInfo.ResponseText.String(),
+		"usage": map[string]interface{}{
+			"prompt_tokens":     claudeInfo.Usage.PromptTokens,
+			"completion_tokens": claudeInfo.Usage.CompletionTokens,
+			"total_tokens":      claudeInfo.Usage.TotalTokens,
+		},
+	}
+	helper.SaveMESWithGenericResponseAsync(c, info, streamRespMap)
 }
 
 func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, requestMode int) (*dto.Usage, *types.NewAPIError) {
@@ -770,9 +779,20 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
 	}
 
-	if openaiResponse != nil {
-		helper.SaveMESWithTextResponseAsync(c, info, openaiResponse)
+	// 将 Claude 原生响应写入 MES（保留原格式）
+	var respMap map[string]interface{}
+	if raw, errMarshal := common.Marshal(claudeResponse); errMarshal == nil {
+		_ = common.Unmarshal(raw, &respMap)
 	}
+	if respMap == nil {
+		respMap = make(map[string]interface{})
+	}
+	respMap["usage"] = map[string]interface{}{
+		"prompt_tokens":     claudeInfo.Usage.PromptTokens,
+		"completion_tokens": claudeInfo.Usage.CompletionTokens,
+		"total_tokens":      claudeInfo.Usage.TotalTokens,
+	}
+	helper.SaveMESWithGenericResponseAsync(c, info, respMap)
 
 	service.IOCopyBytesGracefully(c, httpResp, responseData)
 	return nil

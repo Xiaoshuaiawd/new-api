@@ -348,3 +348,30 @@ func SaveMESWithGenericResponseAsync(c *gin.Context, info *relaycommon.RelayInfo
 		common.SysLog("MES: 成功保存聊天记录, 对话ID: " + conversationId)
 	}()
 }
+
+// SaveMESWithRawResponseAsync converts any response to a map and persists it with optional usage/tokens intact.
+func SaveMESWithRawResponseAsync(c *gin.Context, info *relaycommon.RelayInfo, response any) {
+	respMap := toMap(response)
+	if len(respMap) == 0 {
+		return
+	}
+	SaveMESWithGenericResponseAsync(c, info, respMap)
+}
+
+func toMap(v any) map[string]interface{} {
+	if v == nil {
+		return nil
+	}
+	if m, ok := v.(map[string]interface{}); ok {
+		return m
+	}
+	data, err := common.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var out map[string]interface{}
+	if err := common.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	return out
+}

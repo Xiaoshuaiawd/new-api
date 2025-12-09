@@ -55,10 +55,20 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 		}
 	}
 
-	fullTextResponse := responseGeminiChat2OpenAI(c, &geminiResponse)
-	fullTextResponse.Model = info.UpstreamModelName
-	fullTextResponse.Usage = usage
-	helper.SaveMESWithTextResponseAsync(c, info, fullTextResponse)
+	// 以 Gemini 原生格式写入 MES
+	var respMap map[string]interface{}
+	if raw, errMarshal := common.Marshal(geminiResponse); errMarshal == nil {
+		_ = common.Unmarshal(raw, &respMap)
+	}
+	if respMap == nil {
+		respMap = make(map[string]interface{})
+	}
+	respMap["usage"] = map[string]interface{}{
+		"prompt_tokens":     usage.PromptTokens,
+		"completion_tokens": usage.CompletionTokens,
+		"total_tokens":      usage.TotalTokens,
+	}
+	helper.SaveMESWithGenericResponseAsync(c, info, respMap)
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
@@ -179,8 +189,19 @@ func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	// 移除流式响应结尾的[Done]，因为Gemini API没有发送Done的行为
 	//helper.Done(c)
 
-	streamResp := helper.BuildStreamTextResponse(responseText.String(), usage, id, createAt, info.UpstreamModelName)
-	helper.SaveMESWithTextResponseAsync(c, info, streamResp)
+	streamResp := map[string]interface{}{
+		"stream": true,
+		"text":   responseText.String(),
+		"usage": map[string]interface{}{
+			"prompt_tokens":     usage.PromptTokens,
+			"completion_tokens": usage.CompletionTokens,
+			"total_tokens":      usage.TotalTokens,
+		},
+		"response_id": id,
+		"created":     createAt,
+		"model":       info.UpstreamModelName,
+	}
+	helper.SaveMESWithGenericResponseAsync(c, info, streamResp)
 
 	return usage, nil
 }

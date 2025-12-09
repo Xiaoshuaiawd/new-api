@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -93,6 +94,7 @@ func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, me
 		if created, ok := response["created"]; ok {
 			otherData["response_created"] = created
 		}
+		otherData["response_raw"] = response
 	}
 
 	otherBytes, _ := json.Marshal(otherData)
@@ -503,6 +505,51 @@ func (h *MESHelper) buildAssistantMessage(response map[string]interface{}) map[s
 	} else {
 		if common.DebugEnabled {
 			common.SysLog("MES调试: 没有找到choices字段或choices为空")
+		}
+	}
+
+	// Claude 原生: content 数组或 completion 字段
+	if _, hasContent := assistantMessage["content"]; !hasContent {
+		if contents, ok := response["content"].([]interface{}); ok && len(contents) > 0 {
+			var sb strings.Builder
+			for _, item := range contents {
+				if m, ok := item.(map[string]interface{}); ok {
+					if text, ok := m["text"].(string); ok {
+						sb.WriteString(text)
+					}
+					if thinking, ok := m["thinking"].(string); ok {
+						sb.WriteString(thinking)
+					}
+				}
+			}
+			if sb.Len() > 0 {
+				assistantMessage["content"] = sb.String()
+			}
+		} else if completion, ok := response["completion"].(string); ok && completion != "" {
+			assistantMessage["content"] = completion
+		}
+	}
+
+	// Gemini 原生: candidates[].content.parts[].text
+	if _, hasContent := assistantMessage["content"]; !hasContent {
+		if candidates, ok := response["candidates"].([]interface{}); ok && len(candidates) > 0 {
+			if first, ok := candidates[0].(map[string]interface{}); ok {
+				if content, ok := first["content"].(map[string]interface{}); ok {
+					if parts, ok := content["parts"].([]interface{}); ok {
+						var sb strings.Builder
+						for _, p := range parts {
+							if pm, ok := p.(map[string]interface{}); ok {
+								if text, ok := pm["text"].(string); ok {
+									sb.WriteString(text)
+								}
+							}
+						}
+						if sb.Len() > 0 {
+							assistantMessage["content"] = sb.String()
+						}
+					}
+				}
+			}
 		}
 	}
 

@@ -56,6 +56,9 @@ func Path2RelayMode(path string) int {
 	relayMode := RelayModeUnknown
 	if strings.HasPrefix(path, "/v1/chat/completions") || strings.HasPrefix(path, "/pg/chat/completions") {
 		relayMode = RelayModeChatCompletions
+	} else if strings.HasPrefix(path, "/v1/messages") {
+		// Anthropic messages 接口也视为聊天补全，便于统一日志/计费/错误处理
+		relayMode = RelayModeChatCompletions
 	} else if strings.HasPrefix(path, "/v1/completions") {
 		relayMode = RelayModeCompletions
 	} else if strings.HasPrefix(path, "/v1/embeddings") {

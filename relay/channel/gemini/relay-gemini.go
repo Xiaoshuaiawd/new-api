@@ -1080,8 +1080,17 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		common.SysLog("send final response failed: " + err.Error())
 	}
 
-	streamResp := helper.BuildStreamTextResponse(responseText.String(), usage, id, createAt, info.UpstreamModelName)
-	helper.SaveMESWithTextResponseAsync(c, info, streamResp)
+	// 将流式聚合文本与用量以原生结构写入 MES
+	streamRespMap := map[string]interface{}{
+		"stream": true,
+		"text":   responseText.String(),
+		"usage": map[string]interface{}{
+			"prompt_tokens":     usage.PromptTokens,
+			"completion_tokens": usage.CompletionTokens,
+			"total_tokens":      usage.TotalTokens,
+		},
+	}
+	helper.SaveMESWithGenericResponseAsync(c, info, streamRespMap)
 	//if info.RelayFormat == relaycommon.RelayFormatOpenAI {
 	//	helper.Done(c)
 	//}
@@ -1137,7 +1146,20 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 
 	fullTextResponse.Usage = usage
 
-	helper.SaveMESWithTextResponseAsync(c, info, fullTextResponse)
+	// 以 Gemini 原生格式写入 MES
+	var respMap map[string]interface{}
+	if raw, errMarshal := common.Marshal(geminiResponse); errMarshal == nil {
+		_ = common.Unmarshal(raw, &respMap)
+	}
+	if respMap == nil {
+		respMap = make(map[string]interface{})
+	}
+	respMap["usage"] = map[string]interface{}{
+		"prompt_tokens":     usage.PromptTokens,
+		"completion_tokens": usage.CompletionTokens,
+		"total_tokens":      usage.TotalTokens,
+	}
+	helper.SaveMESWithGenericResponseAsync(c, info, respMap)
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
