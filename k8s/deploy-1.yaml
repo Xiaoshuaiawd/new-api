@@ -1,0 +1,100 @@
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: new-api-1
+  namespace: new-api
+  labels:
+    app: new-api-1
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: new-api-1
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: new-api-1
+        version: v1
+      annotations:
+        kubesphere.io/creator: admin
+        kubesphere.io/imagepullsecrets: '{}'
+    spec:
+      volumes:
+        - name: host-time
+          hostPath:
+            path: /etc/localtime
+            type: ''
+      containers:
+        - name: new-api-1
+          image: '${DOCKERHUB_NAMESPACE}/${APP_NAME}:${BUILD_NUMBER}'
+          ports:
+            - name: http-3000
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: SQL_DSN
+              value: 'root:ZWS1998.@tcp(mysql.new-api.svc.cluster.local:3306)/new-api-1'
+            - name: MES_SQL_DSN
+              value: 'root:ZWS1998.@tcp(mysql.new-api.svc.cluster.local:3306)/new-api-1'
+            - name: MES_DAILY_PARTITION
+              value: 'true'
+            - name: REDIS_CONN_STRING
+              value: 'redis://redis.new-api.svc.cluster.local:6379'
+            - name: TZ
+              value: Asia/Shanghai
+            - name: ERROR_LOG_ENABLED
+              value: 'true'
+            - name: SYNC_FREQUENCY
+              value: '60'
+          volumeMounts:
+            - name: host-time
+              readOnly: true
+              mountPath: /etc/localtime
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: Always
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      serviceAccountName: default
+      serviceAccount: default
+      securityContext: {}
+      schedulerName: default-scheduler
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600
+
+---
+ 
+kind: Service
+apiVersion: v1
+metadata:
+  name: new-api-1-service
+  namespace: new-api
+  labels:
+    app: new-api-1
+  annotations:
+    kubesphere.io/creator: admin
+spec:
+  ports:
+    - name: http-3000
+      protocol: TCP
+      port: 3000
+      targetPort: 3000
+      nodePort: 30639
+  selector:
+    app: new-api-1
+    version: v1
+  type: NodePort
+  sessionAffinity: None
+  externalTrafficPolicy: Cluster
+  ipFamilies:
+    - IPv4
+  ipFamilyPolicy: SingleStack
+  internalTrafficPolicy: Cluster

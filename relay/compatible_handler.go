@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
@@ -170,6 +171,19 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 			newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 			// reset status code 重置状态码
 			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+
+			// 保存错误到 MES 数据库
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						common.SysError("MES错误记录出现panic: " + fmt.Sprintf("%v", r))
+					}
+				}()
+				if info.RelayMode == relayconstant.RelayModeChatCompletions {
+					saveErrorToMES(c, info, newApiErr, request)
+				}
+			}()
+
 			return newApiErr
 		}
 	}
@@ -465,4 +479,61 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
+}
+
+// saveErrorToMES 保存错误信息到MES数据库
+func saveErrorToMES(c *gin.Context, relayInfo *relaycommon.RelayInfo, apiErr *types.NewAPIError, textRequest *dto.GeneralOpenAIRequest) {
+	// 检查是否启用MES
+	if !common.MESEnabled {
+		return
+	}
+
+	// 生成对话ID
+	requestId := c.GetString(common.RequestIdKey)
+	conversationId := "conv_" + requestId + "_" + common.GetTimeString()
+
+	// 转换消息格式
+	var messages []map[string]interface{}
+	for _, message := range textRequest.Messages {
+		mesMessage := make(map[string]interface{})
+
+		// 转换DTO消息字段
+		mesMessage["role"] = message.Role
+		mesMessage["content"] = message.StringContent()
+
+		// 添加其他字段（如果存在）
+		if message.Name != nil && *message.Name != "" {
+			mesMessage["name"] = *message.Name
+		}
+
+		if len(message.ToolCalls) > 0 {
+			mesMessage["tool_calls"] = message.ToolCalls
+		}
+
+		if message.ToolCallId != "" {
+			mesMessage["tool_call_id"] = message.ToolCallId
+		}
+
+		messages = append(messages, mesMessage)
+	}
+
+	// 获取MES辅助器并保存错误
+	mesHelper := model.GetMESHelper()
+	err := mesHelper.SaveErrorConversation(
+		c,
+		conversationId,
+		messages,
+		apiErr.StatusCode,
+		apiErr.Error(),
+		relayInfo.OriginModelName,
+		relayInfo.UserId,
+		relayInfo.TokenId,
+		relayInfo.ChannelId,
+	)
+
+	if err != nil {
+		common.SysError("MES: 保存错误对话失败: " + err.Error())
+	} else {
+		common.SysLog("MES: 成功保存错误对话, 对话ID: " + conversationId)
+	}
 }

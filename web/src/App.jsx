@@ -43,6 +43,7 @@ import Pricing from './pages/Pricing';
 import Task from './pages/Task';
 import ModelPage from './pages/Model';
 import Playground from './pages/Playground';
+import Financial from './pages/Financial';
 import OAuth2Callback from './components/auth/OAuth2Callback';
 import PersonalSetting from './components/settings/PersonalSetting';
 import Setup from './pages/Setup';
@@ -301,6 +302,14 @@ function App() {
                 <Pricing />
               </Suspense>
             )
+          }
+        />
+        <Route
+          path='/financial'
+          element={
+            <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+              <Financial />
+            </Suspense>
           }
         />
         <Route

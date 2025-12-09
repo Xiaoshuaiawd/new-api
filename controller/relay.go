@@ -70,7 +70,19 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	var (
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
+		metricsCtx  *middleware.MetricsContext
 	)
+
+	// 初始化 Prometheus metrics context（使用上下文中已有的渠道信息）
+	if middleware.IsPrometheusEnabled() {
+		metricsCtx = &middleware.MetricsContext{
+			ChannelID:   common.GetContextKeyInt(c, constant.ContextKeyChannelId),
+			ChannelName: common.GetContextKeyString(c, constant.ContextKeyChannelName),
+			ChannelType: common.GetContextKeyInt(c, constant.ContextKeyChannelType),
+			ModelName:   originalModel,
+		}
+		middleware.RecordRequestStart(metricsCtx)
+	}
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
 		var err error
@@ -83,6 +95,19 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	defer func() {
+		// 记录 Prometheus metrics
+		if metricsCtx != nil {
+			statusCode := 200
+			errorMessage := ""
+			if newAPIError != nil {
+				statusCode = newAPIError.StatusCode
+				errorMessage = newAPIError.Error()
+			} else if c.Writer.Status() != 0 {
+				statusCode = c.Writer.Status()
+			}
+			middleware.RecordRequestEnd(metricsCtx, statusCode, errorMessage)
+		}
+
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", newAPIError.Error()))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
@@ -163,6 +188,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			logger.LogError(c, err.Error())
 			newAPIError = err
 			break
+		}
+
+		// 更新 Prometheus metrics context（重试时可能切换到不同的渠道）
+		if i > 0 && metricsCtx != nil {
+			metricsCtx.ChannelID = channel.Id
+			metricsCtx.ChannelName = channel.Name
+			metricsCtx.ChannelType = channel.Type
 		}
 
 		addUsedChannel(c, channel.Id)

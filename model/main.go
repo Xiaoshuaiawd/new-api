@@ -115,7 +115,7 @@ func CheckSetup() {
 	}
 }
 
-func chooseDB(envName string, isLog bool) (*gorm.DB, error) {
+func chooseDB(envName string, isLog bool, isMES bool) (*gorm.DB, error) {
 	defer func() {
 		initCol()
 	}()
@@ -123,12 +123,20 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, error) {
 	if dsn != "" {
 		if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
 			// Use PostgreSQL
-			common.SysLog("using PostgreSQL as database")
-			if !isLog {
-				common.UsingPostgreSQL = true
-			} else {
+			var dbType string
+			if isMES {
+				dbType = "MES PostgreSQL"
+				common.UsingMESPostgreSQL = true
+				common.MesSqlType = common.DatabaseTypePostgreSQL
+			} else if isLog {
+				dbType = "Log PostgreSQL"
 				common.LogSqlType = common.DatabaseTypePostgreSQL
+			} else {
+				dbType = "PostgreSQL"
+				common.UsingPostgreSQL = true
 			}
+			common.SysLog("using " + dbType + " as database")
+
 			return gorm.Open(postgres.New(postgres.Config{
 				DSN:                  dsn,
 				PreferSimpleProtocol: true, // disables implicit prepared statement usage
@@ -137,18 +145,39 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, error) {
 			})
 		}
 		if strings.HasPrefix(dsn, "local") {
-			common.SysLog("SQL_DSN not set, using SQLite as database")
-			if !isLog {
-				common.UsingSQLite = true
-			} else {
+			var dbType string
+			if isMES {
+				dbType = "MES SQLite"
+				common.UsingMESSQLite = true
+				common.MesSqlType = common.DatabaseTypeSQLite
+			} else if isLog {
+				dbType = "Log SQLite"
 				common.LogSqlType = common.DatabaseTypeSQLite
+			} else {
+				dbType = "SQLite"
+				common.UsingSQLite = true
 			}
+			common.SysLog(envName + " not set, using " + dbType + " as database")
+
 			return gorm.Open(sqlite.Open(common.SQLitePath), &gorm.Config{
 				PrepareStmt: true, // precompile SQL
 			})
 		}
 		// Use MySQL
-		common.SysLog("using MySQL as database")
+		var dbType string
+		if isMES {
+			dbType = "MES MySQL"
+			common.UsingMESMySQL = true
+			common.MesSqlType = common.DatabaseTypeMySQL
+		} else if isLog {
+			dbType = "Log MySQL"
+			common.LogSqlType = common.DatabaseTypeMySQL
+		} else {
+			dbType = "MySQL"
+			common.UsingMySQL = true
+		}
+		common.SysLog("using " + dbType + " as database")
+
 		// check parseTime
 		if !strings.Contains(dsn, "parseTime") {
 			if strings.Contains(dsn, "?") {
@@ -157,25 +186,33 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, error) {
 				dsn += "?parseTime=true"
 			}
 		}
-		if !isLog {
-			common.UsingMySQL = true
-		} else {
-			common.LogSqlType = common.DatabaseTypeMySQL
-		}
+
 		return gorm.Open(mysql.Open(dsn), &gorm.Config{
 			PrepareStmt: true, // precompile SQL
 		})
 	}
 	// Use SQLite
-	common.SysLog("SQL_DSN not set, using SQLite as database")
-	common.UsingSQLite = true
+	var dbType string
+	if isMES {
+		dbType = "MES SQLite"
+		common.UsingMESSQLite = true
+		common.MesSqlType = common.DatabaseTypeSQLite
+	} else if isLog {
+		dbType = "Log SQLite"
+		common.LogSqlType = common.DatabaseTypeSQLite
+	} else {
+		dbType = "SQLite"
+		common.UsingSQLite = true
+	}
+	common.SysLog(envName + " not set, using " + dbType + " as database")
+
 	return gorm.Open(sqlite.Open(common.SQLitePath), &gorm.Config{
 		PrepareStmt: true, // precompile SQL
 	})
 }
 
 func InitDB() (err error) {
-	db, err := chooseDB("SQL_DSN", false)
+	db, err := chooseDB("SQL_DSN", false, false)
 	if err == nil {
 		if common.DebugEnabled {
 			db = db.Debug()
@@ -215,7 +252,7 @@ func InitLogDB() (err error) {
 		LOG_DB = DB
 		return
 	}
-	db, err := chooseDB("LOG_SQL_DSN", true)
+	db, err := chooseDB("LOG_SQL_DSN", true, false)
 	if err == nil {
 		if common.DebugEnabled {
 			db = db.Debug()
@@ -245,6 +282,160 @@ func InitLogDB() (err error) {
 		common.FatalLog(err)
 	}
 	return err
+}
+
+// InitMESDB initializes the MES (Message/Conversation history) database
+func InitMESDB() (err error) {
+	if os.Getenv("MES_SQL_DSN") == "" {
+		common.SysLog("MES_SQL_DSN not set, chat history will be stored in main database")
+		MES_DB = DB
+		common.MESEnabled = false
+		return nil
+	}
+
+	common.MESEnabled = true
+	common.MESDailyPartition = common.GetEnvOrDefaultBool("MES_DAILY_PARTITION", false)
+	if common.MESDailyPartition {
+		common.SysLog("MES daily partitioning enabled")
+	}
+
+	// Try to create database first if it's MySQL
+	err = createMESDatabaseIfNeeded()
+	if err != nil {
+		common.SysError("failed to create MES database: " + err.Error())
+		// Continue anyway - the database might already exist
+	}
+
+	db, err := chooseDB("MES_SQL_DSN", false, true)
+	if err == nil {
+		if common.DebugEnabled {
+			db = db.Debug()
+		}
+		MES_DB = db
+		sqlDB, err := MES_DB.DB()
+		if err != nil {
+			return err
+		}
+		sqlDB.SetMaxIdleConns(common.GetEnvOrDefault("SQL_MAX_IDLE_CONNS", 100))
+		sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_MAX_OPEN_CONNS", 1000))
+		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
+
+		if !common.IsMasterNode {
+			return nil
+		}
+		common.SysLog("MES database migration started")
+		err = migrateMESDB()
+		if err != nil {
+			return err
+		}
+		common.SysLog("MES database initialized successfully")
+		return nil
+	} else {
+		common.FatalLog("failed to initialize MES database: " + err.Error())
+	}
+	return err
+}
+
+// createMESDatabaseIfNeeded creates the MES database if it doesn't exist (MySQL only)
+func createMESDatabaseIfNeeded() error {
+	dsn := os.Getenv("MES_SQL_DSN")
+	if dsn == "" {
+		return nil
+	}
+
+	// Only handle MySQL automatic database creation
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		common.SysLog("PostgreSQL detected for MES database. Please ensure the database exists manually.")
+		return nil
+	}
+
+	if strings.HasPrefix(dsn, "local") {
+		// SQLite - no need to create database
+		return nil
+	}
+
+	// MySQL case - extract database name and create if needed
+	return createMySQLDatabaseIfNeeded(dsn, "MES")
+}
+
+// createMySQLDatabaseIfNeeded creates MySQL database if it doesn't exist
+func createMySQLDatabaseIfNeeded(dsn string, dbType string) error {
+	// Parse DSN to extract database name
+	// Format: username:password@tcp(host:port)/database_name
+	parts := strings.Split(dsn, "/")
+	if len(parts) < 2 {
+		return fmt.Errorf("invalid DSN format")
+	}
+
+	dbName := parts[len(parts)-1]
+	// Remove query parameters if any
+	if idx := strings.Index(dbName, "?"); idx != -1 {
+		dbName = dbName[:idx]
+	}
+
+	// Create DSN without database name to connect to MySQL server
+	baseDSN := strings.Join(parts[:len(parts)-1], "/") + "/"
+
+	// Add parseTime if not present
+	if !strings.Contains(baseDSN, "parseTime") {
+		if strings.Contains(baseDSN, "?") {
+			baseDSN += "&parseTime=true"
+		} else {
+			baseDSN += "?parseTime=true"
+		}
+	}
+
+	// Connect to MySQL server
+	db, err := gorm.Open(mysql.Open(baseDSN), &gorm.Config{})
+	if err != nil {
+		return fmt.Errorf("failed to connect to MySQL server: %v", err)
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	defer sqlDB.Close()
+
+	// Check if database exists
+	var count int64
+	err = db.Raw("SELECT COUNT(*) FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?", dbName).Scan(&count).Error
+	if err != nil {
+		return fmt.Errorf("failed to check if database exists: %v", err)
+	}
+
+	if count == 0 {
+		// Create database
+		createSQL := fmt.Sprintf("CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci", dbName)
+		err = db.Exec(createSQL).Error
+		if err != nil {
+			return fmt.Errorf("failed to create database %s: %v", dbName, err)
+		}
+		common.SysLog(fmt.Sprintf("%s database '%s' created successfully", dbType, dbName))
+	} else {
+		common.SysLog(fmt.Sprintf("%s database '%s' already exists", dbType, dbName))
+	}
+
+	return nil
+}
+
+// migrateMESDB performs database migration for MES tables
+func migrateMESDB() error {
+	if common.MESDailyPartition {
+		// For daily partitioning, we only create base tables for reference
+		// Actual tables will be created on demand
+		common.SysLog("MES daily partitioning enabled - tables will be created on demand")
+		return nil
+	}
+
+	// Create normal tables
+	err := MES_DB.AutoMigrate(&ConversationHistory{}, &ErrorConversationHistory{})
+	if err != nil {
+		return fmt.Errorf("failed to migrate MES database: %v", err)
+	}
+
+	common.SysLog("MES database migration completed")
+	return nil
 }
 
 func migrateDB() error {

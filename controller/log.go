@@ -84,7 +84,53 @@ func SearchUserLogs(c *gin.Context) {
 
 func GetLogByKey(c *gin.Context) {
 	key := c.Query("key")
-	logs, err := model.GetLogByKey(key)
+
+	// 手动处理分页参数，移除page_size限制
+	page, _ := strconv.Atoi(c.Query("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+	if pageSize <= 0 {
+		pageSize = 20 // 默认页面大小
+	}
+	startIdx := (page - 1) * pageSize
+
+	// 检查是否使用轻量级查询（用于大数据量场景）
+	lightweight := c.Query("lightweight") == "true"
+	// 检查是否使用游标分页（用于超大数据量场景，如100万+）
+	useCursor := c.Query("cursor") != "" || c.Query("use_cursor") == "true"
+
+	logType, _ := strconv.Atoi(c.Query("type"))
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	modelName := c.Query("model_name")
+	group := c.Query("group")
+
+	var logs []*model.Log
+	var err error
+	var nextCursor string
+	var total int64
+
+	if useCursor {
+		cursor := c.Query("cursor")
+		logs, nextCursor, err = model.GetLogByKeyCursor(key, logType, startTimestamp, endTimestamp, modelName, pageSize, group, cursor, lightweight)
+		if err == nil {
+			// 游标分页返回格式
+			c.JSON(200, gin.H{
+				"success":     true,
+				"message":     "",
+				"data":        logs,
+				"next_cursor": nextCursor,
+				"has_more":    nextCursor != "",
+			})
+			return
+		}
+	} else if lightweight {
+		logs, total, err = model.GetLogByKeyLightweight(key, logType, startTimestamp, endTimestamp, modelName, startIdx, pageSize, group)
+	} else {
+		logs, total, err = model.GetLogByKey(key, logType, startTimestamp, endTimestamp, modelName, startIdx, pageSize, group)
+	}
 	if err != nil {
 		c.JSON(200, gin.H{
 			"success": false,
@@ -92,10 +138,22 @@ func GetLogByKey(c *gin.Context) {
 		})
 		return
 	}
+
+	// 计算总页数
+	var totalPages int
+	if pageSize > 0 {
+		totalPages = int((total + int64(pageSize) - 1) / int64(pageSize)) // 向上取整
+	}
+
+	// 返回包含分页信息的格式
 	c.JSON(200, gin.H{
-		"success": true,
-		"message": "",
-		"data":    logs,
+		"success":   true,
+		"message":   "",
+		"data":      logs,
+		"total":     total,
+		"pages":     totalPages,
+		"page":      page,
+		"page_size": pageSize,
 	})
 }
 

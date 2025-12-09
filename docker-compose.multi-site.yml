@@ -1,0 +1,203 @@
+# New-API 多站点部署配置示例
+#
+# 使用方法:
+#   docker-compose -f docker-compose.multi-site.yml up -d
+#
+# 此配置会启动:
+#   - 3个 New API 实例 (端口 3000, 3001, 3002)
+#   - 每个实例有各自的 SITE_ID
+#   - 共享 PostgreSQL、Redis、Prometheus 和 Grafana
+#
+# ⚠️  IMPORTANT: Change all default passwords before deploying to production!
+
+version: '3.8'
+
+services:
+  # 站点 1: 主站
+  new-api-main:
+    image: calciumion/new-api:latest
+    container_name: new-api-main
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/main:/data
+      - ./logs/main:/app/logs
+    environment:
+      - SQL_DSN=postgresql://root:123456@postgres:5432/new-api
+      - REDIS_CONN_STRING=redis://redis
+      - TZ=Asia/Shanghai
+      - SITE_ID=main  # 主站标识
+      - PROMETHEUS_ENABLED=true
+      - ERROR_LOG_ENABLED=true
+      - BATCH_UPDATE_ENABLED=true
+      - SESSION_SECRET=your-random-secret-string-here  # ⚠️ 多站点必须设置相同的 SESSION_SECRET
+      - CRYPTO_SECRET=your-crypto-secret-string-here   # ⚠️ 多站点必须设置相同的 CRYPTO_SECRET
+    depends_on:
+      - redis
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - new-api-network
+
+  # 站点 2: 备用站
+  new-api-backup:
+    image: calciumion/new-api:latest
+    container_name: new-api-backup
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./data/backup:/data
+      - ./logs/backup:/app/logs
+    environment:
+      - SQL_DSN=postgresql://root:123456@postgres:5432/new-api
+      - REDIS_CONN_STRING=redis://redis
+      - TZ=Asia/Shanghai
+      - SITE_ID=backup  # 备用站标识
+      - PROMETHEUS_ENABLED=true
+      - ERROR_LOG_ENABLED=true
+      - BATCH_UPDATE_ENABLED=true
+      - SESSION_SECRET=your-random-secret-string-here  # ⚠️ 必须与主站相同
+      - CRYPTO_SECRET=your-crypto-secret-string-here   # ⚠️ 必须与主站相同
+    depends_on:
+      - redis
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - new-api-network
+
+  # 站点 3: 测试站
+  new-api-test:
+    image: calciumion/new-api:latest
+    container_name: new-api-test
+    restart: always
+    command: --log-dir /app/logs
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./data/test:/data
+      - ./logs/test:/app/logs
+    environment:
+      - SQL_DSN=postgresql://root:123456@postgres:5432/new-api
+      - REDIS_CONN_STRING=redis://redis
+      - TZ=Asia/Shanghai
+      - SITE_ID=test  # 测试站标识
+      - PROMETHEUS_ENABLED=true
+      - ERROR_LOG_ENABLED=true
+      - BATCH_UPDATE_ENABLED=true
+      - SESSION_SECRET=your-random-secret-string-here  # ⚠️ 必须与主站相同
+      - CRYPTO_SECRET=your-crypto-secret-string-here   # ⚠️ 必须与主站相同
+    depends_on:
+      - redis
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/status | grep -o '\"success\":\\s*true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - new-api-network
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    restart: always
+    networks:
+      - new-api-network
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: 123456  # ⚠️ IMPORTANT: Change this password in production!
+      POSTGRES_DB: new-api
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - new-api-network
+
+  # Prometheus 监控服务 (监控所有站点)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: new-api-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus-multi-site.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alerts:/etc/prometheus/alerts
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    depends_on:
+      - new-api-main
+      - new-api-backup
+      - new-api-test
+    networks:
+      - new-api-network
+
+  # Grafana 可视化服务 (统一展示所有站点)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: new-api-grafana
+    restart: unless-stopped
+    ports:
+      - "3100:3000"  # 改为 3100 避免与 new-api-backup 冲突
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123  # ⚠️ IMPORTANT: Change this password in production!
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3100
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - new-api-network
+
+  # AlertManager 告警服务
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: new-api-alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - new-api-network
+
+volumes:
+  pg_data:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:
+
+networks:
+  new-api-network:
+    driver: bridge

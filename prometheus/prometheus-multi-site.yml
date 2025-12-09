@@ -1,0 +1,70 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 3s
+  external_labels:
+    cluster: 'new-api-prod'
+    environment: 'production'
+
+# AlertManager 配置
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# 告警规则文件
+rule_files:
+  - "/etc/prometheus/alerts/*.yml"
+
+# 抓取配置
+scrape_configs:
+  # New API 主站
+  - job_name: 'new-api-main'
+    static_configs:
+      - targets: ['new-api:3000']
+        labels:
+          app: 'new-api'
+          site: 'main'
+          env: 'production'
+    scrape_interval: 5s
+    scrape_timeout: 3s
+    metrics_path: '/metrics'
+
+  # New API 备用站
+  - job_name: 'new-api-backup'
+    static_configs:
+      - targets: ['new-api:3000']
+        labels:
+          app: 'new-api'
+          site: 'backup'
+          env: 'production'
+    scrape_interval: 5s
+    scrape_timeout: 3s
+    metrics_path: '/metrics'
+
+  # New API 测试站
+  - job_name: 'new-api-test'
+    static_configs:
+      - targets: ['new-api:3000']
+        labels:
+          app: 'new-api'
+          site: 'test'
+          env: 'testing'
+    scrape_interval: 5s
+    scrape_timeout: 3s
+    metrics_path: '/metrics'
+
+  # Prometheus 自身指标
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Grafana 指标
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+
+  # AlertManager 指标
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']

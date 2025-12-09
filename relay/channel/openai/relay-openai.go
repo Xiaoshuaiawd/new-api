@@ -11,8 +11,10 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 
@@ -191,6 +193,18 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
 
+	// 保存流式聊天历史到 MES 数据库
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				common.SysError("MES流式记录出现panic: " + fmt.Sprintf("%v", r))
+			}
+		}()
+		if info.RelayMode == relayconstant.RelayModeChatCompletions {
+			saveStreamChatCompletionToMES(c, info, responseTextBuilder.String(), usage, responseId, createAt, model)
+		}
+	}()
+
 	return usage, nil
 }
 
@@ -288,6 +302,18 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		}
 		responseBody = geminiRespStr
 	}
+
+	// 保存聊天历史到 MES 数据库
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				common.SysError("MES记录出现panic: " + fmt.Sprintf("%v", r))
+			}
+		}()
+		if info.RelayMode == relayconstant.RelayModeChatCompletions {
+			saveChatCompletionToMES(c, info, &simpleResponse)
+		}
+	}()
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
@@ -647,6 +673,278 @@ func OpenaiHandlerWithUsage(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 	}
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 	return &usageResp.Usage, nil
+}
+
+// saveChatCompletionToMES 保存聊天补全到MES数据库
+func saveChatCompletionToMES(c *gin.Context, info *relaycommon.RelayInfo, response *dto.OpenAITextResponse) {
+	// 检查是否启用MES
+	if !common.MESEnabled {
+		return
+	}
+
+	// 获取原始请求体
+	requestBody, err := common.GetRequestBody(c)
+	if err != nil {
+		common.SysError("MES: 获取请求体失败: " + err.Error())
+		return
+	}
+
+	// 解析请求
+	var chatRequest dto.GeneralOpenAIRequest
+	if err := common.Unmarshal(requestBody, &chatRequest); err != nil {
+		common.SysError("MES: 解析请求失败: " + err.Error())
+		return
+	}
+
+	// 生成对话ID - 使用请求ID + 时间戳
+	requestId := c.GetString(common.RequestIdKey)
+	conversationId := generateConversationId(requestId, &chatRequest)
+
+	// 转换消息格式
+	messages := convertDTOMessagesToMESFormat(chatRequest.Messages)
+
+	// 构建更健壮的助手响应消息
+	var assistantMessage map[string]interface{}
+	if len(response.Choices) > 0 {
+		choice := response.Choices[0]
+		assistantMessage = map[string]interface{}{
+			"role":    "assistant",
+			"content": choice.Message.StringContent(),
+		}
+
+		// 添加其他字段（如果有的话）
+		if len(choice.Message.ToolCalls) > 0 {
+			assistantMessage["tool_calls"] = choice.Message.ToolCalls
+		}
+
+		if choice.FinishReason != "" {
+			assistantMessage["finish_reason"] = choice.FinishReason
+		}
+	}
+
+	// 构建完整的对话
+	fullConversation := make([]map[string]interface{}, 0, len(messages)+1)
+	fullConversation = append(fullConversation, messages...)
+
+	if assistantMessage != nil {
+		fullConversation = append(fullConversation, assistantMessage)
+	}
+
+	// 调试日志
+	if common.DebugEnabled {
+		conversationJSON, _ := common.Marshal(fullConversation)
+		common.SysLog("MES调试: 完整对话 = " + string(conversationJSON))
+	}
+
+	// 保存到MES
+	mesHelper := model.GetMESHelper()
+	err = mesHelper.SaveFullConversation(
+		c,
+		conversationId,
+		fullConversation,
+		response,
+		info.OriginModelName,
+		info.UserId,
+		info.TokenId,
+		info.ChannelId,
+	)
+
+	if err != nil {
+		common.SysError("MES: 保存聊天补全失败: " + err.Error())
+	} else {
+		common.SysLog("MES: 成功保存聊天补全, 对话ID: " + conversationId)
+	}
+}
+
+// generateConversationId 生成对话ID
+func generateConversationId(requestId string, request *dto.GeneralOpenAIRequest) string {
+	// 暂时简化，直接生成新的对话ID
+	// TODO: 未来可以从请求中提取自定义的conversation_id
+	return "conv_" + requestId + "_" + common.GetTimeString()
+}
+
+// convertMessagesToMESFormat 转换消息格式为MES格式
+func convertMessagesToMESFormat(messages []map[string]interface{}) []map[string]interface{} {
+	var mesMessages []map[string]interface{}
+
+	for _, message := range messages {
+		mesMessage := make(map[string]interface{})
+
+		// 复制基本字段
+		for key, value := range message {
+			mesMessage[key] = value
+		}
+
+		mesMessages = append(mesMessages, mesMessage)
+	}
+
+	return mesMessages
+}
+
+// convertDTOMessagesToMESFormat 转换DTO消息格式为MES格式
+func convertDTOMessagesToMESFormat(messages []dto.Message) []map[string]interface{} {
+	var mesMessages []map[string]interface{}
+
+	for _, message := range messages {
+		mesMessage := make(map[string]interface{})
+
+		// 转换基本字段
+		mesMessage["role"] = message.Role
+		mesMessage["content"] = message.StringContent()
+
+		// 添加其他字段（如果存在）
+		if message.Name != nil && *message.Name != "" {
+			mesMessage["name"] = *message.Name
+		}
+
+		if len(message.ToolCalls) > 0 {
+			mesMessage["tool_calls"] = message.ToolCalls
+		}
+
+		if message.ToolCallId != "" {
+			mesMessage["tool_call_id"] = message.ToolCallId
+		}
+
+		mesMessages = append(mesMessages, mesMessage)
+	}
+
+	return mesMessages
+}
+
+// buildMESResponseData 构建MES响应数据
+func buildMESResponseData(response *dto.OpenAITextResponse) map[string]interface{} {
+	responseData := make(map[string]interface{})
+
+	// 基本响应信息
+	responseData["id"] = response.Id
+	responseData["object"] = response.Object
+	responseData["created"] = response.Created
+	responseData["model"] = response.Model
+
+	// 选择项
+	responseData["choices"] = response.Choices
+
+	// 使用情况
+	if response.Usage.TotalTokens > 0 {
+		responseData["usage"] = map[string]interface{}{
+			"prompt_tokens":     response.Usage.PromptTokens,
+			"completion_tokens": response.Usage.CompletionTokens,
+			"total_tokens":      response.Usage.TotalTokens,
+		}
+	}
+
+	// 系统指纹 (如果OpenAITextResponse有这个字段的话)
+	// Note: dto.OpenAITextResponse可能没有SystemFingerprint字段，所以暂时注释掉
+	// if response.SystemFingerprint != "" {
+	//	responseData["system_fingerprint"] = response.SystemFingerprint
+	// }
+
+	return responseData
+}
+
+// saveStreamChatCompletionToMES 保存流式聊天补全到MES数据库
+func saveStreamChatCompletionToMES(c *gin.Context, info *relaycommon.RelayInfo, responseText string, usage *dto.Usage, responseId string, createAt int64, modelName string) {
+	// 检查是否启用MES
+	if !common.MESEnabled {
+		return
+	}
+
+	// 获取原始请求体
+	requestBody, err := common.GetRequestBody(c)
+	if err != nil {
+		common.SysError("MES流式: 获取请求体失败: " + err.Error())
+		return
+	}
+
+	// 解析请求
+	var chatRequest dto.GeneralOpenAIRequest
+	if err := common.Unmarshal(requestBody, &chatRequest); err != nil {
+		common.SysError("MES流式: 解析请求失败: " + err.Error())
+		return
+	}
+
+	// 生成对话ID
+	requestId := c.GetString(common.RequestIdKey)
+	conversationId := generateConversationId(requestId, &chatRequest)
+
+	// 转换消息格式
+	messages := convertDTOMessagesToMESFormat(chatRequest.Messages)
+
+	// 构建助手响应消息
+	assistantMessage := map[string]interface{}{
+		"role":    "assistant",
+		"content": responseText,
+	}
+
+	// 构建完整的对话
+	fullConversation := make([]map[string]interface{}, 0, len(messages)+1)
+	fullConversation = append(fullConversation, messages...)
+	fullConversation = append(fullConversation, assistantMessage)
+
+	// 构建假的response对象用于传递usage信息
+	var fakeResponse *dto.OpenAITextResponse
+	if usage != nil {
+		fakeResponse = &dto.OpenAITextResponse{
+			Id:      responseId,
+			Model:   modelName,
+			Created: createAt,
+			Usage:   *usage,
+		}
+	}
+
+	// 获取MES辅助器并保存
+	mesHelper := model.GetMESHelper()
+	err = mesHelper.SaveFullConversation(
+		c,
+		conversationId,
+		fullConversation,
+		fakeResponse,
+		info.OriginModelName,
+		info.UserId,
+		info.TokenId,
+		info.ChannelId,
+	)
+
+	if err != nil {
+		common.SysError("MES流式: 保存聊天补全失败: " + err.Error())
+	} else {
+		common.SysLog("MES流式: 成功保存聊天补全, 对话ID: " + conversationId)
+	}
+}
+
+// buildStreamMESResponseData 构建流式MES响应数据
+func buildStreamMESResponseData(responseText string, usage *dto.Usage, responseId string, createAt int64, modelName string) map[string]interface{} {
+	responseData := make(map[string]interface{})
+
+	// 基本响应信息
+	responseData["id"] = responseId
+	responseData["object"] = "chat.completion"
+	responseData["created"] = createAt
+	responseData["model"] = modelName
+
+	// 构建选择项（从流式输出重建）
+	choices := []map[string]interface{}{
+		{
+			"index": 0,
+			"message": map[string]interface{}{
+				"role":    "assistant",
+				"content": responseText,
+			},
+			"finish_reason": "stop",
+		},
+	}
+	responseData["choices"] = choices
+
+	// 使用情况
+	if usage != nil && usage.TotalTokens > 0 {
+		responseData["usage"] = map[string]interface{}{
+			"prompt_tokens":     usage.PromptTokens,
+			"completion_tokens": usage.CompletionTokens,
+			"total_tokens":      usage.TotalTokens,
+		}
+	}
+
+	return responseData
 }
 
 func applyUsagePostProcessing(info *relaycommon.RelayInfo, usage *dto.Usage, responseBody []byte) {

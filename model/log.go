@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -37,6 +40,11 @@ type Log struct {
 	Group            string `json:"group" gorm:"index"`
 	Ip               string `json:"ip" gorm:"index;default:''"`
 	Other            string `json:"other"`
+	// 价格显示字段 (不存储到数据库，仅用于API返回)
+	InputPriceDisplay   string `json:"input_price_display" gorm:"-"`
+	OutputPriceDisplay  string `json:"output_price_display" gorm:"-"`
+	InputAmountDisplay  string `json:"input_amount_display" gorm:"-"`
+	OutputAmountDisplay string `json:"output_amount_display" gorm:"-"`
 }
 
 // don't use iota, avoid change log type value
@@ -50,6 +58,143 @@ const (
 	LogTypeRefund  = 6
 )
 
+// PricingModelData 定义模型价格数据结构
+type PricingModelData struct {
+	ModelName       string  `json:"model_name"`
+	ModelRatio      float64 `json:"model_ratio"`
+	CompletionRatio float64 `json:"completion_ratio"`
+}
+
+// PricingData 定义完整的pricing数据结构
+type PricingData struct {
+	Data       []PricingModelData `json:"data"`
+	GroupRatio map[string]float64 `json:"group_ratio"`
+}
+
+// 全局缓存变量
+var (
+	pricingCache      *PricingData
+	pricingCacheMutex sync.RWMutex
+	pricingCacheTime  time.Time
+)
+
+// getPricingData 获取pricing数据，带缓存机制
+func getPricingData() (*PricingData, error) {
+	pricingCacheMutex.RLock()
+	// 检查缓存是否有效（5分钟内）
+	if pricingCache != nil && time.Since(pricingCacheTime) < 5*time.Minute {
+		defer pricingCacheMutex.RUnlock()
+		return pricingCache, nil
+	}
+	pricingCacheMutex.RUnlock()
+
+	// 需要更新缓存
+	pricingCacheMutex.Lock()
+	defer pricingCacheMutex.Unlock()
+
+	// 双重检查，防止并发更新
+	if pricingCache != nil && time.Since(pricingCacheTime) < 5*time.Minute {
+		return pricingCache, nil
+	}
+
+	// 获取pricing数据 - 调用model.GetPricing()获取实际的定价数据
+	pricings := GetPricing()
+	var pricingModels []PricingModelData
+
+	// 转换为我们需要的格式
+	for _, pricing := range pricings {
+		pricingModels = append(pricingModels, PricingModelData{
+			ModelName:       pricing.ModelName,
+			ModelRatio:      pricing.ModelRatio,
+			CompletionRatio: pricing.CompletionRatio,
+		})
+	}
+
+	groupRatio := ratio_setting.GetGroupRatioCopy()
+
+	pricingData := &PricingData{
+		Data:       pricingModels,
+		GroupRatio: groupRatio,
+	}
+
+	pricingCache = pricingData
+	pricingCacheTime = time.Now()
+
+	return pricingCache, nil
+}
+
+// findModelRatio 从pricing数据中查找指定模型的倍率信息
+func findModelRatio(pricingData *PricingData, modelName string) (modelRatio float64, completionRatio float64, found bool) {
+	for _, model := range pricingData.Data {
+		if model.ModelName == modelName {
+			return model.ModelRatio, model.CompletionRatio, true
+		}
+	}
+	return 0, 0, false
+}
+
+// calculatePriceFields 计算并设置价格显示字段
+func calculatePriceFields(log *Log) {
+	// 默认倍率
+	var modelRatio float64 = 1.0
+	var completionRatio float64 = 2.0
+	var groupRatio float64 = 1.0
+
+	// 直接从 /api/pricing 获取倍率信息
+	if pricingData, err := getPricingData(); err == nil {
+		// 查找模型倍率
+		if mr, cr, found := findModelRatio(pricingData, log.ModelName); found {
+			modelRatio = mr
+			completionRatio = cr
+		}
+
+		// 获取分组倍率
+		if gr, ok := pricingData.GroupRatio[log.Group]; ok {
+			groupRatio = gr
+		}
+	}
+
+	// 如果从 pricing 获取失败，回退到系统配置
+	if modelRatio == 1.0 {
+		if mr, success, _ := ratio_setting.GetModelRatio(log.ModelName); success {
+			modelRatio = mr
+		}
+	}
+	if completionRatio == 2.0 {
+		if cr := ratio_setting.GetCompletionRatio(log.ModelName); cr > 0 {
+			completionRatio = cr
+		}
+	}
+	if groupRatio == 1.0 {
+		if gr := ratio_setting.GetGroupRatio(log.Group); gr > 0 {
+			groupRatio = gr
+		}
+	}
+
+	// 正确的计算公式：
+	// 输入价格 = 输入倍率(model_ratio) × 2
+	// 输出价格 = 输入价格 × 输出倍率(completion_ratio)
+	// 例如：model_ratio=1.5, completion_ratio=5
+	// 输入价格 = 1.5 × 2 = 3.0 → "$3.000 / 1M"
+	// 输出价格 = 3.0 × 5 = 15.0 → "$15.000 / 1M"
+	inputRatioPrice := modelRatio * 2.0
+	outputRatioPrice := inputRatioPrice * completionRatio
+
+	// 计算输入金额和输出金额
+	promptTokens := float64(log.PromptTokens)
+	completionTokens := float64(log.CompletionTokens)
+
+	// 应用分组倍率到金额计算
+	inputAmount := (promptTokens / 1000000) * inputRatioPrice * groupRatio
+	outputAmount := (completionTokens / 1000000) * outputRatioPrice * groupRatio
+
+	// 格式化显示字符串 - 价格和金额都只返回数值，前端负责格式化显示
+	log.InputPriceDisplay = fmt.Sprintf("%.0f", inputRatioPrice)
+	log.OutputPriceDisplay = fmt.Sprintf("%.0f", outputRatioPrice)
+	log.InputAmountDisplay = fmt.Sprintf("%.6f", inputAmount)
+	log.OutputAmountDisplay = fmt.Sprintf("%.6f", outputAmount)
+}
+
 func formatUserLogs(logs []*Log) {
 	for i := range logs {
 		logs[i].ChannelName = ""
@@ -61,21 +206,273 @@ func formatUserLogs(logs []*Log) {
 		}
 		logs[i].Other = common.MapToJsonStr(otherMap)
 		logs[i].Id = logs[i].Id % 1024
+
+		// 计算价格字段
+		calculatePriceFields(logs[i])
 	}
 }
 
-func GetLogByKey(key string) (logs []*Log, err error) {
+func GetLogByKey(key string, logType int, startTimestamp int64, endTimestamp int64, modelName string, startIdx int, num int, group string) (logs []*Log, total int64, err error) {
+	var tx *gorm.DB
+
 	if os.Getenv("LOG_SQL_DSN") != "" {
+		// 有单独的日志数据库
 		var tk Token
 		if err = DB.Model(&Token{}).Where(logKeyCol+"=?", strings.TrimPrefix(key, "sk-")).First(&tk).Error; err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-		err = LOG_DB.Model(&Log{}).Where("token_id=?", tk.Id).Find(&logs).Error
+
+		if logType == LogTypeUnknown {
+			tx = LOG_DB.Where("token_id = ?", tk.Id)
+		} else {
+			tx = LOG_DB.Where("token_id = ? and type = ?", tk.Id, logType)
+		}
 	} else {
-		err = LOG_DB.Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ?", strings.TrimPrefix(key, "sk-")).Find(&logs).Error
+		// 使用主数据库
+		if logType == LogTypeUnknown {
+			tx = LOG_DB.Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ?", strings.TrimPrefix(key, "sk-"))
+		} else {
+			tx = LOG_DB.Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ? and logs.type = ?", strings.TrimPrefix(key, "sk-"), logType)
+		}
 	}
+
+	if modelName != "" {
+		tx = tx.Where("logs.model_name like ?", modelName)
+	}
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+	if group != "" {
+		tx = tx.Where("logs."+logGroupCol+" = ?", group)
+	}
+
+	err = tx.Model(&Log{}).Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 批量加载channel信息 - 与GetAllLogs相同的逻辑
+	channelIdsMap := make(map[int]struct{})
+	channelMap := make(map[int]string)
+	for _, log := range logs {
+		if log.ChannelId != 0 {
+			channelIdsMap[log.ChannelId] = struct{}{}
+		}
+	}
+
+	channelIds := make([]int, 0, len(channelIdsMap))
+	for channelId := range channelIdsMap {
+		channelIds = append(channelIds, channelId)
+	}
+	if len(channelIds) > 0 {
+		var channels []struct {
+			Id   int    `gorm:"column:id"`
+			Name string `gorm:"column:name"`
+		}
+		if err = DB.Table("channels").Select("id, name").Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
+			return logs, total, err
+		}
+		for _, channel := range channels {
+			channelMap[channel.Id] = channel.Name
+		}
+		for i := range logs {
+			logs[i].ChannelName = channelMap[logs[i].ChannelId]
+		}
+	}
+
 	formatUserLogs(logs)
-	return logs, err
+	return logs, total, err
+}
+
+// GetLogByKeyLightweight 轻量级查询，只返回核心字段，用于大数据量场景
+func GetLogByKeyLightweight(key string, logType int, startTimestamp int64, endTimestamp int64, modelName string, startIdx int, num int, group string) (logs []*Log, total int64, err error) {
+	var tx *gorm.DB
+
+	if os.Getenv("LOG_SQL_DSN") != "" {
+		// 有单独的日志数据库
+		var tk Token
+		if err = DB.Model(&Token{}).Where(logKeyCol+"=?", strings.TrimPrefix(key, "sk-")).First(&tk).Error; err != nil {
+			return nil, 0, err
+		}
+
+		if logType == LogTypeUnknown {
+			tx = LOG_DB.Select("id, created_at, type, content, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream").Where("token_id = ?", tk.Id)
+		} else {
+			tx = LOG_DB.Select("id, created_at, type, content, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream").Where("token_id = ? and type = ?", tk.Id, logType)
+		}
+	} else {
+		// 使用主数据库
+		if logType == LogTypeUnknown {
+			tx = LOG_DB.Select("logs.id, logs.created_at, logs.type, logs.content, logs.model_name, logs.quota, logs.prompt_tokens, logs.completion_tokens, logs.use_time, logs.is_stream").Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ?", strings.TrimPrefix(key, "sk-"))
+		} else {
+			tx = LOG_DB.Select("logs.id, logs.created_at, logs.type, logs.content, logs.model_name, logs.quota, logs.prompt_tokens, logs.completion_tokens, logs.use_time, logs.is_stream").Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ? and logs.type = ?", strings.TrimPrefix(key, "sk-"), logType)
+		}
+	}
+
+	if modelName != "" {
+		tx = tx.Where("logs.model_name like ?", modelName)
+	}
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+	if group != "" {
+		tx = tx.Where("logs."+logGroupCol+" = ?", group)
+	}
+
+	// 先统计总数
+	err = tx.Model(&Log{}).Count(&total).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 为日志添加价格计算字段
+	for i := range logs {
+		calculatePriceFields(logs[i])
+	}
+
+	return logs, total, err
+}
+
+// GetLogByKeyCursor 基于游标的分页查询，适用于超大数据量（100万+）
+func GetLogByKeyCursor(key string, logType int, startTimestamp int64, endTimestamp int64, modelName string, pageSize int, group string, cursor string, lightweight bool) (logs []*Log, nextCursor string, err error) {
+	var tx *gorm.DB
+	var cursorTimestamp int64
+	var cursorId int64
+
+	// 解析游标
+	if cursor != "" {
+		parts := strings.Split(cursor, "_")
+		if len(parts) == 2 {
+			cursorTimestamp, _ = strconv.ParseInt(parts[0], 10, 64)
+			cursorId, _ = strconv.ParseInt(parts[1], 10, 64)
+		}
+	}
+
+	// 选择要查询的字段
+	selectFields := "*"
+	if lightweight {
+		selectFields = "id, created_at, type, content, model_name, quota, prompt_tokens, completion_tokens, use_time, is_stream"
+	}
+
+	if os.Getenv("LOG_SQL_DSN") != "" {
+		// 有单独的日志数据库
+		var tk Token
+		if err = DB.Model(&Token{}).Where(logKeyCol+"=?", strings.TrimPrefix(key, "sk-")).First(&tk).Error; err != nil {
+			return nil, "", err
+		}
+
+		if logType == LogTypeUnknown {
+			tx = LOG_DB.Select(selectFields).Where("token_id = ?", tk.Id)
+		} else {
+			tx = LOG_DB.Select(selectFields).Where("token_id = ? and type = ?", tk.Id, logType)
+		}
+	} else {
+		// 使用主数据库
+		if lightweight {
+			selectFields = "logs.id, logs.created_at, logs.type, logs.content, logs.model_name, logs.quota, logs.prompt_tokens, logs.completion_tokens, logs.use_time, logs.is_stream"
+		} else {
+			selectFields = "logs.*"
+		}
+
+		if logType == LogTypeUnknown {
+			tx = LOG_DB.Select(selectFields).Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ?", strings.TrimPrefix(key, "sk-"))
+		} else {
+			tx = LOG_DB.Select(selectFields).Joins("left join tokens on tokens.id = logs.token_id").Where("tokens.key = ? and logs.type = ?", strings.TrimPrefix(key, "sk-"), logType)
+		}
+	}
+
+	// 添加筛选条件
+	if modelName != "" {
+		tx = tx.Where("logs.model_name like ?", modelName)
+	}
+	if startTimestamp != 0 {
+		tx = tx.Where("logs.created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		tx = tx.Where("logs.created_at <= ?", endTimestamp)
+	}
+	if group != "" {
+		tx = tx.Where("logs."+logGroupCol+" = ?", group)
+	}
+
+	// 游标分页：使用 created_at 和 id 的组合进行分页
+	if cursor != "" {
+		// 查询比游标更早的记录 (created_at < cursor_timestamp OR (created_at = cursor_timestamp AND id < cursor_id))
+		tx = tx.Where("(logs.created_at < ?) OR (logs.created_at = ? AND logs.id < ?)", cursorTimestamp, cursorTimestamp, cursorId)
+	}
+
+	// 按时间倒序，ID倒序，多查询一条用于判断是否还有更多数据
+	err = tx.Order("logs.created_at DESC, logs.id DESC").Limit(pageSize + 1).Find(&logs).Error
+	if err != nil {
+		return nil, "", err
+	}
+
+	// 判断是否还有更多数据
+	hasMore := len(logs) > pageSize
+	if hasMore {
+		logs = logs[:pageSize] // 移除多查询的那一条
+	}
+
+	// 生成下一页的游标
+	if len(logs) > 0 && hasMore {
+		lastLog := logs[len(logs)-1]
+		nextCursor = fmt.Sprintf("%d_%d", lastLog.CreatedAt, lastLog.Id)
+	}
+
+	// 如果不是轻量级查询，需要处理channel信息和格式化
+	if !lightweight && len(logs) > 0 {
+		// 批量加载channel信息
+		channelIdsMap := make(map[int]struct{})
+		channelMap := make(map[int]string)
+		for _, log := range logs {
+			if log.ChannelId != 0 {
+				channelIdsMap[log.ChannelId] = struct{}{}
+			}
+		}
+
+		channelIds := make([]int, 0, len(channelIdsMap))
+		for channelId := range channelIdsMap {
+			channelIds = append(channelIds, channelId)
+		}
+		if len(channelIds) > 0 {
+			var channels []struct {
+				Id   int    `gorm:"column:id"`
+				Name string `gorm:"column:name"`
+			}
+			if err = DB.Table("channels").Select("id, name").Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
+				return logs, nextCursor, err
+			}
+			for _, channel := range channels {
+				channelMap[channel.Id] = channel.Name
+			}
+			for i := range logs {
+				logs[i].ChannelName = channelMap[logs[i].ChannelId]
+			}
+		}
+		formatUserLogs(logs)
+	} else {
+		// 即使是轻量级查询，也需要计算价格字段
+		for i := range logs {
+			calculatePriceFields(logs[i])
+		}
+	}
+
+	return logs, nextCursor, nil
 }
 
 func RecordLog(userId int, logType int, content string) {
