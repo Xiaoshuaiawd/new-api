@@ -1079,6 +1079,9 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	if err != nil {
 		common.SysLog("send final response failed: " + err.Error())
 	}
+
+	streamResp := helper.BuildStreamTextResponse(responseText.String(), usage, id, createAt, info.UpstreamModelName)
+	helper.SaveMESWithTextResponseAsync(c, info, streamResp)
 	//if info.RelayFormat == relaycommon.RelayFormatOpenAI {
 	//	helper.Done(c)
 	//}
@@ -1133,6 +1136,8 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	}
 
 	fullTextResponse.Usage = usage
+
+	helper.SaveMESWithTextResponseAsync(c, info, fullTextResponse)
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:

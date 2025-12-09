@@ -11,7 +11,6 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel/openrouter"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -672,88 +671,23 @@ func OpenaiHandlerWithUsage(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 		usageResp.PromptTokensDetails.TextTokens += usageResp.InputTokensDetails.TextTokens
 	}
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
+
+	// Persist image responses to MES
+	var responseMap map[string]interface{}
+	if err := common.Unmarshal(responseBody, &responseMap); err == nil && len(responseMap) > 0 {
+		helper.SaveMESWithGenericResponseAsync(c, info, responseMap)
+	} else {
+		fallback := map[string]interface{}{
+			"usage": usageResp.Usage,
+		}
+		helper.SaveMESWithGenericResponseAsync(c, info, fallback)
+	}
 	return &usageResp.Usage, nil
 }
 
 // saveChatCompletionToMES 保存聊天补全到MES数据库
 func saveChatCompletionToMES(c *gin.Context, info *relaycommon.RelayInfo, response *dto.OpenAITextResponse) {
-	// 检查是否启用MES
-	if !common.MESEnabled {
-		return
-	}
-
-	// 获取原始请求体
-	requestBody, err := common.GetRequestBody(c)
-	if err != nil {
-		common.SysError("MES: 获取请求体失败: " + err.Error())
-		return
-	}
-
-	// 解析请求
-	var chatRequest dto.GeneralOpenAIRequest
-	if err := common.Unmarshal(requestBody, &chatRequest); err != nil {
-		common.SysError("MES: 解析请求失败: " + err.Error())
-		return
-	}
-
-	// 生成对话ID - 使用请求ID + 时间戳
-	requestId := c.GetString(common.RequestIdKey)
-	conversationId := generateConversationId(requestId, &chatRequest)
-
-	// 转换消息格式
-	messages := convertDTOMessagesToMESFormat(chatRequest.Messages)
-
-	// 构建更健壮的助手响应消息
-	var assistantMessage map[string]interface{}
-	if len(response.Choices) > 0 {
-		choice := response.Choices[0]
-		assistantMessage = map[string]interface{}{
-			"role":    "assistant",
-			"content": choice.Message.StringContent(),
-		}
-
-		// 添加其他字段（如果有的话）
-		if len(choice.Message.ToolCalls) > 0 {
-			assistantMessage["tool_calls"] = choice.Message.ToolCalls
-		}
-
-		if choice.FinishReason != "" {
-			assistantMessage["finish_reason"] = choice.FinishReason
-		}
-	}
-
-	// 构建完整的对话
-	fullConversation := make([]map[string]interface{}, 0, len(messages)+1)
-	fullConversation = append(fullConversation, messages...)
-
-	if assistantMessage != nil {
-		fullConversation = append(fullConversation, assistantMessage)
-	}
-
-	// 调试日志
-	if common.DebugEnabled {
-		conversationJSON, _ := common.Marshal(fullConversation)
-		common.SysLog("MES调试: 完整对话 = " + string(conversationJSON))
-	}
-
-	// 保存到MES
-	mesHelper := model.GetMESHelper()
-	err = mesHelper.SaveFullConversation(
-		c,
-		conversationId,
-		fullConversation,
-		response,
-		info.OriginModelName,
-		info.UserId,
-		info.TokenId,
-		info.ChannelId,
-	)
-
-	if err != nil {
-		common.SysError("MES: 保存聊天补全失败: " + err.Error())
-	} else {
-		common.SysLog("MES: 成功保存聊天补全, 对话ID: " + conversationId)
-	}
+	helper.SaveMESWithTextResponseAsync(c, info, response)
 }
 
 // generateConversationId 生成对话ID
@@ -844,72 +778,8 @@ func buildMESResponseData(response *dto.OpenAITextResponse) map[string]interface
 
 // saveStreamChatCompletionToMES 保存流式聊天补全到MES数据库
 func saveStreamChatCompletionToMES(c *gin.Context, info *relaycommon.RelayInfo, responseText string, usage *dto.Usage, responseId string, createAt int64, modelName string) {
-	// 检查是否启用MES
-	if !common.MESEnabled {
-		return
-	}
-
-	// 获取原始请求体
-	requestBody, err := common.GetRequestBody(c)
-	if err != nil {
-		common.SysError("MES流式: 获取请求体失败: " + err.Error())
-		return
-	}
-
-	// 解析请求
-	var chatRequest dto.GeneralOpenAIRequest
-	if err := common.Unmarshal(requestBody, &chatRequest); err != nil {
-		common.SysError("MES流式: 解析请求失败: " + err.Error())
-		return
-	}
-
-	// 生成对话ID
-	requestId := c.GetString(common.RequestIdKey)
-	conversationId := generateConversationId(requestId, &chatRequest)
-
-	// 转换消息格式
-	messages := convertDTOMessagesToMESFormat(chatRequest.Messages)
-
-	// 构建助手响应消息
-	assistantMessage := map[string]interface{}{
-		"role":    "assistant",
-		"content": responseText,
-	}
-
-	// 构建完整的对话
-	fullConversation := make([]map[string]interface{}, 0, len(messages)+1)
-	fullConversation = append(fullConversation, messages...)
-	fullConversation = append(fullConversation, assistantMessage)
-
-	// 构建假的response对象用于传递usage信息
-	var fakeResponse *dto.OpenAITextResponse
-	if usage != nil {
-		fakeResponse = &dto.OpenAITextResponse{
-			Id:      responseId,
-			Model:   modelName,
-			Created: createAt,
-			Usage:   *usage,
-		}
-	}
-
-	// 获取MES辅助器并保存
-	mesHelper := model.GetMESHelper()
-	err = mesHelper.SaveFullConversation(
-		c,
-		conversationId,
-		fullConversation,
-		fakeResponse,
-		info.OriginModelName,
-		info.UserId,
-		info.TokenId,
-		info.ChannelId,
-	)
-
-	if err != nil {
-		common.SysError("MES流式: 保存聊天补全失败: " + err.Error())
-	} else {
-		common.SysLog("MES流式: 成功保存聊天补全, 对话ID: " + conversationId)
-	}
+	streamResp := helper.BuildStreamTextResponse(responseText, usage, responseId, createAt, modelName)
+	helper.SaveMESWithTextResponseAsync(c, info, streamResp)
 }
 
 // buildStreamMESResponseData 构建流式MES响应数据

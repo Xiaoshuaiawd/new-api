@@ -698,6 +698,9 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 		}
 		helper.Done(c)
 	}
+
+	streamResponse := helper.BuildStreamTextResponse(claudeInfo.ResponseText.String(), claudeInfo.Usage, claudeInfo.ResponseId, claudeInfo.Created, info.UpstreamModelName)
+	helper.SaveMESWithTextResponseAsync(c, info, streamResponse)
 }
 
 func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, requestMode int) (*dto.Usage, *types.NewAPIError) {
@@ -747,10 +750,11 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		claudeInfo.Usage.ClaudeCacheCreation5mTokens = claudeResponse.Usage.GetCacheCreation5mTokens()
 		claudeInfo.Usage.ClaudeCacheCreation1hTokens = claudeResponse.Usage.GetCacheCreation1hTokens()
 	}
+	var openaiResponse *dto.OpenAITextResponse
 	var responseData []byte
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		openaiResponse := ResponseClaude2OpenAI(requestMode, &claudeResponse)
+		openaiResponse = ResponseClaude2OpenAI(requestMode, &claudeResponse)
 		openaiResponse.Usage = *claudeInfo.Usage
 		responseData, err = json.Marshal(openaiResponse)
 		if err != nil {
@@ -758,10 +762,16 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		}
 	case types.RelayFormatClaude:
 		responseData = data
+		openaiResponse = ResponseClaude2OpenAI(requestMode, &claudeResponse)
+		openaiResponse.Usage = *claudeInfo.Usage
 	}
 
 	if claudeResponse.Usage.ServerToolUse != nil && claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
 		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
+	}
+
+	if openaiResponse != nil {
+		helper.SaveMESWithTextResponseAsync(c, info, openaiResponse)
 	}
 
 	service.IOCopyBytesGracefully(c, httpResp, responseData)

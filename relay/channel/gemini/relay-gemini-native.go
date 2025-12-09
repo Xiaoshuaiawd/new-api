@@ -55,6 +55,11 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 		}
 	}
 
+	fullTextResponse := responseGeminiChat2OpenAI(c, &geminiResponse)
+	fullTextResponse.Model = info.UpstreamModelName
+	fullTextResponse.Usage = usage
+	helper.SaveMESWithTextResponseAsync(c, info, fullTextResponse)
+
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	return &usage, nil
@@ -99,6 +104,8 @@ func NativeGeminiEmbeddingHandler(c *gin.Context, resp *http.Response, info *rel
 func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	var usage = &dto.Usage{}
 	var imageCount int
+	id := helper.GetResponseID(c)
+	createAt := common.GetTimestamp()
 
 	helper.SetEventStreamHeaders(c)
 
@@ -171,6 +178,9 @@ func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 
 	// 移除流式响应结尾的[Done]，因为Gemini API没有发送Done的行为
 	//helper.Done(c)
+
+	streamResp := helper.BuildStreamTextResponse(responseText.String(), usage, id, createAt, info.UpstreamModelName)
+	helper.SaveMESWithTextResponseAsync(c, info, streamResp)
 
 	return usage, nil
 }
