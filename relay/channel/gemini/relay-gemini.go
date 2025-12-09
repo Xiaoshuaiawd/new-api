@@ -193,6 +193,24 @@ func CovertGemini2OpenAI(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 		},
 	}
 
+	// 安全处理 Stop 字段
+	if textRequest.Stop != nil {
+		switch v := textRequest.Stop.(type) {
+		case string:
+			geminiRequest.GenerationConfig.StopSequences = []string{v}
+		case []string:
+			geminiRequest.GenerationConfig.StopSequences = v
+		case []interface{}:
+			stopSequences := make([]string, 0, len(v))
+			for _, stop := range v {
+				if str, ok := stop.(string); ok {
+					stopSequences = append(stopSequences, str)
+				}
+			}
+			geminiRequest.GenerationConfig.StopSequences = stopSequences
+		}
+	}
+
 	if model_setting.IsGeminiModelSupportImagine(info.UpstreamModelName) {
 		geminiRequest.GenerationConfig.ResponseModalities = []string{
 			"TEXT",
@@ -502,6 +520,108 @@ func CovertGemini2OpenAI(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 						Data:     base64String,
 					},
 				})
+			} else if part.Type == dto.ContentTypeVideoUrl {
+				// 处理视频 URL
+				videoUrl := part.GetVideoUrl()
+				if videoUrl == nil || videoUrl.Url == "" {
+					continue
+				}
+
+				// 判断是否是 URL
+				if strings.HasPrefix(videoUrl.Url, "http") {
+					// 是 URL，获取文件的类型和 base64 编码的数据
+					fileData, err := service.GetFileBase64FromUrl(c, videoUrl.Url, "formatting video for Gemini")
+					if err != nil {
+						return nil, fmt.Errorf("get file base64 from url '%s' failed: %w", videoUrl.Url, err)
+					}
+
+					// 校验 MimeType 是否在 Gemini 支持的白名单中
+					if _, ok := geminiSupportedMimeTypes[strings.ToLower(fileData.MimeType)]; !ok {
+						return nil, fmt.Errorf("mime type is not supported by Gemini: '%s', url: '%s', supported types are: %v", fileData.MimeType, videoUrl.Url, getSupportedMimeTypesList())
+					}
+
+					geminiPart := dto.GeminiPart{
+						InlineData: &dto.GeminiInlineData{
+							MimeType: fileData.MimeType,
+							Data:     fileData.Base64Data,
+						},
+					}
+
+					// 只有当 VideoMetadata 存在时才添加
+					if textRequest.VideoMetadata != nil {
+						videoMeta := &dto.GeminiVideoMetadata{
+							StartOffset: textRequest.VideoMetadata.StartOffset,
+							EndOffset:   textRequest.VideoMetadata.EndOffset,
+						}
+						// 当 FPS 不为 1 时才设置 FPS 参数，因为 Gemini API 默认为 1 FPS
+						// 明确设置 FPS = 1 可能导致 API 异常行为
+						if textRequest.VideoMetadata.FPS != 1 {
+							videoMeta.FPS = textRequest.VideoMetadata.FPS
+						}
+						geminiPart.VideoMetadata = videoMeta
+					}
+
+					parts = append(parts, geminiPart)
+				} else {
+					// 处理 base64 编码的视频数据
+					format, base64String, err := service.DecodeBase64FileData(videoUrl.Url)
+					if err != nil {
+						return nil, fmt.Errorf("decode base64 video data failed: %s", err.Error())
+					}
+
+					geminiPart := dto.GeminiPart{
+						InlineData: &dto.GeminiInlineData{
+							MimeType: format,
+							Data:     base64String,
+						},
+					}
+
+					// 只有当 VideoMetadata 存在时才添加
+					if textRequest.VideoMetadata != nil {
+						videoMeta := &dto.GeminiVideoMetadata{
+							StartOffset: textRequest.VideoMetadata.StartOffset,
+							EndOffset:   textRequest.VideoMetadata.EndOffset,
+						}
+						// 当 FPS 不为 1 时才设置 FPS 参数，因为 Gemini API 默认为 1 FPS
+						// 明确设置 FPS = 1 可能导致 API 异常行为
+						if textRequest.VideoMetadata.FPS != 1 {
+							videoMeta.FPS = textRequest.VideoMetadata.FPS
+						}
+						geminiPart.VideoMetadata = videoMeta
+					}
+
+					parts = append(parts, geminiPart)
+				}
+			} else if part.Type == dto.ContentTypeYoutube {
+				// 处理 YouTube 视频
+				youtube := part.GetYoutube()
+				if youtube == nil || youtube.Url == "" {
+					continue
+				}
+
+				// YouTube URL 需要转换处理
+				geminiPart := dto.GeminiPart{
+					FileData: &dto.GeminiFileData{
+						FileUri:  youtube.Url,
+						MimeType: youtube.MimeType,
+					},
+				}
+
+				// 只有当 VideoMetadata 存在时才添加
+				if textRequest.VideoMetadata != nil {
+					videoMeta := &dto.GeminiVideoMetadata{
+						StartOffset: textRequest.VideoMetadata.StartOffset,
+						EndOffset:   textRequest.VideoMetadata.EndOffset,
+					}
+					// 当 FPS 不为 1 时才设置 FPS 参数，因为 Gemini API 默认为 1 FPS
+					// 明确设置 FPS = 1 可能导致 API 异常行为
+					if textRequest.VideoMetadata.FPS != 1 {
+						videoMeta.FPS = textRequest.VideoMetadata.FPS
+					}
+					geminiPart.VideoMetadata = videoMeta
+				}
+
+				parts = append(parts, geminiPart)
 			}
 		}
 
@@ -1003,6 +1123,22 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 					usage.PromptTokensDetails.TextTokens = detail.TokenCount
 				}
 			}
+
+			// 添加缓存 token 详情，但不计入配额计费
+			if len(geminiResponse.UsageMetadata.CacheTokensDetails) > 0 {
+				usage.CacheTokensDetails = make([]dto.CacheTokensDetails, len(geminiResponse.UsageMetadata.CacheTokensDetails))
+				for i, detail := range geminiResponse.UsageMetadata.CacheTokensDetails {
+					usage.CacheTokensDetails[i] = dto.CacheTokensDetails{
+						Modality:   detail.Modality,
+						TokenCount: detail.TokenCount,
+					}
+				}
+			}
+
+			// 添加缓存内容 token 总数
+			if geminiResponse.UsageMetadata.CachedContentTokenCount > 0 {
+				usage.CachedContentTokenCount = geminiResponse.UsageMetadata.CachedContentTokenCount
+			}
 		}
 		logger.LogDebug(c, fmt.Sprintf("info.SendResponseCount = %d", info.SendResponseCount))
 		if info.SendResponseCount == 0 {
@@ -1145,6 +1281,22 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		} else if detail.Modality == "TEXT" {
 			usage.PromptTokensDetails.TextTokens = detail.TokenCount
 		}
+	}
+
+	// 添加缓存 token 详情，但不计入配额计费
+	if len(geminiResponse.UsageMetadata.CacheTokensDetails) > 0 {
+		usage.CacheTokensDetails = make([]dto.CacheTokensDetails, len(geminiResponse.UsageMetadata.CacheTokensDetails))
+		for i, detail := range geminiResponse.UsageMetadata.CacheTokensDetails {
+			usage.CacheTokensDetails[i] = dto.CacheTokensDetails{
+				Modality:   detail.Modality,
+				TokenCount: detail.TokenCount,
+			}
+		}
+	}
+
+	// 添加缓存内容 token 总数
+	if geminiResponse.UsageMetadata.CachedContentTokenCount > 0 {
+		usage.CachedContentTokenCount = geminiResponse.UsageMetadata.CachedContentTokenCount
 	}
 
 	fullTextResponse.Usage = usage

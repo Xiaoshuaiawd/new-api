@@ -56,6 +56,22 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 		}
 	}
 
+	// 添加缓存 token 详情，但不计入配额计费
+	if len(geminiResponse.UsageMetadata.CacheTokensDetails) > 0 {
+		usage.CacheTokensDetails = make([]dto.CacheTokensDetails, len(geminiResponse.UsageMetadata.CacheTokensDetails))
+		for i, detail := range geminiResponse.UsageMetadata.CacheTokensDetails {
+			usage.CacheTokensDetails[i] = dto.CacheTokensDetails{
+				Modality:   detail.Modality,
+				TokenCount: detail.TokenCount,
+			}
+		}
+	}
+
+	// 添加缓存内容 token 总数
+	if geminiResponse.UsageMetadata.CachedContentTokenCount > 0 {
+		usage.CachedContentTokenCount = geminiResponse.UsageMetadata.CachedContentTokenCount
+	}
+
 	// 以 Gemini 原生格式写入 MES
 	var respMap map[string]interface{}
 	if raw, errMarshal := common.Marshal(geminiResponse); errMarshal == nil {
@@ -156,6 +172,22 @@ func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 				} else if detail.Modality == "TEXT" {
 					usage.PromptTokensDetails.TextTokens = detail.TokenCount
 				}
+			}
+
+			// 添加缓存 token 详情，但不计入配额计费
+			if len(geminiResponse.UsageMetadata.CacheTokensDetails) > 0 {
+				usage.CacheTokensDetails = make([]dto.CacheTokensDetails, len(geminiResponse.UsageMetadata.CacheTokensDetails))
+				for i, detail := range geminiResponse.UsageMetadata.CacheTokensDetails {
+					usage.CacheTokensDetails[i] = dto.CacheTokensDetails{
+						Modality:   detail.Modality,
+						TokenCount: detail.TokenCount,
+					}
+				}
+			}
+
+			// 添加缓存内容 token 总数
+			if geminiResponse.UsageMetadata.CachedContentTokenCount > 0 {
+				usage.CachedContentTokenCount = geminiResponse.UsageMetadata.CachedContentTokenCount
 			}
 		}
 
