@@ -19,6 +19,7 @@ import (
 )
 
 func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	logger.LogInfo(c, "MES: GeminiTextGenerationHandler start, path="+info.RequestURLPath)
 	defer service.CloseResponseBodyGracefully(resp)
 
 	// 读取响应体
@@ -113,6 +114,7 @@ func NativeGeminiEmbeddingHandler(c *gin.Context, resp *http.Response, info *rel
 }
 
 func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	logger.LogInfo(c, "MES: GeminiTextGenerationStreamHandler start, path="+info.RequestURLPath)
 	var usage = &dto.Usage{}
 	var imageCount int
 	id := helper.GetResponseID(c)

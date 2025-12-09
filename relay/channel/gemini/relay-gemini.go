@@ -954,6 +954,7 @@ func handleFinalStream(c *gin.Context, info *relaycommon.RelayInfo, resp *dto.Ch
 }
 
 func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	logger.LogInfo(c, "MES: GeminiChatStreamHandler start, path="+info.RequestURLPath)
 	// responseText := ""
 	id := helper.GetResponseID(c)
 	createAt := common.GetTimestamp()
@@ -1100,6 +1101,7 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 }
 
 func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	logger.LogInfo(c, "MES: GeminiChatHandler start, path="+info.RequestURLPath)
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
