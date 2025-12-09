@@ -245,40 +245,60 @@ func GetMESMessagesFromContext(c *gin.Context, info *relaycommon.RelayInfo) ([]m
 
 	body, err := common.GetRequestBody(c)
 	if err != nil {
-		return nil, err
+		body = nil
 	}
 
 	switch info.Request.(type) {
 	case *dto.GeneralOpenAIRequest:
 		var req dto.GeneralOpenAIRequest
-		if err := common.Unmarshal(body, &req); err != nil {
-			return nil, err
+		if body != nil {
+			if err := common.Unmarshal(body, &req); err == nil {
+				return ConvertOpenAIMessagesToMES(req.Messages), nil
+			}
 		}
-		return ConvertOpenAIMessagesToMES(req.Messages), nil
+		if reqPtr, ok := info.Request.(*dto.GeneralOpenAIRequest); ok {
+			return ConvertOpenAIMessagesToMES(reqPtr.Messages), nil
+		}
+		return nil, fmt.Errorf("failed to parse OpenAI request")
 	case *dto.ClaudeRequest:
 		var req dto.ClaudeRequest
-		if err := common.Unmarshal(body, &req); err != nil {
-			return nil, err
+		if body != nil {
+			if err := common.Unmarshal(body, &req); err == nil {
+				return ConvertClaudeMessagesToMES(&req), nil
+			}
 		}
-		return ConvertClaudeMessagesToMES(&req), nil
+		if reqPtr, ok := info.Request.(*dto.ClaudeRequest); ok {
+			return ConvertClaudeMessagesToMES(reqPtr), nil
+		}
+		return nil, fmt.Errorf("failed to parse Claude request")
 	case *dto.GeminiChatRequest:
 		var req dto.GeminiChatRequest
-		if err := common.Unmarshal(body, &req); err != nil {
-			return nil, err
+		if body != nil {
+			if err := common.Unmarshal(body, &req); err == nil {
+				return ConvertGeminiMessagesToMES(&req), nil
+			}
 		}
-		return ConvertGeminiMessagesToMES(&req), nil
+		if reqPtr, ok := info.Request.(*dto.GeminiChatRequest); ok {
+			return ConvertGeminiMessagesToMES(reqPtr), nil
+		}
+		return nil, fmt.Errorf("failed to parse Gemini request")
 	case *dto.ImageRequest:
 		var req dto.ImageRequest
-		if err := common.Unmarshal(body, &req); err != nil {
-			// multipart/form-data 请求无法直接反序列化时，记录占位内容
-			return []map[string]interface{}{
-				{
-					"role":    "user",
-					"content": "[binary image request]",
-				},
-			}, nil
+		if body != nil {
+			if err := common.Unmarshal(body, &req); err == nil {
+				return ConvertImageRequestToMES(&req), nil
+			}
 		}
-		return ConvertImageRequestToMES(&req), nil
+		if reqPtr, ok := info.Request.(*dto.ImageRequest); ok {
+			return ConvertImageRequestToMES(reqPtr), nil
+		}
+		// multipart/form-data 请求无法直接反序列化时，记录占位内容
+		return []map[string]interface{}{
+			{
+				"role":    "user",
+				"content": "[binary image request]",
+			},
+		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported request type %T for MES", info.Request)
 	}
