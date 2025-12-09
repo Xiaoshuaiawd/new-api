@@ -310,6 +310,8 @@ func SaveMESWithTextResponseAsync(c *gin.Context, info *relaycommon.RelayInfo, r
 		return
 	}
 
+	common.SysLog(fmt.Sprintf("MES: 开始保存文本响应, request_id=%s, path=%s", c.GetString(common.RequestIdKey), info.RequestURLPath))
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -351,6 +353,8 @@ func SaveMESWithGenericResponseAsync(c *gin.Context, info *relaycommon.RelayInfo
 		return
 	}
 
+	common.SysLog(fmt.Sprintf("MES: 开始保存通用响应, request_id=%s, path=%s", c.GetString(common.RequestIdKey), info.RequestURLPath))
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -377,6 +381,34 @@ func SaveMESWithGenericResponseAsync(c *gin.Context, info *relaycommon.RelayInfo
 		}
 		common.SysLog("MES: 成功保存聊天记录, 对话ID: " + conversationId)
 	}()
+}
+
+// SaveMESWithGenericResponseSync saves responses to MES synchronously (用于调试/确保写入).
+func SaveMESWithGenericResponseSync(c *gin.Context, info *relaycommon.RelayInfo, response map[string]interface{}) {
+	if !common.MESEnabled || response == nil {
+		return
+	}
+
+	common.SysLog(fmt.Sprintf("MES: 同步保存通用响应, request_id=%s, path=%s", c.GetString(common.RequestIdKey), info.RequestURLPath))
+
+	messages, err := GetMESMessagesFromContext(c, info)
+	if err != nil {
+		common.SysError("MES: 解析请求失败: " + err.Error() + "，使用占位消息")
+		messages = []map[string]interface{}{
+			{
+				"role":    "user",
+				"content": "[unparsed request]",
+			},
+		}
+	}
+
+	conversationId := GenerateConversationID(c)
+	mesHelper := model.GetMESHelper()
+	if err := mesHelper.SaveChatCompletion(c, conversationId, messages, response, info.OriginModelName, info.UserId, info.TokenId, info.ChannelId); err != nil {
+		common.SysError("MES: 保存对话失败: " + err.Error())
+		return
+	}
+	common.SysLog("MES: 成功保存聊天记录(同步), 对话ID: " + conversationId)
 }
 
 // SaveMESWithRawResponseAsync converts any response to a map and persists it with optional usage/tokens intact.

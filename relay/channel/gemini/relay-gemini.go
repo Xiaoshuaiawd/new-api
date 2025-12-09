@@ -1090,7 +1090,8 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 			"total_tokens":      usage.TotalTokens,
 		},
 	}
-	helper.SaveMESWithGenericResponseAsync(c, info, streamRespMap)
+	// 同步写入，避免漏记
+	helper.SaveMESWithGenericResponseSync(c, info, streamRespMap)
 	//if info.RelayFormat == relaycommon.RelayFormatOpenAI {
 	//	helper.Done(c)
 	//}
@@ -1159,7 +1160,8 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		"completion_tokens": usage.CompletionTokens,
 		"total_tokens":      usage.TotalTokens,
 	}
-	helper.SaveMESWithGenericResponseAsync(c, info, respMap)
+	// 同步写入，避免漏记
+	helper.SaveMESWithGenericResponseSync(c, info, respMap)
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
