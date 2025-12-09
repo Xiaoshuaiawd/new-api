@@ -555,6 +555,11 @@ func (h *MESHelper) buildAssistantMessage(response map[string]interface{}) map[s
 
 	// 如果没有content字段，尝试直接从response中获取
 	if _, hasContent := assistantMessage["content"]; !hasContent {
+		// Gemini/自定义流式聚合会使用 text 字段
+		if txt, ok := response["text"].(string); ok && txt != "" {
+			assistantMessage["content"] = txt
+		}
+
 		if content, exists := response["content"]; exists {
 			assistantMessage["content"] = content
 		}
