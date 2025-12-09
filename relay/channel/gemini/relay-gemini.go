@@ -209,6 +209,24 @@ func CovertOpenAI2Gemini(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 		},
 	}
 
+	// 安全处理 Stop 字段
+	if textRequest.Stop != nil {
+		switch v := textRequest.Stop.(type) {
+		case string:
+			geminiRequest.GenerationConfig.StopSequences = []string{v}
+		case []string:
+			geminiRequest.GenerationConfig.StopSequences = v
+		case []interface{}:
+			stopSequences := make([]string, 0, len(v))
+			for _, stop := range v {
+				if str, ok := stop.(string); ok {
+					stopSequences = append(stopSequences, str)
+				}
+			}
+			geminiRequest.GenerationConfig.StopSequences = stopSequences
+		}
+	}
+
 	attachThoughtSignature := (info.ChannelType == constant.ChannelTypeGemini ||
 		info.ChannelType == constant.ChannelTypeVertexAi) &&
 		model_setting.GetGeminiSettings().FunctionCallThoughtSignatureEnabled
@@ -621,6 +639,108 @@ func CovertOpenAI2Gemini(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 						Data:     base64String,
 					},
 				})
+			} else if part.Type == dto.ContentTypeVideoUrl {
+				// 处理视频 URL
+				videoUrl := part.GetVideoUrl()
+				if videoUrl == nil || videoUrl.Url == "" {
+					continue
+				}
+
+				// 判断是否是 URL
+				if strings.HasPrefix(videoUrl.Url, "http") {
+					// 是 URL，获取文件的类型和 base64 编码的数据
+					fileData, err := service.GetFileBase64FromUrl(c, videoUrl.Url, "formatting video for Gemini")
+					if err != nil {
+						return nil, fmt.Errorf("get file base64 from url '%s' failed: %w", videoUrl.Url, err)
+					}
+
+					// 校验 MimeType 是否在 Gemini 支持的白名单中
+					if _, ok := geminiSupportedMimeTypes[strings.ToLower(fileData.MimeType)]; !ok {
+						return nil, fmt.Errorf("mime type is not supported by Gemini: '%s', url: '%s', supported types are: %v", fileData.MimeType, videoUrl.Url, getSupportedMimeTypesList())
+					}
+
+					geminiPart := dto.GeminiPart{
+						InlineData: &dto.GeminiInlineData{
+							MimeType: fileData.MimeType,
+							Data:     fileData.Base64Data,
+						},
+					}
+
+					// 只有当 VideoMetadata 存在时才添加
+					if textRequest.VideoMetadata != nil {
+						videoMeta := &dto.GeminiVideoMetadata{
+							StartOffset: textRequest.VideoMetadata.StartOffset,
+							EndOffset:   textRequest.VideoMetadata.EndOffset,
+						}
+						// 当 FPS 不为 1 时才设置 FPS 参数，因为 Gemini API 默认为 1 FPS
+						// 明确设置 FPS = 1 可能导致 API 异常行为
+						if textRequest.VideoMetadata.FPS != 1 {
+							videoMeta.FPS = textRequest.VideoMetadata.FPS
+						}
+						geminiPart.VideoMetadata = videoMeta
+					}
+
+					parts = append(parts, geminiPart)
+				} else {
+					// 处理 base64 编码的视频数据
+					format, base64String, err := service.DecodeBase64FileData(videoUrl.Url)
+					if err != nil {
+						return nil, fmt.Errorf("decode base64 video data failed: %s", err.Error())
+					}
+
+					geminiPart := dto.GeminiPart{
+						InlineData: &dto.GeminiInlineData{
+							MimeType: format,
+							Data:     base64String,
+						},
+					}
+
+					// 只有当 VideoMetadata 存在时才添加
+					if textRequest.VideoMetadata != nil {
+						videoMeta := &dto.GeminiVideoMetadata{
+							StartOffset: textRequest.VideoMetadata.StartOffset,
+							EndOffset:   textRequest.VideoMetadata.EndOffset,
+						}
+						// 当 FPS 不为 1 时才设置 FPS 参数，因为 Gemini API 默认为 1 FPS
+						// 明确设置 FPS = 1 可能导致 API 异常行为
+						if textRequest.VideoMetadata.FPS != 1 {
+							videoMeta.FPS = textRequest.VideoMetadata.FPS
+						}
+						geminiPart.VideoMetadata = videoMeta
+					}
+
+					parts = append(parts, geminiPart)
+				}
+			} else if part.Type == dto.ContentTypeYoutube {
+				// 处理 YouTube 视频
+				youtube := part.GetYoutube()
+				if youtube == nil || youtube.Url == "" {
+					continue
+				}
+
+				// YouTube URL 需要转换处理
+				geminiPart := dto.GeminiPart{
+					FileData: &dto.GeminiFileData{
+						FileUri:  youtube.Url,
+						MimeType: youtube.MimeType,
+					},
+				}
+
+				// 只有当 VideoMetadata 存在时才添加
+				if textRequest.VideoMetadata != nil {
+					videoMeta := &dto.GeminiVideoMetadata{
+						StartOffset: textRequest.VideoMetadata.StartOffset,
+						EndOffset:   textRequest.VideoMetadata.EndOffset,
+					}
+					// 当 FPS 不为 1 时才设置 FPS 参数，因为 Gemini API 默认为 1 FPS
+					// 明确设置 FPS = 1 可能导致 API 异常行为
+					if textRequest.VideoMetadata.FPS != 1 {
+						videoMeta.FPS = textRequest.VideoMetadata.FPS
+					}
+					geminiPart.VideoMetadata = videoMeta
+				}
+
+				parts = append(parts, geminiPart)
 			}
 		}
 
@@ -1105,7 +1225,8 @@ func handleFinalStream(c *gin.Context, info *relaycommon.RelayInfo, resp *dto.Ch
 	return nil
 }
 
-func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, callback func(data string, geminiResponse *dto.GeminiChatResponse) bool) (*dto.Usage, *types.NewAPIError) {
+func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, callback func(data string, geminiResponse *dto.GeminiChatResponse) bool) (*dto.Usage, string, int, *types.NewAPIError) {
+	logger.LogInfo(c, "MES: GeminiChatStreamHandler start, path="+info.RequestURLPath)
 	var usage = &dto.Usage{}
 	var imageCount int
 	responseText := strings.Builder{}
@@ -1147,16 +1268,26 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 					usage.PromptTokensDetails.TextTokens = detail.TokenCount
 				}
 			}
+
+			// 添加缓存 token 详情，但不计入配额计费
+			if len(geminiResponse.UsageMetadata.CacheTokensDetails) > 0 {
+				usage.CacheTokensDetails = make([]dto.CacheTokensDetails, len(geminiResponse.UsageMetadata.CacheTokensDetails))
+				for i, detail := range geminiResponse.UsageMetadata.CacheTokensDetails {
+					usage.CacheTokensDetails[i] = dto.CacheTokensDetails{
+						Modality:   detail.Modality,
+						TokenCount: detail.TokenCount,
+					}
+				}
+			}
+
+			// 添加缓存内容 token 总数
+			if geminiResponse.UsageMetadata.CachedContentTokenCount > 0 {
+				usage.CachedContentTokenCount = geminiResponse.UsageMetadata.CachedContentTokenCount
+			}
 		}
 
 		return callback(data, &geminiResponse)
 	})
-
-	if imageCount != 0 {
-		if usage.CompletionTokens == 0 {
-			usage.CompletionTokens = imageCount * 1400
-		}
-	}
 
 	usage.PromptTokensDetails.TextTokens = usage.PromptTokens
 	if usage.TotalTokens > 0 {
@@ -1164,15 +1295,15 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 
 	if usage.CompletionTokens <= 0 {
-		str := responseText.String()
-		if len(str) > 0 {
-			usage = service.ResponseText2Usage(c, responseText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+		aggregated := responseText.String()
+		if len(aggregated) > 0 {
+			usage = service.ResponseText2Usage(c, aggregated, info.UpstreamModelName, info.GetEstimatePromptTokens())
 		} else {
 			usage = &dto.Usage{}
 		}
 	}
 
-	return usage, nil
+	return usage, responseText.String(), imageCount, nil
 }
 
 func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -1180,7 +1311,7 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	createAt := common.GetTimestamp()
 	finishReason := constant.FinishReasonStop
 
-	usage, err := geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
+	usage, aggregatedText, imageCount, err := geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
 		response, isStop := streamResponseGeminiChat2OpenAI(geminiResponse)
 
 		response.Id = id
@@ -1238,6 +1369,10 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		return nil, types.NewOpenAIError(errors.New("no response received from Gemini API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
 	}
 
+	if imageCount != 0 && usage.CompletionTokens == 0 {
+		usage.CompletionTokens = imageCount * 1400
+	}
+
 	usage.PromptTokensDetails.TextTokens = usage.PromptTokens
 	// 如果没有从响应中获取到usage信息，则使用计算的方式
 	if usage.CompletionTokens == 0 && usage.TotalTokens > usage.PromptTokens {
@@ -1245,15 +1380,37 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		usage.CompletionTokenDetails.TextTokens = usage.CompletionTokens
 	}
 
+	if usage.CompletionTokens == 0 {
+		if len(aggregatedText) > 0 {
+			usage = service.ResponseText2Usage(c, aggregatedText, info.UpstreamModelName, info.GetEstimatePromptTokens())
+		} else {
+			usage = &dto.Usage{}
+		}
+	}
+
 	response := helper.GenerateFinalUsageResponse(id, createAt, info.UpstreamModelName, *usage)
 	handleErr := handleFinalStream(c, info, response)
 	if handleErr != nil {
 		common.SysLog("send final response failed: " + handleErr.Error())
 	}
+
+	// 将流式聚合文本与用量以原生结构写入 MES
+	streamRespMap := map[string]interface{}{
+		"stream": true,
+		"text":   aggregatedText,
+		"usage": map[string]interface{}{
+			"prompt_tokens":     usage.PromptTokens,
+			"completion_tokens": usage.CompletionTokens,
+			"total_tokens":      usage.TotalTokens,
+		},
+	}
+	// 同步写入，避免漏记
+	helper.SaveMESWithGenericResponseSync(c, info, streamRespMap)
 	return usage, nil
 }
 
 func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	logger.LogInfo(c, "MES: GeminiChatHandler start, path="+info.RequestURLPath)
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
@@ -1299,7 +1456,39 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		}
 	}
 
+	// 添加缓存 token 详情，但不计入配额计费
+	if len(geminiResponse.UsageMetadata.CacheTokensDetails) > 0 {
+		usage.CacheTokensDetails = make([]dto.CacheTokensDetails, len(geminiResponse.UsageMetadata.CacheTokensDetails))
+		for i, detail := range geminiResponse.UsageMetadata.CacheTokensDetails {
+			usage.CacheTokensDetails[i] = dto.CacheTokensDetails{
+				Modality:   detail.Modality,
+				TokenCount: detail.TokenCount,
+			}
+		}
+	}
+
+	// 添加缓存内容 token 总数
+	if geminiResponse.UsageMetadata.CachedContentTokenCount > 0 {
+		usage.CachedContentTokenCount = geminiResponse.UsageMetadata.CachedContentTokenCount
+	}
+
 	fullTextResponse.Usage = usage
+
+	// 以 Gemini 原生格式写入 MES
+	var respMap map[string]interface{}
+	if raw, errMarshal := common.Marshal(geminiResponse); errMarshal == nil {
+		_ = common.Unmarshal(raw, &respMap)
+	}
+	if respMap == nil {
+		respMap = make(map[string]interface{})
+	}
+	respMap["usage"] = map[string]interface{}{
+		"prompt_tokens":     usage.PromptTokens,
+		"completion_tokens": usage.CompletionTokens,
+		"total_tokens":      usage.TotalTokens,
+	}
+	// 同步写入，避免漏记
+	helper.SaveMESWithGenericResponseSync(c, info, respMap)
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:

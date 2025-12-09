@@ -698,6 +698,18 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 		}
 		helper.Done(c)
 	}
+
+	// 流式场景，将聚合文本和使用量以原生结构记录
+	streamRespMap := map[string]interface{}{
+		"stream": true,
+		"text":   claudeInfo.ResponseText.String(),
+		"usage": map[string]interface{}{
+			"prompt_tokens":     claudeInfo.Usage.PromptTokens,
+			"completion_tokens": claudeInfo.Usage.CompletionTokens,
+			"total_tokens":      claudeInfo.Usage.TotalTokens,
+		},
+	}
+	helper.SaveMESWithGenericResponseAsync(c, info, streamRespMap)
 }
 
 func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, requestMode int) (*dto.Usage, *types.NewAPIError) {
@@ -744,10 +756,11 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		claudeInfo.Usage.ClaudeCacheCreation5mTokens = claudeResponse.Usage.GetCacheCreation5mTokens()
 		claudeInfo.Usage.ClaudeCacheCreation1hTokens = claudeResponse.Usage.GetCacheCreation1hTokens()
 	}
+	var openaiResponse *dto.OpenAITextResponse
 	var responseData []byte
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:
-		openaiResponse := ResponseClaude2OpenAI(requestMode, &claudeResponse)
+		openaiResponse = ResponseClaude2OpenAI(requestMode, &claudeResponse)
 		openaiResponse.Usage = *claudeInfo.Usage
 		responseData, err = json.Marshal(openaiResponse)
 		if err != nil {
@@ -755,11 +768,28 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		}
 	case types.RelayFormatClaude:
 		responseData = data
+		openaiResponse = ResponseClaude2OpenAI(requestMode, &claudeResponse)
+		openaiResponse.Usage = *claudeInfo.Usage
 	}
 
 	if claudeResponse.Usage.ServerToolUse != nil && claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
 		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
 	}
+
+	// 将 Claude 原生响应写入 MES（保留原格式）
+	var respMap map[string]interface{}
+	if raw, errMarshal := common.Marshal(claudeResponse); errMarshal == nil {
+		_ = common.Unmarshal(raw, &respMap)
+	}
+	if respMap == nil {
+		respMap = make(map[string]interface{})
+	}
+	respMap["usage"] = map[string]interface{}{
+		"prompt_tokens":     claudeInfo.Usage.PromptTokens,
+		"completion_tokens": claudeInfo.Usage.CompletionTokens,
+		"total_tokens":      claudeInfo.Usage.TotalTokens,
+	}
+	helper.SaveMESWithGenericResponseAsync(c, info, respMap)
 
 	service.IOCopyBytesGracefully(c, httpResp, responseData)
 	return nil

@@ -238,6 +238,12 @@ type GeminiFileData struct {
 	FileUri  string `json:"fileUri,omitempty"`
 }
 
+type GeminiVideoMetadata struct {
+	FPS         float64 `json:"fps,omitempty"`
+	StartOffset string  `json:"startOffset,omitempty"`
+	EndOffset   string  `json:"endOffset,omitempty"`
+}
+
 type GeminiPart struct {
 	Text             string                  `json:"text,omitempty"`
 	Thought          bool                    `json:"thought,omitempty"`
@@ -247,10 +253,10 @@ type GeminiPart struct {
 	FunctionResponse *GeminiFunctionResponse `json:"functionResponse,omitempty"`
 	// Optional. Media resolution for the input media.
 	MediaResolution     json.RawMessage                `json:"mediaResolution,omitempty"`
-	VideoMetadata       json.RawMessage                `json:"videoMetadata,omitempty"`
 	FileData            *GeminiFileData                `json:"fileData,omitempty"`
 	ExecutableCode      *GeminiPartExecutableCode      `json:"executableCode,omitempty"`
 	CodeExecutionResult *GeminiPartCodeExecutionResult `json:"codeExecutionResult,omitempty"`
+	VideoMetadata       *GeminiVideoMetadata           `json:"videoMetadata,omitempty"`
 }
 
 // UnmarshalJSON custom unmarshaler for GeminiPart to support snake_case and camelCase for InlineData
@@ -346,14 +352,21 @@ type GeminiChatResponse struct {
 }
 
 type GeminiUsageMetadata struct {
-	PromptTokenCount     int                         `json:"promptTokenCount"`
-	CandidatesTokenCount int                         `json:"candidatesTokenCount"`
-	TotalTokenCount      int                         `json:"totalTokenCount"`
-	ThoughtsTokenCount   int                         `json:"thoughtsTokenCount"`
-	PromptTokensDetails  []GeminiPromptTokensDetails `json:"promptTokensDetails"`
+	PromptTokenCount        int                         `json:"promptTokenCount"`
+	CandidatesTokenCount    int                         `json:"candidatesTokenCount"`
+	TotalTokenCount         int                         `json:"totalTokenCount"`
+	ThoughtsTokenCount      int                         `json:"thoughtsTokenCount"`
+	PromptTokensDetails     []GeminiPromptTokensDetails `json:"promptTokensDetails"`
+	CacheTokensDetails      []GeminiCacheTokensDetails  `json:"cacheTokensDetails,omitempty"`
+	CachedContentTokenCount int                         `json:"cachedContentTokenCount,omitempty"`
 }
 
 type GeminiPromptTokensDetails struct {
+	Modality   string `json:"modality"`
+	TokenCount int    `json:"tokenCount"`
+}
+
+type GeminiCacheTokensDetails struct {
 	Modality   string `json:"modality"`
 	TokenCount int    `json:"tokenCount"`
 }

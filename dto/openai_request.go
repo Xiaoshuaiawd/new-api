@@ -96,6 +96,8 @@ type GeneralOpenAIRequest struct {
 	ReturnImages           bool            `json:"return_images,omitempty"`
 	ReturnRelatedQuestions bool            `json:"return_related_questions,omitempty"`
 	SearchMode             string          `json:"search_mode,omitempty"`
+	// 视频元信息（用于 Gemini 视频输入）
+	VideoMetadata *VideoMetadata `json:"video_metadata,omitempty"`
 }
 
 func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
@@ -254,6 +256,12 @@ type StreamOptions struct {
 	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
+type VideoMetadata struct {
+	FPS         float64 `json:"fps,omitempty"`
+	StartOffset string  `json:"start_offset,omitempty"`
+	EndOffset   string  `json:"end_offset,omitempty"`
+}
+
 func (r *GeneralOpenAIRequest) GetMaxTokens() uint {
 	if r.MaxCompletionTokens != 0 {
 		return r.MaxCompletionTokens
@@ -301,6 +309,7 @@ type MediaContent struct {
 	InputAudio any    `json:"input_audio,omitempty"`
 	File       any    `json:"file,omitempty"`
 	VideoUrl   any    `json:"video_url,omitempty"`
+	Youtube    any    `json:"youtube,omitempty"`
 	// OpenRouter Params
 	CacheControl json.RawMessage `json:"cache_control,omitempty"`
 }
@@ -386,6 +395,22 @@ func (m *MediaContent) GetVideoUrl() *MessageVideoUrl {
 	return nil
 }
 
+func (m *MediaContent) GetYoutube() *MessageYoutube {
+	if m.Youtube != nil {
+		if _, ok := m.Youtube.(*MessageYoutube); ok {
+			return m.Youtube.(*MessageYoutube)
+		}
+		if itemMap, ok := m.Youtube.(map[string]any); ok {
+			out := &MessageYoutube{
+				Url:      common.Interface2String(itemMap["url"]),
+				MimeType: common.Interface2String(itemMap["mimetype"]),
+			}
+			return out
+		}
+	}
+	return nil
+}
+
 type MessageImageUrl struct {
 	Url      string `json:"url"`
 	Detail   string `json:"detail"`
@@ -420,6 +445,11 @@ type MessageVideoUrl struct {
 	Url string `json:"url"`
 }
 
+type MessageYoutube struct {
+	Url      string `json:"url"`
+	MimeType string `json:"mimetype,omitempty"`
+}
+
 const (
 	ContentTypeText       = "text"
 	ContentTypeImageURL   = "image_url"
@@ -427,6 +457,7 @@ const (
 	ContentTypeInputAudio = "input_audio"
 	ContentTypeFile       = "file"
 	ContentTypeVideoUrl   = "video_url" // 阿里百炼视频识别
+	ContentTypeYoutube    = "youtube"   // YouTube 视频识别
 	//ContentTypeAudioUrl   = "audio_url"
 )
 
@@ -642,6 +673,40 @@ func (m *Message) ParseContent() []MediaContent {
 					VideoUrl: &MessageVideoUrl{
 						Url: videoUrl,
 					},
+				})
+			}
+		case ContentTypeYoutube:
+			youtube := contentItem["youtube"]
+			temp := &MessageYoutube{}
+			switch v := youtube.(type) {
+			case string:
+				temp.Url = v
+			case map[string]interface{}:
+				url, ok1 := v["url"].(string)
+				mimetype, ok2 := v["mimetype"].(string)
+				if ok1 {
+					temp.Url = url
+				}
+				if ok2 {
+					temp.MimeType = mimetype
+				}
+			}
+			if temp.Url != "" {
+				contentList = append(contentList, MediaContent{
+					Type:    ContentTypeYoutube,
+					Youtube: temp,
+				})
+			}
+
+			// 也支持直接从根级别读取 url 和 mimetype
+			if url, ok := contentItem["url"].(string); ok && temp.Url == "" {
+				temp.Url = url
+				if mimetype, ok := contentItem["mimetype"].(string); ok {
+					temp.MimeType = mimetype
+				}
+				contentList = append(contentList, MediaContent{
+					Type:    ContentTypeYoutube,
+					Youtube: temp,
 				})
 			}
 		}

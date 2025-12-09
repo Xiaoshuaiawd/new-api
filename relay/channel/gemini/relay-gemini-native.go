@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"errors"
 	"io"
 	"net/http"
 
@@ -16,6 +17,7 @@ import (
 )
 
 func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	logger.LogInfo(c, "MES: GeminiTextGenerationHandler start, path="+info.RequestURLPath)
 	defer service.CloseResponseBodyGracefully(resp)
 
 	// 读取响应体
@@ -51,6 +53,38 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 			usage.PromptTokensDetails.TextTokens = detail.TokenCount
 		}
 	}
+
+	// 添加缓存 token 详情，但不计入配额计费
+	if len(geminiResponse.UsageMetadata.CacheTokensDetails) > 0 {
+		usage.CacheTokensDetails = make([]dto.CacheTokensDetails, len(geminiResponse.UsageMetadata.CacheTokensDetails))
+		for i, detail := range geminiResponse.UsageMetadata.CacheTokensDetails {
+			usage.CacheTokensDetails[i] = dto.CacheTokensDetails{
+				Modality:   detail.Modality,
+				TokenCount: detail.TokenCount,
+			}
+		}
+	}
+
+	// 添加缓存内容 token 总数
+	if geminiResponse.UsageMetadata.CachedContentTokenCount > 0 {
+		usage.CachedContentTokenCount = geminiResponse.UsageMetadata.CachedContentTokenCount
+	}
+
+	// 以 Gemini 原生格式写入 MES
+	var respMap map[string]interface{}
+	if raw, errMarshal := common.Marshal(geminiResponse); errMarshal == nil {
+		_ = common.Unmarshal(raw, &respMap)
+	}
+	if respMap == nil {
+		respMap = make(map[string]interface{})
+	}
+	respMap["usage"] = map[string]interface{}{
+		"prompt_tokens":     usage.PromptTokens,
+		"completion_tokens": usage.CompletionTokens,
+		"total_tokens":      usage.TotalTokens,
+	}
+	// 同步写入，避免漏记
+	helper.SaveMESWithGenericResponseSync(c, info, respMap)
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
@@ -91,10 +125,12 @@ func NativeGeminiEmbeddingHandler(c *gin.Context, resp *http.Response, info *rel
 }
 
 func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	logger.LogInfo(c, "MES: GeminiTextGenerationStreamHandler start, path="+info.RequestURLPath)
+	id := helper.GetResponseID(c)
+	createAt := common.GetTimestamp()
 	helper.SetEventStreamHeaders(c)
 
-	return geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
-		// 直接发送 GeminiChatResponse 响应
+	usage, aggregatedText, imageCount, err := geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
 		err := helper.StringData(c, data)
 		if err != nil {
 			logger.LogError(c, err.Error())
@@ -102,4 +138,37 @@ func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 		info.SendResponseCount++
 		return true
 	})
+
+	if info.SendResponseCount == 0 {
+		return nil, types.NewOpenAIError(errors.New("no response received from Gemini API"), types.ErrorCodeEmptyResponse, http.StatusInternalServerError)
+	}
+
+	if imageCount != 0 && usage.CompletionTokens == 0 {
+		usage.CompletionTokens = imageCount * 258
+	}
+
+	if usage.CompletionTokens == 0 {
+		if len(aggregatedText) > 0 {
+			usage = service.ResponseText2Usage(c, aggregatedText, info.UpstreamModelName, info.GetEstimatePromptTokens())
+		} else {
+			usage = &dto.Usage{}
+		}
+	}
+
+	streamResp := map[string]interface{}{
+		"stream": true,
+		"text":   aggregatedText,
+		"usage": map[string]interface{}{
+			"prompt_tokens":     usage.PromptTokens,
+			"completion_tokens": usage.CompletionTokens,
+			"total_tokens":      usage.TotalTokens,
+		},
+		"response_id": id,
+		"created":     createAt,
+		"model":       info.UpstreamModelName,
+	}
+	// 同步写入，避免漏记
+	helper.SaveMESWithGenericResponseSync(c, info, streamResp)
+
+	return usage, err
 }
