@@ -319,8 +319,13 @@ func SaveMESWithTextResponseAsync(c *gin.Context, info *relaycommon.RelayInfo, r
 
 		messages, err := GetMESMessagesFromContext(c, info)
 		if err != nil {
-			common.SysError("MES: 解析请求失败: " + err.Error())
-			return
+			common.SysError("MES: 解析请求失败: " + err.Error() + "，使用占位消息")
+			messages = []map[string]interface{}{
+				{
+					"role":    "user",
+					"content": "[unparsed request]",
+				},
+			}
 		}
 
 		fullConversation := make([]map[string]interface{}, 0, len(messages)+1)
@@ -355,8 +360,13 @@ func SaveMESWithGenericResponseAsync(c *gin.Context, info *relaycommon.RelayInfo
 
 		messages, err := GetMESMessagesFromContext(c, info)
 		if err != nil {
-			common.SysError("MES: 解析请求失败: " + err.Error())
-			return
+			common.SysError("MES: 解析请求失败: " + err.Error() + "，使用占位消息")
+			messages = []map[string]interface{}{
+				{
+					"role":    "user",
+					"content": "[unparsed request]",
+				},
+			}
 		}
 
 		conversationId := GenerateConversationID(c)
