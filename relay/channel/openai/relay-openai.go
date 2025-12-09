@@ -311,6 +311,13 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		}()
 		if info.RelayMode == relayconstant.RelayModeChatCompletions || info.RelayMode == relayconstant.RelayModeGemini {
 			saveChatCompletionToMES(c, info, &simpleResponse)
+			// 对 Gemini 路径额外保存原始响应，避免内容转换缺失
+			if info.RelayMode == relayconstant.RelayModeGemini {
+				var rawResp map[string]interface{}
+				if err := common.Unmarshal(responseBody, &rawResp); err == nil {
+					helper.SaveMESWithGenericResponseSync(c, info, rawResp)
+				}
+			}
 		}
 	}()
 
@@ -780,6 +787,22 @@ func buildMESResponseData(response *dto.OpenAITextResponse) map[string]interface
 func saveStreamChatCompletionToMES(c *gin.Context, info *relaycommon.RelayInfo, responseText string, usage *dto.Usage, responseId string, createAt int64, modelName string) {
 	streamResp := helper.BuildStreamTextResponse(responseText, usage, responseId, createAt, modelName)
 	helper.SaveMESWithTextResponseAsync(c, info, streamResp)
+
+	// 对 Gemini 路径，额外保存原始文本聚合，避免内容缺失
+	if info.RelayMode == relayconstant.RelayModeGemini {
+		streamRespMap := map[string]interface{}{
+			"stream": true,
+			"text":   responseText,
+		}
+		if usage != nil {
+			streamRespMap["usage"] = map[string]interface{}{
+				"prompt_tokens":     usage.PromptTokens,
+				"completion_tokens": usage.CompletionTokens,
+				"total_tokens":      usage.TotalTokens,
+			}
+		}
+		helper.SaveMESWithGenericResponseSync(c, info, streamRespMap)
+	}
 }
 
 // buildStreamMESResponseData 构建流式MES响应数据
