@@ -189,6 +189,7 @@ const EditChannelModal = (props) => {
   const [useManualInput, setUseManualInput] = useState(false); // 是否使用手动输入模式
   const [keyMode, setKeyMode] = useState('append'); // 密钥模式：replace（覆盖）或 append（追加）
   const [isEnterpriseAccount, setIsEnterpriseAccount] = useState(false); // 是否为企业账户
+  const [baseUrlEdited, setBaseUrlEdited] = useState(false); // 编辑模式下是否修改过API地址
   const [doubaoApiEditUnlocked, setDoubaoApiEditUnlocked] = useState(false); // 豆包渠道自定义 API 地址隐藏入口
   const redirectModelList = useMemo(() => {
     const mapping = inputs.model_mapping;
@@ -246,6 +247,7 @@ const EditChannelModal = (props) => {
   const doubaoApiClickCountRef = useRef(0);
   const initialModelsRef = useRef([]);
   const initialModelMappingRef = useRef('');
+  const initialBaseUrlRef = useRef('');
 
   // 2FA状态更新辅助函数
   const updateTwoFAState = (updates) => {
@@ -405,6 +407,9 @@ const EditChannelModal = (props) => {
   };
 
   const handleInputChange = (name, value) => {
+    if (name === 'base_url') {
+      setBaseUrlEdited(true);
+    }
     if (formApiRef.current) {
       formApiRef.current.setValue(name, value);
     }
@@ -599,6 +604,10 @@ const EditChannelModal = (props) => {
       ) {
         data.base_url = 'https://ark.cn-beijing.volces.com';
       }
+
+      initialBaseUrlRef.current = data.base_url || '';
+      data.base_url = '';
+      setBaseUrlEdited(false);
 
       setInputs(data);
       if (formApiRef.current) {
@@ -848,6 +857,8 @@ const EditChannelModal = (props) => {
         loadChannel();
       } else {
         formApiRef.current?.setValues(getInitValues());
+        initialBaseUrlRef.current = '';
+        setBaseUrlEdited(false);
       }
       fetchModelGroups();
       // 重置手动输入模式状态
@@ -883,6 +894,9 @@ const EditChannelModal = (props) => {
     setKeyMode('append');
     // 重置企业账户状态
     setIsEnterpriseAccount(false);
+    // 重置 API 地址编辑状态
+    setBaseUrlEdited(false);
+    initialBaseUrlRef.current = '';
     // 重置豆包隐藏入口状态
     setDoubaoApiEditUnlocked(false);
     doubaoApiClickCountRef.current = 0;
@@ -1090,12 +1104,22 @@ const EditChannelModal = (props) => {
       showInfo(t('请至少选择一个模型！'));
       return;
     }
-    if (
-      localInputs.type === 45 &&
-      (!localInputs.base_url || localInputs.base_url.trim() === '')
-    ) {
-      showInfo(t('请输入API地址！'));
-      return;
+    const normalizedBaseUrl =
+      typeof localInputs.base_url === 'string'
+        ? localInputs.base_url.trim()
+        : '';
+    const existingBaseUrl =
+      typeof initialBaseUrlRef.current === 'string'
+        ? initialBaseUrlRef.current.trim()
+        : '';
+    if (localInputs.type === 45) {
+      const hasBaseUrl = baseUrlEdited
+        ? normalizedBaseUrl !== ''
+        : normalizedBaseUrl !== '' || existingBaseUrl !== '';
+      if (!hasBaseUrl) {
+        showInfo(t('请输入API地址！'));
+        return;
+      }
     }
     const hasModelMapping =
       typeof localInputs.model_mapping === 'string' &&
@@ -1146,11 +1170,14 @@ const EditChannelModal = (props) => {
       }
     }
 
-    if (localInputs.base_url && localInputs.base_url.endsWith('/')) {
-      localInputs.base_url = localInputs.base_url.slice(
-        0,
-        localInputs.base_url.length - 1,
-      );
+    const normalizeBaseUrlValue = (url) =>
+      typeof url === 'string' && url.endsWith('/')
+        ? url.slice(0, -1)
+        : url;
+    if (isEdit && !baseUrlEdited) {
+      delete localInputs.base_url;
+    } else {
+      localInputs.base_url = normalizeBaseUrlValue(normalizedBaseUrl);
     }
     if (localInputs.type === 18 && localInputs.other === '') {
       localInputs.other = 'v2.1';
