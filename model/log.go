@@ -23,11 +23,11 @@ import (
 type Log struct {
 	Id               int    `json:"id" gorm:"index:idx_created_at_id,priority:1"`
 	UserId           int    `json:"user_id" gorm:"index"`
-	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:2;index:idx_created_at_type;index:idx_type_created_at,priority:2;index:idx_username_type_created_at,priority:3;index:idx_tokenname_type_created_at,priority:3;index:idx_token_type_created_at,priority:3"`
+	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:2;index:idx_created_at_type;index:idx_type_created_at,priority:2;index:idx_username_type_created_at,priority:3;index:idx_tokenname_type_created_at,priority:3;index:idx_token_type_created_at,priority:3;index:idx_token_created_at,priority:2;index:idx_username_created_at,priority:2;index:idx_tokenname_created_at,priority:2"`
 	Type             int    `json:"type" gorm:"index:idx_created_at_type;index:idx_type_created_at,priority:1;index:idx_username_type_created_at,priority:2;index:idx_tokenname_type_created_at,priority:2;index:idx_token_type_created_at,priority:2"`
 	Content          string `json:"content"`
-	Username         string `json:"username" gorm:"index;index:index_username_model_name,priority:2;index:idx_username_type_created_at,priority:1;default:''"`
-	TokenName        string `json:"token_name" gorm:"index;default:'';index:idx_tokenname_type_created_at,priority:1"`
+	Username         string `json:"username" gorm:"index;index:index_username_model_name,priority:2;index:idx_username_type_created_at,priority:1;index:idx_username_created_at,priority:1;default:''"`
+	TokenName        string `json:"token_name" gorm:"index;default:'';index:idx_tokenname_type_created_at,priority:1;index:idx_tokenname_created_at,priority:1"`
 	ModelName        string `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
 	Quota            int    `json:"quota" gorm:"default:0"`
 	PromptTokens     int    `json:"prompt_tokens" gorm:"default:0"`
@@ -36,7 +36,7 @@ type Log struct {
 	IsStream         bool   `json:"is_stream"`
 	ChannelId        int    `json:"channel" gorm:"index"`
 	ChannelName      string `json:"channel_name" gorm:"->"`
-	TokenId          int    `json:"token_id" gorm:"default:0;index;index:idx_token_type_created_at,priority:1"`
+	TokenId          int    `json:"token_id" gorm:"default:0;index;index:idx_token_type_created_at,priority:1;index:idx_token_created_at,priority:1"`
 	Group            string `json:"group" gorm:"index"`
 	Ip               string `json:"ip" gorm:"index;default:''"`
 	Other            string `json:"other"`
@@ -718,36 +718,54 @@ type Stat struct {
 }
 
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat) {
-	base := LOG_DB.Table("logs").Where("type = ?", LogTypeConsume)
-
-	if username != "" {
-		base = base.Where("username = ?", username)
-	}
-	if tokenName != "" {
-		base = base.Where("token_name = ?", tokenName)
-	}
-	if modelName != "" {
-		base = base.Where("model_name like ?", modelName)
-	}
-	if channel != 0 {
-		base = base.Where("channel_id = ?", channel)
-	}
-	if group != "" {
-		base = base.Where(logGroupCol+" = ?", group)
+	filterType := LogTypeConsume
+	if logType != LogTypeUnknown {
+		filterType = logType
 	}
 
-	quotaQuery := base.Session(&gorm.Session{NewDB: true})
+	applyFilters := func(db *gorm.DB) *gorm.DB {
+		db = db.Where("type = ?", filterType)
+		if username != "" {
+			db = db.Where("username = ?", username)
+		}
+		if tokenName != "" {
+			db = db.Where("token_name = ?", tokenName)
+		}
+		if modelName != "" {
+			db = db.Where("model_name like ?", modelName)
+		}
+		if channel != 0 {
+			db = db.Where("channel_id = ?", channel)
+		}
+		if group != "" {
+			db = db.Where(logGroupCol+" = ?", group)
+		}
+		return db
+	}
+
+	quotaQuery := applyFilters(LOG_DB.Table("logs"))
 	if startTimestamp != 0 {
 		quotaQuery = quotaQuery.Where("created_at >= ?", startTimestamp)
 	}
 	if endTimestamp != 0 {
 		quotaQuery = quotaQuery.Where("created_at <= ?", endTimestamp)
 	}
-	quotaQuery.Select("COALESCE(sum(quota),0) as quota").Scan(&stat)
+	var quotaResult struct {
+		Quota int
+	}
+	quotaQuery.Select("COALESCE(sum(quota),0) as quota").Scan(&quotaResult)
 
 	cutoff := time.Now().Add(-60 * time.Second).Unix()
-	rpmTpmQuery := base.Session(&gorm.Session{NewDB: true}).Where("created_at >= ?", cutoff)
-	rpmTpmQuery.Select("count(*) as rpm, COALESCE(sum(prompt_tokens) + sum(completion_tokens),0) as tpm").Scan(&stat)
+	rpmTpmQuery := applyFilters(LOG_DB.Table("logs")).Where("created_at >= ?", cutoff)
+	var rpmTpmResult struct {
+		Rpm int
+		Tpm int
+	}
+	rpmTpmQuery.Select("count(*) as rpm, COALESCE(sum(prompt_tokens) + sum(completion_tokens),0) as tpm").Scan(&rpmTpmResult)
+
+	stat.Quota = quotaResult.Quota
+	stat.Rpm = rpmTpmResult.Rpm
+	stat.Tpm = rpmTpmResult.Tpm
 
 	return stat
 }
@@ -806,6 +824,9 @@ func ensureLogIndexes(db *gorm.DB) error {
 		"idx_username_type_created_at",
 		"idx_tokenname_type_created_at",
 		"idx_token_type_created_at",
+		"idx_token_created_at",
+		"idx_username_created_at",
+		"idx_tokenname_created_at",
 		"index_username_model_name",
 	}
 	for _, idx := range indexes {
