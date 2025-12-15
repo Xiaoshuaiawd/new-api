@@ -22,10 +22,10 @@ import (
 )
 
 type Log struct {
-	Id               int    `json:"id" gorm:"index:idx_created_at_id,priority:1"`
+	Id               int    `json:"id" gorm:"index:idx_created_at_id,priority:2"`
 	UserId           int    `json:"user_id" gorm:"index"`
-	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at_only,priority:1;index:idx_created_at_id,priority:2;index:idx_created_at_type,priority:1;index:idx_type_created_at,priority:2;index:idx_username_type_created_at,priority:3;index:idx_tokenname_type_created_at,priority:3;index:idx_token_type_created_at,priority:3;index:idx_token_created_at,priority:2;index:idx_username_created_at,priority:2;index:idx_tokenname_created_at,priority:2"`
-	Type             int    `json:"type" gorm:"index:idx_created_at_type,priority:2;index:idx_type_created_at,priority:1;index:idx_username_type_created_at,priority:2;index:idx_tokenname_type_created_at,priority:2;index:idx_token_type_created_at,priority:2"`
+	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at,priority:1;index:idx_type_created_at,priority:2;index:idx_created_at_id,priority:1"`
+	Type             int    `json:"type" gorm:"index:idx_type_created_at,priority:1"`
 	Content          string `json:"content"`
 	Username         string `json:"username" gorm:"index;index:index_username_model_name,priority:2;index:idx_username_type_created_at,priority:1;index:idx_username_created_at,priority:1;default:''"`
 	TokenName        string `json:"token_name" gorm:"index;default:'';index:idx_tokenname_type_created_at,priority:1;index:idx_tokenname_created_at,priority:1"`
@@ -214,18 +214,21 @@ func formatUserLogs(logs []*Log) {
 }
 
 // applyLogRangeIndexHints adds index hints for time-range queries on MySQL to avoid full scans.
-func applyLogRangeIndexHints(tx *gorm.DB, startTimestamp int64, endTimestamp int64) *gorm.DB {
-	if common.LogSqlType == common.DatabaseTypeMySQL && (startTimestamp != 0 || endTimestamp != 0) {
-		return tx.Clauses(
-			hints.UseIndex("idx_created_at_only"),
-			hints.UseIndex("idx_created_at_type"),
-			hints.UseIndex("idx_type_created_at"),
-		)
+func applyLogRangeIndexHints(tx *gorm.DB, startTimestamp int64, endTimestamp int64, hasTypeFilter bool) *gorm.DB {
+	if common.LogSqlType != common.DatabaseTypeMySQL {
+		return tx
 	}
-	return tx
+	if startTimestamp == 0 && endTimestamp == 0 {
+		return tx
+	}
+	if hasTypeFilter {
+		return tx.Clauses(hints.UseIndex("idx_type_created_at"))
+	}
+	return tx.Clauses(hints.UseIndex("idx_created_at"))
 }
 
 func GetLogByKey(key string, logType int, startTimestamp int64, endTimestamp int64, modelName string, startIdx int, num int, group string) (logs []*Log, total int64, err error) {
+	hasTypeFilter := logType != LogTypeUnknown
 	var tx *gorm.DB
 
 	if os.Getenv("LOG_SQL_DSN") != "" {
@@ -262,7 +265,7 @@ func GetLogByKey(key string, logType int, startTimestamp int64, endTimestamp int
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
 
-	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp)
+	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp, hasTypeFilter)
 
 	err = tx.Model(&Log{}).Count(&total).Error
 	if err != nil {
@@ -308,6 +311,7 @@ func GetLogByKey(key string, logType int, startTimestamp int64, endTimestamp int
 
 // GetLogByKeyLightweight 轻量级查询，只返回核心字段，用于大数据量场景
 func GetLogByKeyLightweight(key string, logType int, startTimestamp int64, endTimestamp int64, modelName string, startIdx int, num int, group string) (logs []*Log, total int64, err error) {
+	hasTypeFilter := logType != LogTypeUnknown
 	var tx *gorm.DB
 
 	if os.Getenv("LOG_SQL_DSN") != "" {
@@ -344,7 +348,7 @@ func GetLogByKeyLightweight(key string, logType int, startTimestamp int64, endTi
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
 
-	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp)
+	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp, hasTypeFilter)
 
 	// 先统计总数
 	err = tx.Model(&Log{}).Count(&total).Error
@@ -368,6 +372,7 @@ func GetLogByKeyLightweight(key string, logType int, startTimestamp int64, endTi
 // GetLogByKeyCursor 基于游标的分页查询，适用于超大数据量（100万+）
 func GetLogByKeyCursor(key string, logType int, startTimestamp int64, endTimestamp int64, modelName string, pageSize int, group string, cursor string, lightweight bool) (logs []*Log, nextCursor string, err error) {
 	var tx *gorm.DB
+	hasTypeFilter := logType != LogTypeUnknown
 	var cursorTimestamp int64
 	var cursorId int64
 
@@ -427,7 +432,7 @@ func GetLogByKeyCursor(key string, logType int, startTimestamp int64, endTimesta
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
 
-	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp)
+	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp, hasTypeFilter)
 
 	// 游标分页：使用 created_at 和 id 的组合进行分页
 	if cursor != "" {
@@ -685,6 +690,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 
 func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
+	hasTypeFilter := logType != LogTypeUnknown
 	if logType == LogTypeUnknown {
 		tx = LOG_DB.Where("logs.user_id = ?", userId)
 	} else {
@@ -706,7 +712,7 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	if group != "" {
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
-	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp)
+	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp, hasTypeFilter)
 	err = tx.Model(&Log{}).Count(&total).Error
 	if err != nil {
 		return nil, 0, err
@@ -764,7 +770,7 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	}
 
 	baseFiltered := applyFilters(LOG_DB.Table("logs"))
-	baseFiltered = applyLogRangeIndexHints(baseFiltered, startTimestamp, endTimestamp)
+	baseFiltered = applyLogRangeIndexHints(baseFiltered, startTimestamp, endTimestamp, true)
 
 	quotaQuery := baseFiltered
 	if startTimestamp != 0 {
@@ -780,7 +786,7 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 
 	cutoff := time.Now().Add(-60 * time.Second).Unix()
 	rpmTpmQuery := applyFilters(LOG_DB.Table("logs"))
-	rpmTpmQuery = applyLogRangeIndexHints(rpmTpmQuery, cutoff, 0).Where("created_at >= ?", cutoff)
+	rpmTpmQuery = applyLogRangeIndexHints(rpmTpmQuery, cutoff, 0, true).Where("created_at >= ?", cutoff)
 	var rpmTpmResult struct {
 		Rpm int
 		Tpm int
@@ -811,6 +817,7 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	if modelName != "" {
 		tx = tx.Where("model_name = ?", modelName)
 	}
+	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp, true)
 	tx.Where("type = ?", LogTypeConsume).Scan(&token)
 	return token
 }
@@ -842,17 +849,9 @@ func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64,
 func ensureLogIndexes(db *gorm.DB) error {
 	// These names must match the gorm index tags on Log.
 	indexes := []string{
+		"idx_created_at",
 		"idx_created_at_id",
-		"idx_created_at_type",
 		"idx_type_created_at",
-		"idx_created_at_only",
-		"idx_username_type_created_at",
-		"idx_tokenname_type_created_at",
-		"idx_token_type_created_at",
-		"idx_token_created_at",
-		"idx_username_created_at",
-		"idx_tokenname_created_at",
-		"index_username_model_name",
 	}
 	for _, idx := range indexes {
 		if db.Migrator().HasIndex(&Log{}, idx) {
