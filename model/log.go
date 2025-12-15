@@ -23,11 +23,11 @@ import (
 type Log struct {
 	Id               int    `json:"id" gorm:"index:idx_created_at_id,priority:1"`
 	UserId           int    `json:"user_id" gorm:"index"`
-	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:2;index:idx_created_at_type"`
-	Type             int    `json:"type" gorm:"index:idx_created_at_type"`
+	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:2;index:idx_created_at_type;index:idx_type_created_at,priority:2;index:idx_username_type_created_at,priority:3;index:idx_tokenname_type_created_at,priority:3;index:idx_token_type_created_at,priority:3"`
+	Type             int    `json:"type" gorm:"index:idx_created_at_type;index:idx_type_created_at,priority:1;index:idx_username_type_created_at,priority:2;index:idx_tokenname_type_created_at,priority:2;index:idx_token_type_created_at,priority:2"`
 	Content          string `json:"content"`
-	Username         string `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
-	TokenName        string `json:"token_name" gorm:"index;default:''"`
+	Username         string `json:"username" gorm:"index;index:index_username_model_name,priority:2;index:idx_username_type_created_at,priority:1;default:''"`
+	TokenName        string `json:"token_name" gorm:"index;default:'';index:idx_tokenname_type_created_at,priority:1"`
 	ModelName        string `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
 	Quota            int    `json:"quota" gorm:"default:0"`
 	PromptTokens     int    `json:"prompt_tokens" gorm:"default:0"`
@@ -36,7 +36,7 @@ type Log struct {
 	IsStream         bool   `json:"is_stream"`
 	ChannelId        int    `json:"channel" gorm:"index"`
 	ChannelName      string `json:"channel_name" gorm:"->"`
-	TokenId          int    `json:"token_id" gorm:"default:0;index"`
+	TokenId          int    `json:"token_id" gorm:"default:0;index;index:idx_token_type_created_at,priority:1"`
 	Group            string `json:"group" gorm:"index"`
 	Ip               string `json:"ip" gorm:"index;default:''"`
 	Other            string `json:"other"`
@@ -253,7 +253,7 @@ func GetLogByKey(key string, logType int, startTimestamp int64, endTimestamp int
 	if err != nil {
 		return nil, 0, err
 	}
-	err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+	err = tx.Order("logs.created_at desc, logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -335,7 +335,7 @@ func GetLogByKeyLightweight(key string, logType int, startTimestamp int64, endTi
 		return nil, 0, err
 	}
 
-	err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+	err = tx.Order("logs.created_at desc, logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -632,7 +632,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	if err != nil {
 		return nil, 0, err
 	}
-	err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+	err = tx.Order("logs.created_at desc, logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -691,7 +691,7 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	if err != nil {
 		return nil, 0, err
 	}
-	err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+	err = tx.Order("logs.created_at desc, logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -718,47 +718,36 @@ type Stat struct {
 }
 
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat) {
-	tx := LOG_DB.Table("logs").Select("sum(quota) quota")
-
-	// 为rpm和tpm创建单独的查询
-	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, sum(prompt_tokens) + sum(completion_tokens) tpm")
+	base := LOG_DB.Table("logs").Where("type = ?", LogTypeConsume)
 
 	if username != "" {
-		tx = tx.Where("username = ?", username)
-		rpmTpmQuery = rpmTpmQuery.Where("username = ?", username)
+		base = base.Where("username = ?", username)
 	}
 	if tokenName != "" {
-		tx = tx.Where("token_name = ?", tokenName)
-		rpmTpmQuery = rpmTpmQuery.Where("token_name = ?", tokenName)
-	}
-	if startTimestamp != 0 {
-		tx = tx.Where("created_at >= ?", startTimestamp)
-	}
-	if endTimestamp != 0 {
-		tx = tx.Where("created_at <= ?", endTimestamp)
+		base = base.Where("token_name = ?", tokenName)
 	}
 	if modelName != "" {
-		tx = tx.Where("model_name like ?", modelName)
-		rpmTpmQuery = rpmTpmQuery.Where("model_name like ?", modelName)
+		base = base.Where("model_name like ?", modelName)
 	}
 	if channel != 0 {
-		tx = tx.Where("channel_id = ?", channel)
-		rpmTpmQuery = rpmTpmQuery.Where("channel_id = ?", channel)
+		base = base.Where("channel_id = ?", channel)
 	}
 	if group != "" {
-		tx = tx.Where(logGroupCol+" = ?", group)
-		rpmTpmQuery = rpmTpmQuery.Where(logGroupCol+" = ?", group)
+		base = base.Where(logGroupCol+" = ?", group)
 	}
 
-	tx = tx.Where("type = ?", LogTypeConsume)
-	rpmTpmQuery = rpmTpmQuery.Where("type = ?", LogTypeConsume)
+	quotaQuery := base.Session(&gorm.Session{NewDB: true})
+	if startTimestamp != 0 {
+		quotaQuery = quotaQuery.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp != 0 {
+		quotaQuery = quotaQuery.Where("created_at <= ?", endTimestamp)
+	}
+	quotaQuery.Select("COALESCE(sum(quota),0) as quota").Scan(&stat)
 
-	// 只统计最近60秒的rpm和tpm
-	rpmTpmQuery = rpmTpmQuery.Where("created_at >= ?", time.Now().Add(-60*time.Second).Unix())
-
-	// 执行查询
-	tx.Scan(&stat)
-	rpmTpmQuery.Scan(&stat)
+	cutoff := time.Now().Add(-60 * time.Second).Unix()
+	rpmTpmQuery := base.Session(&gorm.Session{NewDB: true}).Where("created_at >= ?", cutoff)
+	rpmTpmQuery.Select("count(*) as rpm, COALESCE(sum(prompt_tokens) + sum(completion_tokens),0) as tpm").Scan(&stat)
 
 	return stat
 }
@@ -805,4 +794,27 @@ func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64,
 	}
 
 	return total, nil
+}
+
+// ensureLogIndexes ensures critical composite indexes exist to keep log queries fast.
+func ensureLogIndexes(db *gorm.DB) error {
+	// These names must match the gorm index tags on Log.
+	indexes := []string{
+		"idx_created_at_id",
+		"idx_created_at_type",
+		"idx_type_created_at",
+		"idx_username_type_created_at",
+		"idx_tokenname_type_created_at",
+		"idx_token_type_created_at",
+		"index_username_model_name",
+	}
+	for _, idx := range indexes {
+		if db.Migrator().HasIndex(&Log{}, idx) {
+			continue
+		}
+		if err := db.Migrator().CreateIndex(&Log{}, idx); err != nil {
+			return fmt.Errorf("create index %s failed: %w", idx, err)
+		}
+	}
+	return nil
 }
