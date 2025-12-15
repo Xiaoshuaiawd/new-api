@@ -524,6 +524,10 @@ func migrateLOGDB() error {
 	if err = LOG_DB.AutoMigrate(&Log{}); err != nil {
 		return err
 	}
+	// Ensure critical indexes exist for fast log queries
+	if err = ensureLogIndexes(LOG_DB); err != nil {
+		return err
+	}
 	return nil
 }
 
