@@ -1404,8 +1404,8 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 			"total_tokens":      usage.TotalTokens,
 		},
 	}
-	// 同步写入，避免漏记
-	helper.SaveMESWithGenericResponseSync(c, info, streamRespMap)
+	// 异步写入，避免阻塞主流程
+	helper.SaveMESWithGenericResponseAsync(c, info, streamRespMap)
 	return usage, nil
 }
 
@@ -1487,8 +1487,8 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		"completion_tokens": usage.CompletionTokens,
 		"total_tokens":      usage.TotalTokens,
 	}
-	// 同步写入，避免漏记
-	helper.SaveMESWithGenericResponseSync(c, info, respMap)
+	// 异步写入，避免阻塞主流程
+	helper.SaveMESWithGenericResponseAsync(c, info, respMap)
 
 	switch info.RelayFormat {
 	case types.RelayFormatOpenAI:

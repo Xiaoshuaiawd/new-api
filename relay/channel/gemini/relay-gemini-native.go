@@ -83,8 +83,8 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 		"completion_tokens": usage.CompletionTokens,
 		"total_tokens":      usage.TotalTokens,
 	}
-	// 同步写入，避免漏记
-	helper.SaveMESWithGenericResponseSync(c, info, respMap)
+	// 异步写入，避免阻塞主流程
+	helper.SaveMESWithGenericResponseAsync(c, info, respMap)
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
@@ -167,8 +167,8 @@ func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 		"created":     createAt,
 		"model":       info.UpstreamModelName,
 	}
-	// 同步写入，避免漏记
-	helper.SaveMESWithGenericResponseSync(c, info, streamResp)
+	// 异步写入，避免阻塞主流程
+	helper.SaveMESWithGenericResponseAsync(c, info, streamResp)
 
 	return usage, err
 }
