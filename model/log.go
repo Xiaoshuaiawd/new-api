@@ -24,22 +24,22 @@ import (
 type Log struct {
 	Id               int    `json:"id" gorm:"index:idx_created_at_id,priority:2"`
 	UserId           int    `json:"user_id" gorm:"index"`
-	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at,priority:1;index:idx_type_created_at,priority:2;index:idx_created_at_id,priority:1"`
-	Type             int    `json:"type" gorm:"index:idx_type_created_at,priority:1"`
+	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at,priority:1;index:idx_created_at_only,priority:1;index:idx_created_at_id,priority:1;index:idx_created_at_type,priority:1;index:idx_type_created_at,priority:2;index:idx_type_created_quota,priority:2;index:idx_user_id_created_at,priority:2"`
+	Type             int    `json:"type" gorm:"index:idx_created_at_type,priority:2;index:idx_type_created_at,priority:1;index:idx_type_created_quota,priority:1;index:idx_type_username_created_quota,priority:1"`
 	Content          string `json:"content"`
-	Username         string `json:"username" gorm:"index;index:index_username_model_name,priority:2;index:idx_username_type_created_at,priority:1;index:idx_username_created_at,priority:1;default:''"`
-	TokenName        string `json:"token_name" gorm:"index;default:'';index:idx_tokenname_type_created_at,priority:1;index:idx_tokenname_created_at,priority:1"`
+	Username         string `json:"username" gorm:"index:idx_logs_username;index:index_username_model_name,priority:2;index:idx_username_type_created_at,priority:1;index:idx_username_created_at,priority:1;index:idx_type_username_created_quota,priority:2;default:''"`
+	TokenName        string `json:"token_name" gorm:"index:idx_logs_token_name;default:'';index:idx_tokenname_type_created_at,priority:1;index:idx_tokenname_created_at,priority:1"`
 	ModelName        string `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
-	Quota            int    `json:"quota" gorm:"default:0"`
-	PromptTokens     int    `json:"prompt_tokens" gorm:"default:0"`
-	CompletionTokens int    `json:"completion_tokens" gorm:"default:0"`
+	Quota            int    `json:"quota" gorm:"default:0;index:idx_type_created_quota,priority:3;index:idx_type_username_created_quota,priority:4"`
+	PromptTokens     int    `json:"prompt_tokens" gorm:"default:0;index:idx_type_created_quota,priority:4"`
+	CompletionTokens int    `json:"completion_tokens" gorm:"default:0;index:idx_type_created_quota,priority:5"`
 	UseTime          int    `json:"use_time" gorm:"default:0"`
 	IsStream         bool   `json:"is_stream"`
-	ChannelId        int    `json:"channel" gorm:"index"`
+	ChannelId        int    `json:"channel" gorm:"index:idx_logs_channel_id"`
 	ChannelName      string `json:"channel_name" gorm:"->"`
-	TokenId          int    `json:"token_id" gorm:"default:0;index;index:idx_token_type_created_at,priority:1;index:idx_token_created_at,priority:1"`
-	Group            string `json:"group" gorm:"index"`
-	Ip               string `json:"ip" gorm:"index;default:''"`
+	TokenId          int    `json:"token_id" gorm:"default:0;index:idx_logs_token_id;index:idx_token_type_created_at,priority:1;index:idx_token_created_at,priority:1"`
+	Group            string `json:"group" gorm:"index:idx_logs_group"`
+	Ip               string `json:"ip" gorm:"index:idx_logs_ip;default:''"`
 	Other            string `json:"other"`
 	// 价格显示字段 (不存储到数据库，仅用于API返回)
 	InputPriceDisplay   string `json:"input_price_display" gorm:"-"`
@@ -222,7 +222,7 @@ func applyLogRangeIndexHints(tx *gorm.DB, startTimestamp int64, endTimestamp int
 		return tx
 	}
 	if hasTypeFilter {
-		return tx.Clauses(hints.UseIndex("idx_type_created_at"))
+		return tx.Clauses(hints.UseIndex("idx_type_created_at_quota"))
 	}
 	return tx.Clauses(hints.UseIndex("idx_created_at"))
 }
@@ -851,7 +851,28 @@ func ensureLogIndexes(db *gorm.DB) error {
 	indexes := []string{
 		"idx_created_at",
 		"idx_created_at_id",
+		"idx_created_at_only",
+		"idx_created_at_type",
 		"idx_type_created_at",
+		"idx_type_created_quota",
+		"idx_type_username_created_quota",
+		"idx_token_type_created_at",
+		"idx_username_type_created_at",
+		"idx_tokenname_type_created_at",
+		"idx_token_created_at",
+		"idx_username_created_at",
+		"idx_tokenname_created_at",
+		"idx_user_id_created_at",
+		"idx_created_at_desc_id_desc",
+		"index_username_model_name",
+		"idx_logs_channel_id",
+		"idx_logs_ip",
+		"idx_logs_user_id",
+		"idx_logs_username",
+		"idx_logs_token_name",
+		"idx_logs_model_name",
+		"idx_logs_token_id",
+		"idx_logs_group",
 	}
 	for _, idx := range indexes {
 		if db.Migrator().HasIndex(&Log{}, idx) {
