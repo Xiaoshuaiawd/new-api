@@ -18,13 +18,14 @@ import (
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
+	"gorm.io/hints"
 )
 
 type Log struct {
 	Id               int    `json:"id" gorm:"index:idx_created_at_id,priority:1"`
 	UserId           int    `json:"user_id" gorm:"index"`
-	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:2;index:idx_created_at_type;index:idx_type_created_at,priority:2;index:idx_username_type_created_at,priority:3;index:idx_tokenname_type_created_at,priority:3;index:idx_token_type_created_at,priority:3;index:idx_token_created_at,priority:2;index:idx_username_created_at,priority:2;index:idx_tokenname_created_at,priority:2"`
-	Type             int    `json:"type" gorm:"index:idx_created_at_type;index:idx_type_created_at,priority:1;index:idx_username_type_created_at,priority:2;index:idx_tokenname_type_created_at,priority:2;index:idx_token_type_created_at,priority:2"`
+	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at_only,priority:1;index:idx_created_at_id,priority:2;index:idx_created_at_type,priority:1;index:idx_type_created_at,priority:2;index:idx_username_type_created_at,priority:3;index:idx_tokenname_type_created_at,priority:3;index:idx_token_type_created_at,priority:3;index:idx_token_created_at,priority:2;index:idx_username_created_at,priority:2;index:idx_tokenname_created_at,priority:2"`
+	Type             int    `json:"type" gorm:"index:idx_created_at_type,priority:2;index:idx_type_created_at,priority:1;index:idx_username_type_created_at,priority:2;index:idx_tokenname_type_created_at,priority:2;index:idx_token_type_created_at,priority:2"`
 	Content          string `json:"content"`
 	Username         string `json:"username" gorm:"index;index:index_username_model_name,priority:2;index:idx_username_type_created_at,priority:1;index:idx_username_created_at,priority:1;default:''"`
 	TokenName        string `json:"token_name" gorm:"index;default:'';index:idx_tokenname_type_created_at,priority:1;index:idx_tokenname_created_at,priority:1"`
@@ -212,6 +213,18 @@ func formatUserLogs(logs []*Log) {
 	}
 }
 
+// applyLogRangeIndexHints adds index hints for time-range queries on MySQL to avoid full scans.
+func applyLogRangeIndexHints(tx *gorm.DB, startTimestamp int64, endTimestamp int64) *gorm.DB {
+	if common.LogSqlType == common.DatabaseTypeMySQL && (startTimestamp != 0 || endTimestamp != 0) {
+		return tx.Clauses(
+			hints.UseIndex("idx_created_at_only"),
+			hints.UseIndex("idx_created_at_type"),
+			hints.UseIndex("idx_type_created_at"),
+		)
+	}
+	return tx
+}
+
 func GetLogByKey(key string, logType int, startTimestamp int64, endTimestamp int64, modelName string, startIdx int, num int, group string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 
@@ -248,6 +261,8 @@ func GetLogByKey(key string, logType int, startTimestamp int64, endTimestamp int
 	if group != "" {
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
+
+	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp)
 
 	err = tx.Model(&Log{}).Count(&total).Error
 	if err != nil {
@@ -329,6 +344,8 @@ func GetLogByKeyLightweight(key string, logType int, startTimestamp int64, endTi
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
 
+	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp)
+
 	// 先统计总数
 	err = tx.Model(&Log{}).Count(&total).Error
 	if err != nil {
@@ -409,6 +426,8 @@ func GetLogByKeyCursor(key string, logType int, startTimestamp int64, endTimesta
 	if group != "" {
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
+
+	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp)
 
 	// 游标分页：使用 created_at 和 id 的组合进行分页
 	if cursor != "" {
@@ -687,6 +706,7 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	if group != "" {
 		tx = tx.Where("logs."+logGroupCol+" = ?", group)
 	}
+	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp)
 	err = tx.Model(&Log{}).Count(&total).Error
 	if err != nil {
 		return nil, 0, err
@@ -743,7 +763,10 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		return db
 	}
 
-	quotaQuery := applyFilters(LOG_DB.Table("logs"))
+	baseFiltered := applyFilters(LOG_DB.Table("logs"))
+	baseFiltered = applyLogRangeIndexHints(baseFiltered, startTimestamp, endTimestamp)
+
+	quotaQuery := baseFiltered
 	if startTimestamp != 0 {
 		quotaQuery = quotaQuery.Where("created_at >= ?", startTimestamp)
 	}
@@ -756,7 +779,8 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	quotaQuery.Select("COALESCE(sum(quota),0) as quota").Scan(&quotaResult)
 
 	cutoff := time.Now().Add(-60 * time.Second).Unix()
-	rpmTpmQuery := applyFilters(LOG_DB.Table("logs")).Where("created_at >= ?", cutoff)
+	rpmTpmQuery := applyFilters(LOG_DB.Table("logs"))
+	rpmTpmQuery = applyLogRangeIndexHints(rpmTpmQuery, cutoff, 0).Where("created_at >= ?", cutoff)
 	var rpmTpmResult struct {
 		Rpm int
 		Tpm int
@@ -821,6 +845,7 @@ func ensureLogIndexes(db *gorm.DB) error {
 		"idx_created_at_id",
 		"idx_created_at_type",
 		"idx_type_created_at",
+		"idx_created_at_only",
 		"idx_username_type_created_at",
 		"idx_tokenname_type_created_at",
 		"idx_token_type_created_at",
