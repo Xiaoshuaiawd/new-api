@@ -40,11 +40,8 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	baseURL := fmt.Sprintf("%s/v1/messages", info.ChannelBaseUrl)
-	// 保留beta参数传递
-	if info.IsClaudeBetaQuery {
-		baseURL = baseURL + "?beta=true"
-	}
+	// 直接使用info.RequestURLPath，它已经包含了beta参数（如果有的话）
+	baseURL := fmt.Sprintf("%s%s", info.ChannelBaseUrl, info.RequestURLPath)
 	return baseURL, nil
 }
 
