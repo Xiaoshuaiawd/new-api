@@ -184,6 +184,16 @@ export const CHANNEL_OPTIONS = [
     color: 'blue',
     label: 'Replicate',
   },
+  {
+    value: 57,
+    color: 'green',
+    label: 'Codex',
+  },
+  {
+    value: 58,
+    color: 'indigo',
+    label: 'ClaudeCode',
+  },
 ];
 
 export const MODEL_TABLE_PAGE_SIZE = 10;
