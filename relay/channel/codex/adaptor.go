@@ -36,6 +36,11 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	conversationID := uuid.New().String()
 	sessionID := conversationID // 与conversation_id保持一致
 
+	// 先删除所有现有的headers，确保完全硬编码
+	for key := range *req {
+		req.Del(key)
+	}
+
 	// 设置所有硬编码的headers
 	req.Set("User-Agent", "codex_cli_rs/0.73.0 (Mac OS 15.3.0; arm64) Apple_Terminal/455")
 	req.Set("Accept", "text/event-stream")
