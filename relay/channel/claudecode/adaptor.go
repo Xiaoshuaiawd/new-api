@@ -114,8 +114,12 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
-	// 使用claude的响应处理逻辑
-	return claude.ClaudeHandler(c, resp, info, a.RequestMode)
+	// 使用claude的响应处理逻辑，根据是否流式选择对应的处理器
+	if info.IsStream {
+		return claude.ClaudeStreamHandler(c, resp, info, a.RequestMode)
+	} else {
+		return claude.ClaudeHandler(c, resp, info, a.RequestMode)
+	}
 }
 
 func (a *Adaptor) GetModelList() []string {
