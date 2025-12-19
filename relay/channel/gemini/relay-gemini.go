@@ -582,7 +582,8 @@ func CovertOpenAI2Gemini(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 				// 判断是否是url
 				if strings.HasPrefix(part.GetAudioMedia().Url, "http") {
 					// 是url，获取文件的类型和base64编码的数据
-					fileData, err := service.GetFileBase64FromUrl(c, part.GetAudioMedia().Url, "formatting audio for Gemini")
+					// 使用不缓存的版本避免大音频文件占用内存
+					fileData, err := service.GetFileBase64FromUrlNoCache(c, part.GetAudioMedia().Url, "formatting audio for Gemini")
 					if err != nil {
 						return nil, fmt.Errorf("get file base64 from url '%s' failed: %w", part.GetAudioMedia().Url, err)
 					}
@@ -649,7 +650,8 @@ func CovertOpenAI2Gemini(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 				// 判断是否是 URL
 				if strings.HasPrefix(videoUrl.Url, "http") {
 					// 是 URL，获取文件的类型和 base64 编码的数据
-					fileData, err := service.GetFileBase64FromUrl(c, videoUrl.Url, "formatting video for Gemini")
+					// 使用不缓存的版本避免大视频文件占用内存
+					fileData, err := service.GetFileBase64FromUrlNoCache(c, videoUrl.Url, "formatting video for Gemini")
 					if err != nil {
 						return nil, fmt.Errorf("get file base64 from url '%s' failed: %w", videoUrl.Url, err)
 					}

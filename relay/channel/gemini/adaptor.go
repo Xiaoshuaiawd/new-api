@@ -72,8 +72,8 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 						// 是 URL，需要下载并转换为 Base64
 						videoURL := part.InlineData.Data
 
-						// 下载视频并转换为 Base64
-						fileData, err := service.GetFileBase64FromUrl(c, videoURL, "formatting video for Gemini native request")
+						// 使用不缓存的版本下载视频并转换为 Base64，避免大文件占用内存
+						fileData, err := service.GetFileBase64FromUrlNoCache(c, videoURL, "formatting video for Gemini native request")
 						if err != nil {
 							return nil, fmt.Errorf("failed to download and convert video URL to base64: %s, error: %w", videoURL, err)
 						}
