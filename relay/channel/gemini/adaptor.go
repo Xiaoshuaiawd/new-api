@@ -46,6 +46,10 @@ func isGeminiSupportedMimeType(mimeType string) bool {
 }
 
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
+	// 检查是否需要延迟转换（用于内存优化）
+	// 如果设置了延迟转换标记，则跳过 URL 转 Base64，等到实际发送前再转换
+	delayConversion := c.GetBool("gemini_delay_base64_conversion")
+
 	if len(request.Contents) > 0 {
 		for i := range request.Contents {
 			if i == 0 {
@@ -69,6 +73,13 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 				if part.InlineData != nil && part.InlineData.Data != "" {
 					// 检测 data 字段是否为 HTTP/HTTPS URL
 					if strings.HasPrefix(part.InlineData.Data, "http://") || strings.HasPrefix(part.InlineData.Data, "https://") {
+						// 如果启用延迟转换，则跳过，稍后再转换
+						if delayConversion {
+							// 标记这个 part 需要延迟转换
+							// URL 保留在 Data 字段中，稍后处理
+							continue
+						}
+
 						// 是 URL，需要下载并转换为 Base64
 						videoURL := part.InlineData.Data
 
@@ -95,6 +106,47 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 		}
 	}
 	return request, nil
+}
+
+// ConvertGeminiRequestURLsToBase64 将请求中的所有 URL 转换为 Base64
+// 这个函数在通过限流后、发送请求前调用，以减少内存占用
+// 导出为公共函数，供 gemini_handler 调用
+func ConvertGeminiRequestURLsToBase64(c *gin.Context, request *dto.GeminiChatRequest) error {
+	if request == nil {
+		return nil
+	}
+
+	for i := range request.Contents {
+		for j := range request.Contents[i].Parts {
+			part := &request.Contents[i].Parts[j]
+
+			if part.InlineData != nil && part.InlineData.Data != "" {
+				// 检测是否仍然是 URL（未转换）
+				if strings.HasPrefix(part.InlineData.Data, "http://") || strings.HasPrefix(part.InlineData.Data, "https://") {
+					videoURL := part.InlineData.Data
+
+					// 下载并转换为 Base64
+					fileData, err := service.GetFileBase64FromUrlNoCache(c, videoURL, "formatting video for Gemini native request (delayed)")
+					if err != nil {
+						return fmt.Errorf("failed to download and convert video URL to base64: %s, error: %w", videoURL, err)
+					}
+
+					// 校验 MIME 类型
+					if !isGeminiSupportedMimeType(fileData.MimeType) {
+						return fmt.Errorf("mime type '%s' is not supported by Gemini for URL: %s", fileData.MimeType, videoURL)
+					}
+
+					// 更新 InlineData
+					part.InlineData.Data = fileData.Base64Data
+					if part.InlineData.MimeType == "" || part.InlineData.MimeType != fileData.MimeType {
+						part.InlineData.MimeType = fileData.MimeType
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, req *dto.ClaudeRequest) (any, error) {

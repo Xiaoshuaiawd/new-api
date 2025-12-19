@@ -89,6 +89,10 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		return types.NewErrorWithStatusCode(fmt.Errorf("invalid request type, expected *dto.GeminiChatRequest, got %T", info.Request), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 
+	// 启用延迟 Base64 转换优化
+	// 在限流等待期间不转换 Base64，减少内存占用
+	c.Set("gemini_delay_base64_conversion", true)
+
 	request, err := common.DeepCopy(geminiReq)
 	if err != nil {
 		return types.NewError(fmt.Errorf("failed to copy request to GeminiChatRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
@@ -178,6 +182,15 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
+
+		// 关键优化：在通过限流后、JSON 序列化前，才转换 URL 为 Base64
+		// 这样可以避免在限流排队期间占用大量内存
+		if geminiReq, ok := convertedRequest.(*dto.GeminiChatRequest); ok {
+			if err := gemini.ConvertGeminiRequestURLsToBase64(c, geminiReq); err != nil {
+				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+		}
+
 		jsonData, err := common.Marshal(convertedRequest)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
