@@ -213,6 +213,12 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 	}
 
+	// 关键优化：立即清空 info.Request 中的 Base64 数据
+	// 请求已发送完成，不再需要保留 Base64 数据，避免内存泄漏
+	if geminiReq, ok := info.Request.(*dto.GeminiChatRequest); ok {
+		clearGeminiRequestBase64Data(geminiReq)
+	}
+
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
 	var httpResp *http.Response
