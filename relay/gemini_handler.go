@@ -21,6 +21,35 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// clearGeminiRequestBase64Data 清空 Gemini 请求中的 Base64 数据以释放内存
+// 在 JSON 序列化完成后调用，避免在整个请求生命周期内保留大量 Base64 数据
+func clearGeminiRequestBase64Data(req *dto.GeminiChatRequest) {
+	if req == nil {
+		return
+	}
+
+	// 遍历所有 contents
+	for i := range req.Contents {
+		for j := range req.Contents[i].Parts {
+			part := &req.Contents[i].Parts[j]
+			// 清空 InlineData 中的 Base64 数据
+			if part.InlineData != nil {
+				part.InlineData.Data = "" // 释放 Base64 字符串占用的内存
+			}
+		}
+	}
+
+	// 清空 SystemInstructions 中的 Base64 数据（如果有）
+	if req.SystemInstructions != nil {
+		for j := range req.SystemInstructions.Parts {
+			part := &req.SystemInstructions.Parts[j]
+			if part.InlineData != nil {
+				part.InlineData.Data = ""
+			}
+		}
+	}
+}
+
 func isNoThinkingRequest(req *dto.GeminiChatRequest) bool {
 	if req.GenerationConfig.ThinkingConfig != nil && req.GenerationConfig.ThinkingConfig.ThinkingBudget != nil {
 		configBudget := req.GenerationConfig.ThinkingConfig.ThinkingBudget
@@ -154,6 +183,12 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 		}
 
+		// 立即清空 convertedRequest 中的 Base64 数据以释放内存
+		// JSON 已经序列化完成，不再需要保留对象中的数据
+		if geminiReq, ok := convertedRequest.(*dto.GeminiChatRequest); ok {
+			clearGeminiRequestBase64Data(geminiReq)
+		}
+
 		// apply param override
 		if len(info.ParamOverride) > 0 {
 			jsonData, err = relaycommon.ApplyParamOverride(jsonData, info.ParamOverride, relaycommon.BuildParamOverrideContext(info))
@@ -162,7 +197,12 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 			}
 		}
 
-		logger.LogDebug(c, "Gemini request body: "+string(jsonData))
+		// 优化：对于大请求体（包含 Base64 数据），不完整打印以节省内存
+		if len(jsonData) > 10000 {
+			logger.LogDebug(c, fmt.Sprintf("Gemini request body (truncated): %d bytes", len(jsonData)))
+		} else {
+			logger.LogDebug(c, "Gemini request body: "+string(jsonData))
+		}
 
 		requestBody = bytes.NewReader(jsonData)
 	}
