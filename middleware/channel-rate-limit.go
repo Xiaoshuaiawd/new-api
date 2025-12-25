@@ -98,10 +98,9 @@ func CheckChannelModelRateLimit(channelId int, modelName string) *types.NewAPIEr
 	if shouldDisable {
 		common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」令牌已用完，主动禁用以避免下次请求触发限流", channelId, matchName))
 
-		// Disable asynchronously to not block current request
-		gopool.Go(func() {
-			disableModelForRateLimit(channelId, matchName, rpm)
-		})
+		// Disable SYNCHRONOUSLY to ensure it takes effect before next request
+		// This is critical to prevent the next request from seeing rate limit error
+		disableModelForRateLimit(channelId, matchName, rpm)
 	}
 
 	return nil
