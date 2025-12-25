@@ -65,55 +65,55 @@ func CheckChannelModelRateLimit(channelId int, modelName string) *types.NewAPIEr
 	}
 
 	if rateLimited {
-		// Disable the model for this channel immediately to prevent further requests
-		msg := fmt.Sprintf("当前渠道模型请求过于频繁（限制 %d RPM），已自动禁用该模型 1 分钟", rpm)
+		// Immediately disable the model BEFORE returning error
+		// This ensures the model is disabled synchronously before retry
+		common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」触发 RPM 限流（限制 %d RPM），立即禁用", channelId, matchName, rpm))
 
-		// Disable the model asynchronously
-		gopool.Go(func() {
-			// Use special prefix to mark this as RPM-limit-triggered disable (for auto-recovery)
-			reason := fmt.Sprintf("%s 触发 RPM 限流（限制 %d RPM），自动禁用 1 分钟", rateLimitDisablePrefix, rpm)
-			changed, err := model.DisableChannelModel(channelId, matchName, reason)
-			if err != nil {
-				common.SysLog(fmt.Sprintf("禁用模型失败：渠道 #%d 模型「%s」，错误：%v", channelId, matchName, err))
-				return
-			}
-			if changed {
-				common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」因触发 RPM 限流已被自动禁用，将在 1 分钟后自动恢复", channelId, matchName))
+		// Use special prefix to mark this as RPM-limit-triggered disable (for auto-recovery)
+		reason := fmt.Sprintf("%s 触发 RPM 限流（限制 %d RPM），自动禁用 1 分钟", rateLimitDisablePrefix, rpm)
+		changed, err := model.DisableChannelModel(channelId, matchName, reason)
+		if err != nil {
+			common.SysLog(fmt.Sprintf("禁用模型失败：渠道 #%d 模型「%s」，错误：%v", channelId, matchName, err))
+			// Continue to return error even if disable failed
+		} else if changed {
+			common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」已被自动禁用，将在 1 分钟后自动恢复", channelId, matchName))
 
-				// Schedule automatic re-enable after 1 minute
-				time.AfterFunc(60*time.Second, func() {
-					// Only re-enable if the disable reason still has the RPM limit prefix
-					// This prevents re-enabling models that were manually disabled or disabled by keyword errors
-					channel, err := model.CacheGetChannel(channelId)
-					if err != nil {
-						common.SysLog(fmt.Sprintf("自动恢复模型失败：无法获取渠道 #%d，错误：%v", channelId, err))
-						return
-					}
+			// Schedule automatic re-enable after 1 minute
+			gopool.Go(func() {
+				time.Sleep(60 * time.Second)
 
-					if channel.ChannelInfo.DisabledModels != nil {
-						if disabledInfo, exists := channel.ChannelInfo.DisabledModels[matchName]; exists {
-							// Only auto-enable if the disable reason starts with the RPM limit prefix
-							if len(disabledInfo.Reason) >= len(rateLimitDisablePrefix) &&
-							   disabledInfo.Reason[:len(rateLimitDisablePrefix)] == rateLimitDisablePrefix {
-								enabled, err := model.EnableChannelModel(channelId, matchName)
-								if err != nil {
-									common.SysLog(fmt.Sprintf("自动恢复模型失败：渠道 #%d 模型「%s」，错误：%v", channelId, matchName, err))
-									return
-								}
-								if enabled {
-									common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」已自动恢复启用", channelId, matchName))
-								}
-							} else {
-								common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」禁用原因已变更（可能被手动禁用或关键词触发），跳过自动恢复", channelId, matchName))
+				// Only re-enable if the disable reason still has the RPM limit prefix
+				// This prevents re-enabling models that were manually disabled or disabled by keyword errors
+				channel, err := model.CacheGetChannel(channelId)
+				if err != nil {
+					common.SysLog(fmt.Sprintf("自动恢复模型失败：无法获取渠道 #%d，错误：%v", channelId, err))
+					return
+				}
+
+				if channel.ChannelInfo.DisabledModels != nil {
+					if disabledInfo, exists := channel.ChannelInfo.DisabledModels[matchName]; exists {
+						// Only auto-enable if the disable reason starts with the RPM limit prefix
+						if len(disabledInfo.Reason) >= len(rateLimitDisablePrefix) &&
+							disabledInfo.Reason[:len(rateLimitDisablePrefix)] == rateLimitDisablePrefix {
+							enabled, err := model.EnableChannelModel(channelId, matchName)
+							if err != nil {
+								common.SysLog(fmt.Sprintf("自动恢复模型失败：渠道 #%d 模型「%s」，错误：%v", channelId, matchName, err))
+								return
 							}
+							if enabled {
+								common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」已自动恢复启用", channelId, matchName))
+							}
+						} else {
+							common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」禁用原因已变更（可能被手动禁用或关键词触发），跳过自动恢复", channelId, matchName))
 						}
 					}
-				})
-			}
-		})
+				}
+			})
+		}
 
 		// Return error to trigger retry with other channels
-		// Don't use skipRetry flag so it can try other channels
+		// The model is already disabled, so next retry will skip this channel
+		msg := fmt.Sprintf("渠道模型触发 RPM 限流（限制 %d RPM），已切换到其他渠道", rpm)
 		return types.NewErrorWithStatusCode(errors.New(msg), types.ErrorCodeChannelModelRateLimitExceeded, http.StatusTooManyRequests, types.ErrOptionWithNoRecordErrorLog())
 	}
 
