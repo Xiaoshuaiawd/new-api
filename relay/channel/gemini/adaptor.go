@@ -45,11 +45,16 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 						// URL转base64转换接口地址
 						converterBaseUrl := "http://104.243.40.120:8000"
 
+						fmt.Printf("[Gemini URL2Base64] Detected URL in inline_data.data: %s\n", part.InlineData.Data)
+
 						// 调用转换接口获取base64数据
 						base64Data, err := service.GetBase64FromUrlConverter(c, converterBaseUrl, part.InlineData.Data)
 						if err != nil {
+							fmt.Printf("[Gemini URL2Base64] Failed to convert URL: %v\n", err)
 							return nil, fmt.Errorf("failed to convert URL to base64: %w, url: %s", err, part.InlineData.Data)
 						}
+
+						fmt.Printf("[Gemini URL2Base64] Successfully converted URL to base64, length: %d\n", len(base64Data))
 
 						// 替换原URL为转换后的base64数据
 						request.Contents[i].Parts[j].InlineData.Data = base64Data
