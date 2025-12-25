@@ -54,7 +54,10 @@ func DisableChannelModel(channelError types.ChannelError, modelName string, reas
 		return
 	}
 
-	changed, err := model.DisableChannelModel(channelError.ChannelId, matchName, reason)
+	// Add keyword prefix to identify keyword-triggered disables for auto-recovery
+	disableReason := fmt.Sprintf("%s %s", KeywordDisablePrefix, reason)
+
+	changed, err := model.DisableChannelModel(channelError.ChannelId, matchName, disableReason)
 	if err != nil {
 		common.SysLog(fmt.Sprintf("禁用模型失败：通道「%s」（#%d）模型「%s」，错误：%v", channelError.ChannelName, channelError.ChannelId, matchName, err))
 		return
@@ -64,8 +67,11 @@ func DisableChannelModel(channelError types.ChannelError, modelName string, reas
 	}
 
 	subject := fmt.Sprintf("通道「%s」（#%d）模型「%s」已被禁用", channelError.ChannelName, channelError.ChannelId, matchName)
-	content := fmt.Sprintf("通道「%s」（#%d）模型「%s」已被禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, matchName, reason)
+	content := fmt.Sprintf("通道「%s」（#%d）模型「%s」已被禁用，原因：%s，将每分钟自动拨测并尝试恢复", channelError.ChannelName, channelError.ChannelId, matchName, reason)
 	NotifyRootUser(formatNotifyModelType(channelError.ChannelId, matchName), subject, content)
+
+	// Schedule automatic recovery testing (every 1 minute)
+	ScheduleModelRecoveryTest(channelError.ChannelId, channelError.ChannelName, matchName)
 }
 
 func EnableChannel(channelId int, usingKey string, channelName string) {

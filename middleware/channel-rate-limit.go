@@ -9,17 +9,23 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/common/limiter"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/bytedance/gopkg/util/gopool"
 )
 
 const channelModelRateLimitWindowSeconds int64 = 60
+
+// Special prefix to identify rate-limit-triggered disables (for auto-recovery)
+const rateLimitDisablePrefix = "[AUTO_RPM_LIMIT]"
 
 var channelModelRateLimiter common.InMemoryRateLimiter
 
 // CheckChannelModelRateLimit enforces a global per-(channel, model) RPM limit.
 // It returns a *types.NewAPIError with HTTP 429 when rate limited.
+// When rate limited, it automatically disables the model for this channel for 1 minute.
 func CheckChannelModelRateLimit(channelId int, modelName string) *types.NewAPIError {
 	rpm := setting.ChannelModelRateLimitRPM
 	if rpm <= 0 {
@@ -37,6 +43,8 @@ func CheckChannelModelRateLimit(channelId int, modelName string) *types.NewAPIEr
 	// Keep key namespace distinct from other rate limiters.
 	key := fmt.Sprintf("rateLimit:CM:%d:%s", channelId, matchName)
 
+	var rateLimited bool
+
 	if common.RedisEnabled {
 		ctx := context.Background()
 		tb := limiter.New(ctx, common.RDB)
@@ -50,17 +58,64 @@ func CheckChannelModelRateLimit(channelId int, modelName string) *types.NewAPIEr
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError, types.ErrOptionWithNoRecordErrorLog())
 		}
-		if allowed {
-			return nil
-		}
-		msg := fmt.Sprintf("当前渠道模型请求过于频繁（限制 %d RPM），请稍后重试", rpm)
+		rateLimited = !allowed
+	} else {
+		channelModelRateLimiter.Init(10 * time.Minute)
+		rateLimited = !channelModelRateLimiter.Request(key, rpm, channelModelRateLimitWindowSeconds)
+	}
+
+	if rateLimited {
+		// Disable the model for this channel immediately to prevent further requests
+		msg := fmt.Sprintf("当前渠道模型请求过于频繁（限制 %d RPM），已自动禁用该模型 1 分钟", rpm)
+
+		// Disable the model asynchronously
+		gopool.Go(func() {
+			// Use special prefix to mark this as RPM-limit-triggered disable (for auto-recovery)
+			reason := fmt.Sprintf("%s 触发 RPM 限流（限制 %d RPM），自动禁用 1 分钟", rateLimitDisablePrefix, rpm)
+			changed, err := model.DisableChannelModel(channelId, matchName, reason)
+			if err != nil {
+				common.SysLog(fmt.Sprintf("禁用模型失败：渠道 #%d 模型「%s」，错误：%v", channelId, matchName, err))
+				return
+			}
+			if changed {
+				common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」因触发 RPM 限流已被自动禁用，将在 1 分钟后自动恢复", channelId, matchName))
+
+				// Schedule automatic re-enable after 1 minute
+				time.AfterFunc(60*time.Second, func() {
+					// Only re-enable if the disable reason still has the RPM limit prefix
+					// This prevents re-enabling models that were manually disabled or disabled by keyword errors
+					channel, err := model.CacheGetChannel(channelId)
+					if err != nil {
+						common.SysLog(fmt.Sprintf("自动恢复模型失败：无法获取渠道 #%d，错误：%v", channelId, err))
+						return
+					}
+
+					if channel.ChannelInfo.DisabledModels != nil {
+						if disabledInfo, exists := channel.ChannelInfo.DisabledModels[matchName]; exists {
+							// Only auto-enable if the disable reason starts with the RPM limit prefix
+							if len(disabledInfo.Reason) >= len(rateLimitDisablePrefix) &&
+							   disabledInfo.Reason[:len(rateLimitDisablePrefix)] == rateLimitDisablePrefix {
+								enabled, err := model.EnableChannelModel(channelId, matchName)
+								if err != nil {
+									common.SysLog(fmt.Sprintf("自动恢复模型失败：渠道 #%d 模型「%s」，错误：%v", channelId, matchName, err))
+									return
+								}
+								if enabled {
+									common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」已自动恢复启用", channelId, matchName))
+								}
+							} else {
+								common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」禁用原因已变更（可能被手动禁用或关键词触发），跳过自动恢复", channelId, matchName))
+							}
+						}
+					}
+				})
+			}
+		})
+
+		// Return error to trigger retry with other channels
+		// Don't use skipRetry flag so it can try other channels
 		return types.NewErrorWithStatusCode(errors.New(msg), types.ErrorCodeChannelModelRateLimitExceeded, http.StatusTooManyRequests, types.ErrOptionWithNoRecordErrorLog())
 	}
 
-	channelModelRateLimiter.Init(10 * time.Minute)
-	if channelModelRateLimiter.Request(key, rpm, channelModelRateLimitWindowSeconds) {
-		return nil
-	}
-	msg := fmt.Sprintf("当前渠道模型请求过于频繁（限制 %d RPM），请稍后重试", rpm)
-	return types.NewErrorWithStatusCode(errors.New(msg), types.ErrorCodeChannelModelRateLimitExceeded, http.StatusTooManyRequests, types.ErrOptionWithNoRecordErrorLog())
+	return nil
 }

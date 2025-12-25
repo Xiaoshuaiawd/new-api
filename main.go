@@ -102,6 +102,11 @@ func main() {
 
 	go controller.AutomaticallyTestChannels()
 
+	// Initialize model recovery tasks for keyword-disabled models
+	if common.IsMasterNode {
+		go service.InitModelRecoveryTasks()
+	}
+
 	if common.IsMasterNode && constant.UpdateTask {
 		gopool.Go(func() {
 			controller.UpdateMidjourneyTaskBulk()
