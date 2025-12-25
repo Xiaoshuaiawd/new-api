@@ -34,6 +34,7 @@ export default function RequestRateLimit(props) {
 
   const [loading, setLoading] = useState(false);
   const [inputs, setInputs] = useState({
+    ChannelModelRateLimitRPM: 0,
     ModelRequestRateLimitEnabled: false,
     ModelRequestRateLimitCount: -1,
     ModelRequestRateLimitSuccessCount: 1000,
@@ -231,7 +232,36 @@ export default function RequestRateLimit(props) {
             </Row>
             <Row>
               <Button size='default' onClick={onSubmit}>
-                {t('保存模型速率限制')}
+                {t('保存速率限制')}
+              </Button>
+            </Row>
+          </Form.Section>
+
+          <Form.Section text={t('渠道模型 RPM 限制')}>
+            <Row gutter={16}>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.InputNumber
+                  label={t('每渠道每模型 RPM')}
+                  step={1}
+                  min={0}
+                  max={100000000}
+                  suffix={t('次/分钟')}
+                  extraText={t(
+                    '按 (渠道, 模型) 维度生效，0 代表不限制；例如设置为 3RPM 且渠道有 3 个模型，则总计可达 9RPM',
+                  )}
+                  field={'ChannelModelRateLimitRPM'}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      ChannelModelRateLimitRPM: String(value),
+                    })
+                  }
+                />
+              </Col>
+            </Row>
+            <Row>
+              <Button size='default' onClick={onSubmit}>
+                {t('保存速率限制')}
               </Button>
             </Row>
           </Form.Section>

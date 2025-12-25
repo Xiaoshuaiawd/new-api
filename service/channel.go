@@ -10,11 +10,16 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 )
 
 func formatNotifyType(channelId int, status int) string {
 	return fmt.Sprintf("%s_%d_%d", dto.NotifyTypeChannelUpdate, channelId, status)
+}
+
+func formatNotifyModelType(channelId int, modelName string) string {
+	return fmt.Sprintf("%s_%d_model_%s", dto.NotifyTypeChannelUpdate, channelId, modelName)
 }
 
 // disable & notify
@@ -35,6 +40,34 @@ func DisableChannel(channelError types.ChannelError, reason string) {
 	}
 }
 
+// DisableChannelModel disables only the current model for this channel.
+func DisableChannelModel(channelError types.ChannelError, modelName string, reason string) {
+	matchName := ratio_setting.FormatMatchingModelName(modelName)
+	if matchName == "" {
+		matchName = modelName
+	}
+
+	common.SysLog(fmt.Sprintf("通道「%s」（#%d）模型「%s」发生错误，准备禁用该模型，原因：%s", channelError.ChannelName, channelError.ChannelId, matchName, reason))
+
+	if !channelError.AutoBan {
+		common.SysLog(fmt.Sprintf("通道「%s」（#%d）未启用自动禁用功能，跳过禁用模型操作", channelError.ChannelName, channelError.ChannelId))
+		return
+	}
+
+	changed, err := model.DisableChannelModel(channelError.ChannelId, matchName, reason)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("禁用模型失败：通道「%s」（#%d）模型「%s」，错误：%v", channelError.ChannelName, channelError.ChannelId, matchName, err))
+		return
+	}
+	if !changed {
+		return
+	}
+
+	subject := fmt.Sprintf("通道「%s」（#%d）模型「%s」已被禁用", channelError.ChannelName, channelError.ChannelId, matchName)
+	content := fmt.Sprintf("通道「%s」（#%d）模型「%s」已被禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, matchName, reason)
+	NotifyRootUser(formatNotifyModelType(channelError.ChannelId, matchName), subject, content)
+}
+
 func EnableChannel(channelId int, usingKey string, channelName string) {
 	success := model.UpdateChannelStatus(channelId, usingKey, common.ChannelStatusEnabled, "")
 	if success {
@@ -42,6 +75,26 @@ func EnableChannel(channelId int, usingKey string, channelName string) {
 		content := fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, channelId)
 		NotifyRootUser(formatNotifyType(channelId, common.ChannelStatusEnabled), subject, content)
 	}
+}
+
+func ShouldDisableChannelModel(channelType int, modelName string, err *types.NewAPIError) bool {
+	if !common.AutomaticDisableChannelEnabled {
+		return false
+	}
+	if err == nil || modelName == "" {
+		return false
+	}
+	if types.IsSkipRetryError(err) {
+		return false
+	}
+	if len(operation_setting.AutomaticDisableModelKeywords) == 0 {
+		return false
+	}
+
+	lowerMessage := strings.ToLower(err.Error())
+	search, _ := AcSearch(lowerMessage, operation_setting.AutomaticDisableModelKeywords, true)
+	_ = channelType // reserved for future channel-type specific rules
+	return search
 }
 
 func ShouldDisableChannel(channelType int, err *types.NewAPIError) bool {

@@ -66,7 +66,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	requestId := c.GetString(common.RequestIdKey)
 	//group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
-	//originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
+	originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 
 	var (
 		newAPIError *types.NewAPIError
@@ -212,13 +212,23 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		// 更新 Prometheus metrics context（重试时可能切换到不同的渠道）
-		if i > 0 && metricsCtx != nil {
+		if retryParam.GetRetry() > 0 && metricsCtx != nil {
 			metricsCtx.ChannelID = channel.Id
 			metricsCtx.ChannelName = channel.Name
 			metricsCtx.ChannelType = channel.Type
 		}
 
 		addUsedChannel(c, channel.Id)
+
+		// Channel-model RPM limiter: treat as 429 so the retry loop can switch channels.
+		newAPIError = middleware.CheckChannelModelRateLimit(channel.Id, relayInfo.OriginModelName)
+		if newAPIError != nil {
+			processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+			if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
+				break
+			}
+			continue
+		}
 		requestBody, bodyErr := common.GetRequestBody(c)
 		if bodyErr != nil {
 			// Ensure consistent 413 for oversized bodies even when error occurs later (e.g., retry path)
@@ -378,7 +388,12 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, err.Error()))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
-	if service.ShouldDisableChannel(channelError.ChannelType, err) && channelError.AutoBan {
+	originalModel := c.GetString("original_model")
+	if originalModel != "" && service.ShouldDisableChannelModel(channelError.ChannelType, originalModel, err) && channelError.AutoBan {
+		gopool.Go(func() {
+			service.DisableChannelModel(channelError, originalModel, err.Error())
+		})
+	} else if service.ShouldDisableChannel(channelError.ChannelType, err) && channelError.AutoBan {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.Error())
 		})
@@ -490,7 +505,12 @@ func RelayTask(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	taskErr := taskRelayHandler(c, relayInfo)
+	var taskErr *dto.TaskError
+	if rateErr := middleware.CheckChannelModelRateLimit(channelId, relayInfo.OriginModelName); rateErr != nil {
+		taskErr = service.TaskErrorWrapper(rateErr, string(rateErr.GetErrorCode()), rateErr.StatusCode)
+	} else {
+		taskErr = taskRelayHandler(c, relayInfo)
+	}
 	if taskErr == nil {
 		retryTimes = 0
 	}
@@ -513,6 +533,11 @@ func RelayTask(c *gin.Context) {
 		c.Set("use_channel", useChannel)
 		logger.LogInfo(c, fmt.Sprintf("using channel #%d to retry (remain times %d)", channel.Id, retryParam.GetRetry()))
 		//middleware.SetupContextForSelectedChannel(c, channel, originalModel)
+
+		if rateErr := middleware.CheckChannelModelRateLimit(channelId, relayInfo.OriginModelName); rateErr != nil {
+			taskErr = service.TaskErrorWrapper(rateErr, string(rateErr.GetErrorCode()), rateErr.StatusCode)
+			continue
+		}
 
 		requestBody, err := common.GetRequestBody(c)
 		if err != nil {

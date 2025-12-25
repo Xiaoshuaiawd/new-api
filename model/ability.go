@@ -155,11 +155,15 @@ func (channel *Channel) AddAbilities(tx *gorm.DB) error {
 				continue
 			}
 			abilitySet[key] = struct{}{}
+			enabled := channel.Status == common.ChannelStatusEnabled
+			if enabled && channel.IsModelDisabled(model) {
+				enabled = false
+			}
 			ability := Ability{
 				Group:     group,
 				Model:     model,
 				ChannelId: channel.Id,
-				Enabled:   channel.Status == common.ChannelStatusEnabled,
+				Enabled:   enabled,
 				Priority:  channel.Priority,
 				Weight:    uint(channel.GetWeight()),
 				Tag:       channel.Tag,
@@ -227,11 +231,15 @@ func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {
 				continue
 			}
 			abilitySet[key] = struct{}{}
+			enabled := channel.Status == common.ChannelStatusEnabled
+			if enabled && channel.IsModelDisabled(model) {
+				enabled = false
+			}
 			ability := Ability{
 				Group:     group,
 				Model:     model,
 				ChannelId: channel.Id,
-				Enabled:   channel.Status == common.ChannelStatusEnabled,
+				Enabled:   enabled,
 				Priority:  channel.Priority,
 				Weight:    uint(channel.GetWeight()),
 				Tag:       channel.Tag,
@@ -261,7 +269,34 @@ func (channel *Channel) UpdateAbilities(tx *gorm.DB) error {
 }
 
 func UpdateAbilityStatus(channelId int, status bool) error {
-	return DB.Model(&Ability{}).Where("channel_id = ?", channelId).Select("enabled").Update("enabled", status).Error
+	if !status {
+		return DB.Model(&Ability{}).Where("channel_id = ?", channelId).Select("enabled").Update("enabled", false).Error
+	}
+
+	channel, err := GetChannelById(channelId, true)
+	if err != nil {
+		return err
+	}
+
+	if channel.ChannelInfo.DisabledModels == nil || len(channel.ChannelInfo.DisabledModels) == 0 {
+		return DB.Model(&Ability{}).Where("channel_id = ?", channelId).Select("enabled").Update("enabled", true).Error
+	}
+
+	disabledModels := lo.Keys(channel.ChannelInfo.DisabledModels)
+	err = DB.Model(&Ability{}).
+		Where("channel_id = ?", channelId).
+		Where("model NOT IN ?", disabledModels).
+		Select("enabled").
+		Update("enabled", true).Error
+	if err != nil {
+		return err
+	}
+
+	return DB.Model(&Ability{}).
+		Where("channel_id = ?", channelId).
+		Where("model IN ?", disabledModels).
+		Select("enabled").
+		Update("enabled", false).Error
 }
 
 func UpdateAbilityStatusByTag(tag string, status bool) error {

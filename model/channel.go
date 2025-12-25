@@ -29,7 +29,6 @@ func SetChannelStatusCallback(callback ChannelStatusUpdateCallback) {
 	channelStatusCallback = callback
 }
 
-
 type Channel struct {
 	Id                 int     `json:"id"`
 	Type               int     `json:"type" gorm:"default:0"`
@@ -77,6 +76,15 @@ type ChannelInfo struct {
 	MultiKeyDisabledTime   map[int]int64         `json:"multi_key_disabled_time,omitempty"`   // key禁用时间列表，key index -> time
 	MultiKeyPollingIndex   int                   `json:"multi_key_polling_index"`             // 多Key模式下轮询的key索引
 	MultiKeyMode           constant.MultiKeyMode `json:"multi_key_mode"`
+
+	// DisabledModels stores per-model disable state for this channel.
+	// Key is the (possibly normalized) model name in channel.Models.
+	DisabledModels map[string]ChannelModelDisabledInfo `json:"disabled_models,omitempty"`
+}
+
+type ChannelModelDisabledInfo struct {
+	Reason       string `json:"reason,omitempty"`
+	DisabledTime int64  `json:"disabled_time,omitempty"`
 }
 
 // Value implements driver.Valuer interface

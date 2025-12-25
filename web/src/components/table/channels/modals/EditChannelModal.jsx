@@ -53,6 +53,7 @@ import {
   getChannelIcon,
   getModelCategories,
   selectFilter,
+  timestamp2string,
 } from '../../../../helpers';
 import ModelSelectModal from './ModelSelectModal';
 import JSONEditor from '../../../common/ui/JSONEditor';
@@ -630,6 +631,58 @@ const EditChannelModal = (props) => {
       showError(message);
     }
     setLoading(false);
+  };
+
+  const handleToggleChannelModel = async (modelName, enable) => {
+    if (!isEdit) {
+      return;
+    }
+    const trimmedModel = (modelName || '').trim();
+    if (!trimmedModel) {
+      return;
+    }
+
+    const actionText = enable ? t('启用') : t('禁用');
+    Modal.confirm({
+      title: t('{{action}}模型', { action: actionText }),
+      content: (
+        <div>
+          <div className='mb-2'>
+            {t('渠道')}：{inputs.name || channelId}
+          </div>
+          <div className='mb-2'>
+            {t('模型')}：{trimmedModel}
+          </div>
+          <div className='text-xs text-gray-600'>
+            {enable
+              ? t('启用后该模型会重新参与该渠道的路由')
+              : t('禁用后仅该模型会从该渠道路由中移除，不影响渠道的其他模型')}
+          </div>
+        </div>
+      ),
+      onOk: async () => {
+        try {
+          setLoading(true);
+          const url = enable
+            ? `/api/channel/${channelId}/model/enable`
+            : `/api/channel/${channelId}/model/disable`;
+          const payload = enable
+            ? { model: trimmedModel }
+            : { model: trimmedModel, reason: t('手动禁用') };
+          const res = await API.post(url, payload);
+          if (!res?.data?.success) {
+            showError(res?.data?.message || t('操作失败'));
+            return;
+          }
+          showSuccess(t('操作成功'));
+          await loadChannel();
+        } catch (error) {
+          showError(error?.message || t('操作失败'));
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
   };
 
   const fetchUpstreamModelList = async (name) => {
@@ -2524,6 +2577,66 @@ const EditChannelModal = (props) => {
                         </Space>
                       }
                     />
+
+                    {isEdit && Array.isArray(inputs.models) && inputs.models.length > 0 && (
+                      <div className='mt-3'>
+                        <div className='text-sm font-medium mb-1'>
+                          {t('模型禁用')}
+                        </div>
+                        <div className='text-xs text-gray-600 mb-2'>
+                          {t(
+                            '可按模型禁用而不是禁用整个渠道；禁用后该模型不会再从该渠道转发',
+                          )}
+                        </div>
+                        <Space wrap>
+                          {inputs.models
+                            .map((m) => (m || '').trim())
+                            .filter(Boolean)
+                            .map((modelName) => {
+                              const disabledInfo =
+                                inputs?.channel_info?.disabled_models?.[
+                                  modelName
+                                ];
+                              const isDisabled = Boolean(disabledInfo);
+                              const tipParts = [];
+                              if (isDisabled) {
+                                if (disabledInfo?.disabled_time) {
+                                  tipParts.push(
+                                    `${t('禁用时间')}: ${timestamp2string(disabledInfo.disabled_time)}`,
+                                  );
+                                }
+                                if (disabledInfo?.reason) {
+                                  tipParts.push(
+                                    `${t('原因')}: ${disabledInfo.reason}`,
+                                  );
+                                }
+                              }
+                              const tip = tipParts.join(' | ');
+                              return (
+                                <Tag
+                                  key={`model-disabled-${modelName}`}
+                                  color={isDisabled ? 'red' : 'green'}
+                                  style={{ display: 'flex', alignItems: 'center' }}
+                                >
+                                  <span title={tip || undefined}>
+                                    {modelName}
+                                  </span>
+                                  <Button
+                                    size='small'
+                                    type='tertiary'
+                                    style={{ marginLeft: 8 }}
+                                    onClick={() =>
+                                      handleToggleChannelModel(modelName, isDisabled)
+                                    }
+                                  >
+                                    {isDisabled ? t('启用') : t('禁用')}
+                                  </Button>
+                                </Tag>
+                              );
+                            })}
+                        </Space>
+                      </div>
+                    )}
 
                     <Form.Input
                       field='custom_model'

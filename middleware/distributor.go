@@ -50,6 +50,17 @@ func Distribute() func(c *gin.Context) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, "该渠道已被禁用")
 				return
 			}
+			if shouldSelectChannel && modelRequest.Model != "" {
+				matchName := ratio_setting.FormatMatchingModelName(modelRequest.Model)
+				if !slices.Contains(channel.GetModels(), matchName) {
+					abortWithOpenAiMessage(c, http.StatusForbidden, "该渠道无权访问模型 "+modelRequest.Model)
+					return
+				}
+				if channel.IsModelDisabled(matchName) {
+					abortWithOpenAiMessage(c, http.StatusForbidden, "该渠道的模型已被禁用："+modelRequest.Model)
+					return
+				}
+			}
 		} else {
 			// Select a channel for the user
 			// check token model mapping

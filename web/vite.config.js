@@ -21,20 +21,36 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, transformWithEsbuild } from 'vite';
 import pkg from '@douyinfe/vite-plugin-semi';
 import path from 'path';
-import { codeInspectorPlugin } from 'code-inspector-plugin';
 const { vitePluginSemi } = pkg;
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(async ({ command }) => {
+  const optionalPlugins = [];
+  // code-inspector-plugin is only needed for local debugging. Make it optional so
+  // `vite build` works even when deps are not installed in CI/release envs.
+  if (command === 'serve') {
+    try {
+      const mod = await import('code-inspector-plugin');
+      if (mod?.codeInspectorPlugin) {
+        optionalPlugins.push(
+          mod.codeInspectorPlugin({
+            bundler: 'vite',
+          }),
+        );
+      }
+    } catch {
+      // Ignore if not installed.
+    }
+  }
+
+  return {
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
   plugins: [
-    codeInspectorPlugin({
-      bundler: 'vite',
-    }),
+    ...optionalPlugins,
     {
       name: 'treat-js-files-as-jsx',
       async transform(code, id) {
@@ -104,4 +120,5 @@ export default defineConfig({
       },
     },
   },
+  };
 });

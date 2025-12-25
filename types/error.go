@@ -57,6 +57,9 @@ const (
 	ErrorCodeChannelInvalidKey            ErrorCode = "channel:invalid_key"
 	ErrorCodeChannelResponseTimeExceeded  ErrorCode = "channel:response_time_exceeded"
 
+	// channel model rate limit (do NOT use "channel:" prefix to avoid auto-disable logic)
+	ErrorCodeChannelModelRateLimitExceeded ErrorCode = "channel_model_rate_limit_exceeded"
+
 	// client request error
 	ErrorCodeReadRequestBodyFailed ErrorCode = "read_request_body_failed"
 	ErrorCodeConvertRequestFailed  ErrorCode = "convert_request_failed"

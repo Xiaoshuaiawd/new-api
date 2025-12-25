@@ -38,6 +38,7 @@ export default function SettingsMonitoring(props) {
     AutomaticDisableChannelEnabled: false,
     AutomaticEnableChannelEnabled: false,
     AutomaticDisableKeywords: '',
+    AutomaticDisableModelKeywords: '',
     'monitor_setting.auto_test_channel_enabled': false,
     'monitor_setting.auto_test_channel_minutes': 10,
   });
@@ -217,6 +218,25 @@ export default function SettingsMonitoring(props) {
                   autosize={{ minRows: 6, maxRows: 12 }}
                   onChange={(value) =>
                     setInputs({ ...inputs, AutomaticDisableKeywords: value })
+                  }
+                />
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col xs={24} sm={16}>
+                <Form.TextArea
+                  label={t('自动禁用模型关键词')}
+                  placeholder={t('一行一个，不区分大小写')}
+                  extraText={t(
+                    '当上游通道返回错误中包含这些关键词时（不区分大小写），仅禁用当前渠道的当前模型（不会禁用整个渠道）',
+                  )}
+                  field={'AutomaticDisableModelKeywords'}
+                  autosize={{ minRows: 6, maxRows: 12 }}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      AutomaticDisableModelKeywords: value,
+                    })
                   }
                 />
               </Col>
