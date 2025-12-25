@@ -264,3 +264,33 @@ func GetMimeTypeByExtension(ext string) string {
 		return "application/octet-stream" // Default for unknown types
 	}
 }
+
+// GetBase64FromUrlConverter 通过URL转base64转换接口获取base64数据
+// converterBaseUrl: 转换接口的基础URL，例如 "http://104.243.40.120:8000"
+// videoUrl: 需要转换的视频URL
+func GetBase64FromUrlConverter(c *gin.Context, converterBaseUrl string, videoUrl string) (string, error) {
+	// 构建转换接口URL
+	converterUrl := fmt.Sprintf("%s/?url=%s", converterBaseUrl, videoUrl)
+
+	logger.LogDebug(c, fmt.Sprintf("Converting URL to base64 via: %s", converterUrl))
+
+	// 请求转换接口
+	resp, err := DoDownloadRequest(converterUrl, "url_to_base64_conversion")
+	if err != nil {
+		return "", fmt.Errorf("failed to request URL converter: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("URL converter returned status code: %d", resp.StatusCode)
+	}
+
+	// 读取响应(应该已经是base64格式)
+	base64Data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response from URL converter: %w", err)
+	}
+
+	// 返回base64字符串
+	return string(base64Data), nil
+}

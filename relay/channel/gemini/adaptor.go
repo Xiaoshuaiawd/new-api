@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -29,10 +30,29 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 					request.Contents[0].Role = "user"
 				}
 			}
-			for _, part := range content.Parts {
+			for j, part := range content.Parts {
+				// 处理FileData中的YouTube链接
 				if part.FileData != nil {
 					if part.FileData.MimeType == "" && strings.Contains(part.FileData.FileUri, "www.youtube.com") {
 						part.FileData.MimeType = "video/webm"
+					}
+				}
+
+				// 处理InlineData中的URL自动转base64
+				if part.InlineData != nil && part.InlineData.Data != "" {
+					// 检测data字段是否为URL (以http://或https://开头)
+					if strings.HasPrefix(part.InlineData.Data, "http://") || strings.HasPrefix(part.InlineData.Data, "https://") {
+						// URL转base64转换接口地址
+						converterBaseUrl := "http://104.243.40.120:8000"
+
+						// 调用转换接口获取base64数据
+						base64Data, err := service.GetBase64FromUrlConverter(c, converterBaseUrl, part.InlineData.Data)
+						if err != nil {
+							return nil, fmt.Errorf("failed to convert URL to base64: %w, url: %s", err, part.InlineData.Data)
+						}
+
+						// 替换原URL为转换后的base64数据
+						request.Contents[i].Parts[j].InlineData.Data = base64Data
 					}
 				}
 			}
