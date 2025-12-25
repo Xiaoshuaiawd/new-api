@@ -48,6 +48,7 @@ func CheckChannelModelRateLimit(channelId int, modelName string) *types.NewAPIEr
 
 	if common.RedisEnabled {
 		ctx := context.Background()
+
 		tb := limiter.New(ctx, common.RDB)
 		allowed, err := tb.Allow(
 			ctx,
@@ -61,15 +62,19 @@ func CheckChannelModelRateLimit(channelId int, modelName string) *types.NewAPIEr
 		}
 		rateLimited = !allowed
 
-		// If request is allowed, check if we're at the limit
-		// Disable proactively to prevent the next request from seeing an error
+		// If request was allowed, check if tokens are now insufficient for next request
+		// This allows us to proactively disable BEFORE the next request hits rate limit
 		if allowed {
-			// Get current token count from Redis
-			tokensRemaining, err := common.RDB.HGet(ctx, key, "tokens").Float64()
-			if err == nil && tokensRemaining <= 0 {
-				// No tokens remaining, disable now to prevent next request from hitting rate limit
-				shouldDisable = true
-				common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」令牌已用完（剩余 %.0f），主动禁用以避免下次请求触发限流", channelId, matchName, tokensRemaining))
+			tokensAfterRequest, err := common.RDB.HGet(ctx, key, "tokens").Float64()
+			if err == nil {
+				// If remaining tokens are less than what's needed for next request, disable now
+				// This ensures the (rpm+1)th request never sees a rate limit error
+				if tokensAfterRequest < float64(channelModelRateLimitWindowSeconds) {
+					shouldDisable = true
+					// Calculate how many requests were made (capacity - remaining tokens) / request size
+					requestsMade := int((float64(int64(rpm)*channelModelRateLimitWindowSeconds) - tokensAfterRequest) / float64(channelModelRateLimitWindowSeconds))
+					common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」已达到 RPM 限制（%d/%d 次请求），主动禁用以避免下次触发限流", channelId, matchName, requestsMade, rpm))
+				}
 			}
 		}
 	} else {
@@ -80,23 +85,20 @@ func CheckChannelModelRateLimit(channelId int, modelName string) *types.NewAPIEr
 		// So we only disable on rate limit, not proactively
 	}
 
-	// If already rate limited, disable immediately
+	// If already rate limited, return error immediately
+	// The actual disable will be handled by processChannelError synchronously
 	if rateLimited {
-		// Immediately disable the model BEFORE returning error
-		// This ensures the model is disabled synchronously before retry
-		common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」触发 RPM 限流（限制 %d RPM），立即禁用", channelId, matchName, rpm))
-
-		disableModelForRateLimit(channelId, matchName, rpm)
+		common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」触发 RPM 限流（限制 %d RPM）", channelId, matchName, rpm))
 
 		// Return error to trigger retry with other channels
-		// The model is already disabled, so next retry will skip this channel
+		// processChannelError will handle the synchronous disable
 		msg := fmt.Sprintf("渠道模型触发 RPM 限流（限制 %d RPM），已切换到其他渠道", rpm)
 		return types.NewErrorWithStatusCode(errors.New(msg), types.ErrorCodeChannelModelRateLimitExceeded, http.StatusTooManyRequests, types.ErrOptionWithNoRecordErrorLog())
 	}
 
 	// If we should proactively disable (tokens exhausted but request still allowed)
 	if shouldDisable {
-		common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」令牌已用完，主动禁用以避免下次请求触发限流", channelId, matchName))
+		common.SysLog(fmt.Sprintf("渠道 #%d 模型「%s」RPM 配额已用完，主动禁用 1 分钟", channelId, matchName))
 
 		// Disable SYNCHRONOUSLY to ensure it takes effect before next request
 		// This is critical to prevent the next request from seeing rate limit error

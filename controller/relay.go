@@ -390,9 +390,15 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	originalModel := c.GetString("original_model")
 	if originalModel != "" && service.ShouldDisableChannelModel(channelError.ChannelType, originalModel, err) && channelError.AutoBan {
-		gopool.Go(func() {
+		// For RPM rate limit errors, disable SYNCHRONOUSLY to prevent retries on the same channel
+		// For other errors, disable asynchronously to avoid blocking the request
+		if err.GetErrorCode() == types.ErrorCodeChannelModelRateLimitExceeded {
 			service.DisableChannelModel(channelError, originalModel, err.Error())
-		})
+		} else {
+			gopool.Go(func() {
+				service.DisableChannelModel(channelError, originalModel, err.Error())
+			})
+		}
 	} else if service.ShouldDisableChannel(channelError.ChannelType, err) && channelError.AutoBan {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.Error())
