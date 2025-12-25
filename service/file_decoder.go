@@ -10,7 +10,9 @@ import (
 	_ "image/png"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -265,14 +267,78 @@ func GetMimeTypeByExtension(ext string) string {
 	}
 }
 
+// URL转换服务管理
+var (
+	converterURLs     []string
+	converterURLsOnce sync.Once
+	converterIndex    int
+	converterMutex    sync.Mutex
+)
+
+// getConverterURLs 从环境变量读取转换服务URL列表
+func getConverterURLs() []string {
+	converterURLsOnce.Do(func() {
+		// 从环境变量读取 URL_CONVERTER_BASE_URLS
+		urlsEnv := os.Getenv("URL_CONVERTER_BASE_URLS")
+		if urlsEnv == "" {
+			common.SysLog("Warning: URL_CONVERTER_BASE_URLS environment variable not set, URL to base64 conversion will be disabled")
+			converterURLs = []string{}
+			return
+		}
+
+		// 按逗号分割URL
+		urls := strings.Split(urlsEnv, ",")
+		validURLs := make([]string, 0, len(urls))
+
+		for _, url := range urls {
+			url = strings.TrimSpace(url)
+			if url != "" {
+				validURLs = append(validURLs, url)
+			}
+		}
+
+		if len(validURLs) == 0 {
+			common.SysLog("Warning: No valid URLs found in URL_CONVERTER_BASE_URLS")
+		} else {
+			common.SysLog(fmt.Sprintf("Loaded %d URL converter service(s): %v", len(validURLs), validURLs))
+		}
+
+		converterURLs = validURLs
+	})
+	return converterURLs
+}
+
+// selectConverterURL 使用轮询负载均衡选择一个转换服务URL
+func selectConverterURL() (string, error) {
+	urls := getConverterURLs()
+
+	if len(urls) == 0 {
+		return "", fmt.Errorf("no URL converter services configured, please set URL_CONVERTER_BASE_URLS environment variable")
+	}
+
+	converterMutex.Lock()
+	defer converterMutex.Unlock()
+
+	// 轮询选择
+	selectedURL := urls[converterIndex%len(urls)]
+	converterIndex++
+
+	return selectedURL, nil
+}
+
 // GetBase64FromUrlConverter 通过URL转base64转换接口获取base64数据
-// converterBaseUrl: 转换接口的基础URL，例如 "http://104.243.40.120:8000"
-// videoUrl: 需要转换的视频URL
-func GetBase64FromUrlConverter(c *gin.Context, converterBaseUrl string, videoUrl string) (string, error) {
+// 自动从环境变量 URL_CONVERTER_BASE_URLS 读取转换服务列表并负载均衡
+func GetBase64FromUrlConverter(c *gin.Context, videoUrl string) (string, error) {
+	// 选择一个转换服务URL
+	converterBaseUrl, err := selectConverterURL()
+	if err != nil {
+		return "", err
+	}
+
 	// 构建转换接口URL
 	converterUrl := fmt.Sprintf("%s/?url=%s", converterBaseUrl, videoUrl)
 
-	logger.LogDebug(c, fmt.Sprintf("Converting URL to base64 via: %s", converterUrl))
+	logger.LogDebug(c, fmt.Sprintf("Converting URL to base64 via: %s (selected from %d services)", converterBaseUrl, len(getConverterURLs())))
 
 	// 请求转换接口
 	resp, err := DoDownloadRequest(converterUrl, "url_to_base64_conversion")
@@ -291,6 +357,14 @@ func GetBase64FromUrlConverter(c *gin.Context, converterBaseUrl string, videoUrl
 		return "", fmt.Errorf("failed to read response from URL converter: %w", err)
 	}
 
-	// 返回base64字符串
-	return string(base64Data), nil
+	// 清理base64数据：移除所有空白字符（空格、换行符、制表符等）
+	// 这很重要，因为某些转换服务可能会在base64中添加换行符
+	cleanedBase64 := strings.Map(func(r rune) rune {
+		if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
+			return -1 // 移除这些字符
+		}
+		return r
+	}, string(base64Data))
+
+	return cleanedBase64, nil
 }

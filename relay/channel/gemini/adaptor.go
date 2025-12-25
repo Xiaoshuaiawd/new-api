@@ -42,13 +42,10 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 				if part.InlineData != nil && part.InlineData.Data != "" {
 					// 检测data字段是否为URL (以http://或https://开头)
 					if strings.HasPrefix(part.InlineData.Data, "http://") || strings.HasPrefix(part.InlineData.Data, "https://") {
-						// URL转base64转换接口地址
-						converterBaseUrl := "http://104.243.40.120:8000"
-
 						fmt.Printf("[Gemini URL2Base64] Detected URL in inline_data.data: %s\n", part.InlineData.Data)
 
-						// 调用转换接口获取base64数据
-						base64Data, err := service.GetBase64FromUrlConverter(c, converterBaseUrl, part.InlineData.Data)
+						// 调用转换接口获取base64数据（自动从环境变量读取并负载均衡）
+						base64Data, err := service.GetBase64FromUrlConverter(c, part.InlineData.Data)
 						if err != nil {
 							fmt.Printf("[Gemini URL2Base64] Failed to convert URL: %v\n", err)
 							return nil, fmt.Errorf("failed to convert URL to base64: %w, url: %s", err, part.InlineData.Data)
