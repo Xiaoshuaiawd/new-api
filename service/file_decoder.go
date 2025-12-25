@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -269,11 +270,30 @@ func GetMimeTypeByExtension(ext string) string {
 
 // URL转换服务管理
 var (
-	converterURLs     []string
-	converterURLsOnce sync.Once
-	converterIndex    int
-	converterMutex    sync.Mutex
+	converterURLs      []string
+	converterURLsOnce  sync.Once
+	converterIndex     int
+	converterMutex     sync.Mutex
+	converterHTTPClient *http.Client
+	converterClientOnce sync.Once
 )
+
+// getConverterHTTPClient 获取专用于URL转base64的HTTP客户端（超时2500秒）
+func getConverterHTTPClient() *http.Client {
+	converterClientOnce.Do(func() {
+		converterHTTPClient = &http.Client{
+			Timeout: 2500 * time.Second, // 2500秒超时
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+				DisableKeepAlives:   false,
+			},
+		}
+		common.SysLog("Initialized URL converter HTTP client with 2500s timeout")
+	})
+	return converterHTTPClient
+}
 
 // getConverterURLs 从环境变量读取转换服务URL列表
 func getConverterURLs() []string {
@@ -328,6 +348,7 @@ func selectConverterURL() (string, error) {
 
 // GetBase64FromUrlConverter 通过URL转base64转换接口获取base64数据
 // 自动从环境变量 URL_CONVERTER_BASE_URLS 读取转换服务列表并负载均衡
+// 使用2500秒超时的专用HTTP客户端
 func GetBase64FromUrlConverter(c *gin.Context, videoUrl string) (string, error) {
 	// 选择一个转换服务URL
 	converterBaseUrl, err := selectConverterURL()
@@ -338,10 +359,11 @@ func GetBase64FromUrlConverter(c *gin.Context, videoUrl string) (string, error) 
 	// 构建转换接口URL
 	converterUrl := fmt.Sprintf("%s/?url=%s", converterBaseUrl, videoUrl)
 
-	logger.LogDebug(c, fmt.Sprintf("Converting URL to base64 via: %s (selected from %d services)", converterBaseUrl, len(getConverterURLs())))
+	logger.LogDebug(c, fmt.Sprintf("Converting URL to base64 via: %s (selected from %d services, timeout: 2500s)", converterBaseUrl, len(getConverterURLs())))
 
-	// 请求转换接口
-	resp, err := DoDownloadRequest(converterUrl, "url_to_base64_conversion")
+	// 使用专用的HTTP客户端发送请求（2500秒超时）
+	client := getConverterHTTPClient()
+	resp, err := client.Get(converterUrl)
 	if err != nil {
 		return "", fmt.Errorf("failed to request URL converter: %w", err)
 	}
