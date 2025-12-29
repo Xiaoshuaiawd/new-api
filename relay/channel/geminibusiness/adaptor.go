@@ -493,8 +493,10 @@ func kqEncode(s string) []byte {
 
 func getCommonHeaders(jwt string) map[string]string {
 	return map[string]string{
-		"accept":             "*/*",
-		"accept-encoding":    "gzip, deflate, br, zstd",
+		"accept": "*/*",
+		// 不要手动设置 accept-encoding：
+		// Go 的 http.Transport 只有在“自动添加 gzip”时才会自动解压；
+		// 若我们手动声明 br/zstd，上游可能返回 Go 无法解压的压缩数据，导致 JSON 解析报错（如 \x1f）。
 		"accept-language":    "zh-CN,zh;q=0.9,en;q=0.8",
 		"authorization":      "Bearer " + jwt,
 		"content-type":       "application/json",
