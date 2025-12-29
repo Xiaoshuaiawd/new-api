@@ -524,6 +524,67 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		}
 	}
 
+	if channel.Type == constant.ChannelTypeGeminiBusiness {
+		if err := validateGeminiBusinessKey(channel.Key); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateGeminiBusinessKey(key string) error {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		return fmt.Errorf("鉴权信息不能为空")
+	}
+
+	checkFields := func(m map[string]any) error {
+		required := []string{"id", "secure_c_ses", "csesidx", "config_id", "host_c_oses"}
+		for _, field := range required {
+			if val, ok := m[field]; !ok || strings.TrimSpace(common.Interface2String(val)) == "" {
+				return fmt.Errorf("缺少必填字段 %s", field)
+			}
+		}
+		return nil
+	}
+
+	var raw any
+	if err := common.Unmarshal([]byte(trimmed), &raw); err == nil {
+		switch v := raw.(type) {
+		case []any:
+			if len(v) == 0 {
+				return fmt.Errorf("请提供至少一组账户信息")
+			}
+			for i, item := range v {
+				obj, ok := item.(map[string]any)
+				if !ok {
+					return fmt.Errorf("第 %d 个账户配置格式错误", i+1)
+				}
+				if err := checkFields(obj); err != nil {
+					return err
+				}
+			}
+			return nil
+		case map[string]any:
+			return checkFields(v)
+		}
+	}
+
+	// 尝试按行解析（兼容多行 JSON）
+	for _, line := range strings.Split(trimmed, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var obj map[string]any
+		if err := common.Unmarshal([]byte(line), &obj); err != nil {
+			return fmt.Errorf("无法解析账户配置: %w", err)
+		}
+		if err := checkFields(obj); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -541,7 +602,7 @@ func getVertexArrayKeys(keys string) ([]string, error) {
 	var keyArray []interface{}
 	err := common.Unmarshal([]byte(keys), &keyArray)
 	if err != nil {
-		return nil, fmt.Errorf("批量添加 Vertex AI 必须使用标准的JsonArray格式，例如[{key1}, {key2}...]，请检查输入: %w", err)
+		return nil, fmt.Errorf("批量添加必须使用标准的JsonArray格式，例如[{key1}, {key2}...]，请检查输入: %w", err)
 	}
 	cleanKeys := make([]string, 0, len(keyArray))
 	for _, key := range keyArray {
@@ -589,7 +650,8 @@ func AddChannel(c *gin.Context) {
 	case "multi_to_single":
 		addChannelRequest.Channel.ChannelInfo.IsMultiKey = true
 		addChannelRequest.Channel.ChannelInfo.MultiKeyMode = addChannelRequest.MultiKeyMode
-		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
+		if (addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey) ||
+			addChannelRequest.Channel.Type == constant.ChannelTypeGeminiBusiness {
 			array, err := getVertexArrayKeys(addChannelRequest.Channel.Key)
 			if err != nil {
 				c.JSON(http.StatusOK, gin.H{
@@ -614,7 +676,8 @@ func AddChannel(c *gin.Context) {
 		}
 		keys = []string{addChannelRequest.Channel.Key}
 	case "batch":
-		if addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey {
+		if (addChannelRequest.Channel.Type == constant.ChannelTypeVertexAi && addChannelRequest.Channel.GetOtherSettings().VertexKeyType != dto.VertexKeyTypeAPIKey) ||
+			addChannelRequest.Channel.Type == constant.ChannelTypeGeminiBusiness {
 			// multi json
 			keys, err = getVertexArrayKeys(addChannelRequest.Channel.Key)
 			if err != nil {

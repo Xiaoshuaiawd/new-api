@@ -99,6 +99,11 @@ export const CHANNEL_OPTIONS = [
     label: 'Google Gemini',
   },
   {
+    value: 57,
+    color: 'orange',
+    label: 'Gemini Business',
+  },
+  {
     value: 11,
     color: 'orange',
     label: 'Google PaLM2',

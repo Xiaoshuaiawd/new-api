@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/deepseek"
 	"github.com/QuantumNous/new-api/relay/channel/dify"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
+	"github.com/QuantumNous/new-api/relay/channel/geminibusiness"
 	"github.com/QuantumNous/new-api/relay/channel/jimeng"
 	"github.com/QuantumNous/new-api/relay/channel/jina"
 	"github.com/QuantumNous/new-api/relay/channel/minimax"
@@ -93,6 +94,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &mistral.Adaptor{}
 	case constant.APITypeDeepSeek:
 		return &deepseek.Adaptor{}
+	case constant.APITypeGeminiBusiness:
+		return &geminibusiness.Adaptor{}
 	case constant.APITypeMokaAI:
 		return &mokaai.Adaptor{}
 	case constant.APITypeVolcEngine:

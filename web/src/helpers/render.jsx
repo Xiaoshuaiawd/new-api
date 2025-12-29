@@ -311,6 +311,8 @@ export function getChannelIcon(channelType) {
       return <Claude.Color size={iconSize} />;
     case 41: // Vertex AI
       return <Gemini.Color size={iconSize} />;
+    case 57: // Gemini Business
+      return <Gemini.Color size={iconSize} />;
     case 34: // Cohere
       return <Cohere.Color size={iconSize} />;
     case 39: // Cloudflare

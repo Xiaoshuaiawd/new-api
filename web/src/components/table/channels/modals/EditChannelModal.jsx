@@ -110,6 +110,8 @@ function type2secretPrompt(type) {
       return '按照如下格式输入：Ak|Sk|Region';
     case 45:
         return '请输入渠道对应的鉴权密钥, 豆包语音输入：AppId|AccessToken';
+    case 57:
+      return '请输入 JSON，包含 id、secure_c_ses、csesidx、config_id、host_c_oses';
     case 50:
       return '按照如下格式输入: AccessKey|SecretKey, 如果上游是New API，则直接输ApiKey';
     case 51:
@@ -2008,6 +2010,37 @@ const EditChannelModal = (props) => {
                               />
                             )}
                           </>
+                        ) : inputs.type === 57 ? (
+                          <Form.TextArea
+                            field='key'
+                            label={
+                              isEdit
+                                ? t('账户配置（保存后不明文显示）')
+                                : t('账户配置')
+                            }
+                            placeholder={t(
+                              '请输入 JSON 格式的账户信息，例如：\n{\n  "id": "account_1",\n  "secure_c_ses": "xxx",\n  "csesidx": "xxx",\n  "config_id": "xxx",\n  "host_c_oses": "xxx"\n}',
+                            )}
+                            rules={
+                              isEdit
+                                ? []
+                                : [{ required: true, message: t('请输入账户配置') }]
+                            }
+                            autoComplete='new-password'
+                            onChange={(value) => handleInputChange('key', value)}
+                            extraText={
+                              <div className='flex items-center gap-2'>
+                                <Text type='tertiary' size='small'>
+                                  {t(
+                                    '支持单个 JSON 或 JSON 数组，多账号请使用标准 JSON 数组',
+                                  )}
+                                </Text>
+                                {batchExtra}
+                              </div>
+                            }
+                            autosize
+                            showClear
+                          />
                         ) : (
                           <Form.Input
                             field='key'

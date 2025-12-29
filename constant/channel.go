@@ -54,6 +54,7 @@ const (
 	ChannelTypeDoubaoVideo    = 54
 	ChannelTypeSora           = 55
 	ChannelTypeReplicate      = 56
+	ChannelTypeGeminiBusiness = 57
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -116,6 +117,8 @@ var ChannelBaseURLs = []string{
 	"https://ark.cn-beijing.volces.com",         //54
 	"https://api.openai.com",                    //55
 	"https://api.replicate.com",                 //56
+	"https://biz-discoveryengine.googleapis.com", //57
+	"", //58 dummy placeholder
 }
 
 var ChannelTypeNames = map[int]string{
@@ -172,6 +175,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeDoubaoVideo:    "DoubaoVideo",
 	ChannelTypeSora:           "Sora",
 	ChannelTypeReplicate:      "Replicate",
+	ChannelTypeGeminiBusiness: "GeminiBusiness",
 }
 
 func GetChannelTypeName(channelType int) string {
