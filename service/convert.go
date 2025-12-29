@@ -401,7 +401,7 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 						},
 					})
 				}
-				
+
 				if len(toolCall.Function.Arguments) > 0 {
 					claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
 						Index: &idx,
@@ -734,12 +734,24 @@ func extractTextFromGeminiParts(parts []dto.GeminiPart) string {
 
 // ResponseOpenAI2Gemini 将 OpenAI 响应转换为 Gemini 格式
 func ResponseOpenAI2Gemini(openAIResponse *dto.OpenAITextResponse, info *relaycommon.RelayInfo) *dto.GeminiChatResponse {
+	thoughts := 0
+	if openAIResponse != nil {
+		thoughts = openAIResponse.Usage.CompletionTokenDetails.ReasoningTokens
+		if thoughts < 0 {
+			thoughts = 0
+		}
+	}
+	candidates := openAIResponse.CompletionTokens - thoughts
+	if candidates < 0 {
+		candidates = 0
+	}
 	geminiResponse := &dto.GeminiChatResponse{
 		Candidates: make([]dto.GeminiChatCandidate, 0, len(openAIResponse.Choices)),
 		UsageMetadata: dto.GeminiUsageMetadata{
 			PromptTokenCount:     openAIResponse.PromptTokens,
-			CandidatesTokenCount: openAIResponse.CompletionTokens,
-			TotalTokenCount:      openAIResponse.PromptTokens + openAIResponse.CompletionTokens,
+			CandidatesTokenCount: candidates,
+			TotalTokenCount:      openAIResponse.PromptTokens + candidates + thoughts,
+			ThoughtsTokenCount:   thoughts,
 		},
 	}
 
@@ -840,9 +852,18 @@ func StreamResponseOpenAI2Gemini(openAIResponse *dto.ChatCompletionsStreamRespon
 	}
 
 	if openAIResponse.Usage != nil {
+		thoughts := openAIResponse.Usage.CompletionTokenDetails.ReasoningTokens
+		if thoughts < 0 {
+			thoughts = 0
+		}
+		candidates := openAIResponse.Usage.CompletionTokens - thoughts
+		if candidates < 0 {
+			candidates = 0
+		}
 		geminiResponse.UsageMetadata.PromptTokenCount = openAIResponse.Usage.PromptTokens
-		geminiResponse.UsageMetadata.CandidatesTokenCount = openAIResponse.Usage.CompletionTokens
-		geminiResponse.UsageMetadata.TotalTokenCount = openAIResponse.Usage.TotalTokens
+		geminiResponse.UsageMetadata.CandidatesTokenCount = candidates
+		geminiResponse.UsageMetadata.ThoughtsTokenCount = thoughts
+		geminiResponse.UsageMetadata.TotalTokenCount = openAIResponse.Usage.PromptTokens + candidates + thoughts
 	}
 
 	for _, choice := range openAIResponse.Choices {
