@@ -409,7 +409,7 @@ func refreshJWT(client *http.Client, cred Credentials) (string, time.Time, error
 		return "", time.Time{}, err
 	}
 
-	keyBytes, err := base64.RawURLEncoding.DecodeString(data.XsrfToken + "==")
+	keyBytes, err := decodeXsrfToken(data.XsrfToken)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("decode xsrf token failed: %w", err)
 	}
@@ -444,6 +444,34 @@ func createJWT(keyBytes []byte, keyID, csesidx string) string {
 	mac.Write([]byte(message))
 	signature := urlsafeB64Encode(mac.Sum(nil))
 	return message + "." + signature
+}
+
+func decodeXsrfToken(token string) ([]byte, error) {
+	tryDecode := func(dec func(string) ([]byte, error), s string) ([]byte, error) {
+		return dec(s)
+	}
+
+	// 1) url-safe, no padding
+	if b, err := tryDecode(base64.RawURLEncoding.DecodeString, token); err == nil {
+		return b, nil
+	}
+	// 2) url-safe with padding
+	padded := token
+	if m := len(padded) % 4; m != 0 {
+		padded += strings.Repeat("=", 4-m)
+	}
+	if b, err := tryDecode(base64.URLEncoding.DecodeString, padded); err == nil {
+		return b, nil
+	}
+	// 3) std, no padding
+	if b, err := tryDecode(base64.RawStdEncoding.DecodeString, token); err == nil {
+		return b, nil
+	}
+	// 4) std with padding
+	if b, err := tryDecode(base64.StdEncoding.DecodeString, padded); err == nil {
+		return b, nil
+	}
+	return nil, fmt.Errorf("unsupported xsrf token format")
 }
 
 func urlsafeB64Encode(data []byte) string {
