@@ -56,9 +56,10 @@ type imagePayload struct {
 }
 
 var (
-	jwtCache   sync.Map
-	randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
-	dataURLExp = regexp.MustCompile(`^data:(image/[^;]+);base64,(.+)$`)
+	jwtCache     sync.Map
+	randSource   = rand.New(rand.NewSource(time.Now().UnixNano()))
+	dataURLExp   = regexp.MustCompile(`^data:(image/[^;]+);base64,(.+)$`)
+	errStopParse = errors.New("stop_parse")
 )
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
@@ -114,6 +115,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		info.UpstreamModelName = info.OriginModelName
 	}
 
+	t0 := time.Now()
 	body, err := io.ReadAll(requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("read request body failed: %w", err)
@@ -140,16 +142,19 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		return nil, err
 	}
 
+	t1 := time.Now()
 	jwt, err := getJWT(client, cred, info)
 	if err != nil {
 		return nil, err
 	}
 
+	t2 := time.Now()
 	session, err := createSession(client, cred, jwt)
 	if err != nil {
 		return nil, err
 	}
 
+	t3 := time.Now()
 	promptText, images, err := extractPayload(c, openAIReq)
 	if err != nil {
 		return nil, err
@@ -164,6 +169,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		fileIDs = append(fileIDs, fileID)
 	}
 
+	t4 := time.Now()
 	bodyBytes, err := buildStreamAssistBody(cred, session, info.UpstreamModelName, promptText, fileIDs)
 	if err != nil {
 		return nil, err
@@ -180,6 +186,18 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
+	}
+
+	if common.DebugEnabled {
+		logger.LogInfo(c, fmt.Sprintf("[gemini-business] timings parse=%s jwt=%s createSession=%s payload=%s send=%s total=%s status=%d",
+			t1.Sub(t0),
+			t2.Sub(t1),
+			t3.Sub(t2),
+			t4.Sub(t3),
+			time.Since(t4),
+			time.Since(t0),
+			resp.StatusCode,
+		))
 	}
 
 	// 写入上下文供 DoResponse 使用
@@ -286,6 +304,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			} else {
 				completionBuilder.WriteString(seg.Text)
 			}
+		}
+		// 如果上游明确标记完成，则不必等待数组完全结束（有些场景会继续输出无关事件导致额外等待）
+		if completionBuilder.Len() > 0 && isStreamAssistComplete(obj) {
+			return errStopParse
 		}
 		return nil
 	})
@@ -738,10 +760,35 @@ func parseJSONArrayStream(body io.Reader, handle func(map[string]any) error) err
 			return err
 		}
 		if err := handle(obj); err != nil {
+			if errors.Is(err, errStopParse) {
+				return nil
+			}
 			return err
 		}
 	}
 	return nil
+}
+
+func isStreamAssistComplete(obj map[string]any) bool {
+	streamResp, ok := obj["streamAssistResponse"].(map[string]any)
+	if !ok {
+		return false
+	}
+	answer, ok := streamResp["answer"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, k := range []string{"complete", "done", "finished"} {
+		if v, ok := answer[k]; ok {
+			switch vv := v.(type) {
+			case bool:
+				return vv
+			case string:
+				return strings.EqualFold(strings.TrimSpace(vv), "true")
+			}
+		}
+	}
+	return false
 }
 
 func extractReplyPieces(obj map[string]any) []replyPiece {
