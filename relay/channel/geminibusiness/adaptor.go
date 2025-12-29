@@ -1,6 +1,7 @@
 package geminibusiness
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -61,6 +63,33 @@ var (
 	dataURLExp   = regexp.MustCompile(`^data:(image/[^;]+);base64,(.+)$`)
 	errStopParse = errors.New("stop_parse")
 )
+
+func getGeminiBusinessHttpClient(proxyURL string) (*http.Client, error) {
+	// Python 版本 httpx 明确 http2=False，这里也关闭以贴近其行为并规避部分环境下的 HTTP/2 额外等待。
+	transport := &http.Transport{
+		MaxIdleConns:        5000,
+		MaxIdleConnsPerHost: 5000,
+		IdleConnTimeout:     90 * time.Second,
+		ForceAttemptHTTP2:   false,
+	}
+
+	if proxyURL == "" {
+		return &http.Client{Transport: transport}, nil
+	}
+
+	parsed, err := url.Parse(proxyURL)
+	if err != nil {
+		return nil, err
+	}
+	switch parsed.Scheme {
+	case "http", "https":
+		transport.Proxy = http.ProxyURL(parsed)
+		return &http.Client{Transport: transport}, nil
+	default:
+		// socks5/socks5h 等复杂代理复用项目内实现
+		return service.GetHttpClientWithProxy(proxyURL)
+	}
+}
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 	// nothing to init
@@ -137,7 +166,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		return nil, err
 	}
 
-	client, err := service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
+	client, err := getGeminiBusinessHttpClient(info.ChannelSetting.Proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +268,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 		}
 
-		err := parseJSONArrayStream(resp.Body, func(obj map[string]any) error {
+		// 使用低延迟解析器，避免等待对象后的逗号/数组闭合才开始下发
+		err := parseJSONArrayStreamLoose(resp.Body, func(obj map[string]any) error {
 			if apiErr := detectUpstreamError(obj); apiErr != nil {
 				return apiErr
 			}
@@ -293,7 +323,8 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	}
 
 	// 非流式：完整读取并聚合
-	err := parseJSONArrayStream(resp.Body, func(obj map[string]any) error {
+	// 非流式也使用同一解析器，避免尾部事件导致的额外等待
+	err := parseJSONArrayStreamLoose(resp.Body, func(obj map[string]any) error {
 		if apiErr := detectUpstreamError(obj); apiErr != nil {
 			return apiErr
 		}
@@ -767,6 +798,111 @@ func parseJSONArrayStream(body io.Reader, handle func(map[string]any) error) err
 		}
 	}
 	return nil
+}
+
+// parseJSONArrayStreamLoose 以“低延迟优先”的方式解析 JSON 数组流：
+// - 不要求每个对象后面的逗号/数组结束符已到达，就可以尽早产出对象
+// - 行为对齐 Python 版本的 brace-level 流解析器
+func parseJSONArrayStreamLoose(body io.Reader, handle func(map[string]any) error) error {
+	r := bufio.NewReaderSize(body, 32*1024)
+
+	// 1) 找到数组起始符 '['
+	for {
+		b, err := r.ReadByte()
+		if err != nil {
+			return err
+		}
+		if b == '[' {
+			break
+		}
+	}
+
+	var buf bytes.Buffer
+	brace := 0
+	inString := false
+	escapeNext := false
+
+	flushObj := func() error {
+		if buf.Len() == 0 {
+			return nil
+		}
+		var obj map[string]any
+		if err := common.Unmarshal(buf.Bytes(), &obj); err != nil {
+			return err
+		}
+		buf.Reset()
+		inString = false
+		escapeNext = false
+		if err := handle(obj); err != nil {
+			if errors.Is(err, errStopParse) {
+				return errStopParse
+			}
+			return err
+		}
+		return nil
+	}
+
+	for {
+		ch, err := r.ReadByte()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				// EOF 时若刚好有完整对象已缓冲，也尽量尝试 flush
+				if brace == 0 {
+					_ = flushObj()
+				}
+				return nil
+			}
+			return err
+		}
+
+		if brace == 0 {
+			// 忽略对象外的分隔符与空白
+			switch ch {
+			case '{':
+				brace = 1
+				buf.Reset()
+				buf.WriteByte(ch)
+			case ']':
+				return nil
+			default:
+				continue
+			}
+			continue
+		}
+
+		// brace > 0: 在对象内部，逐字节累积
+		buf.WriteByte(ch)
+
+		if escapeNext {
+			escapeNext = false
+			continue
+		}
+		if ch == '\\' {
+			escapeNext = true
+			continue
+		}
+		if ch == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		switch ch {
+		case '{':
+			brace++
+		case '}':
+			brace--
+			if brace == 0 {
+				if err := flushObj(); err != nil {
+					if errors.Is(err, errStopParse) {
+						return nil
+					}
+					return err
+				}
+			}
+		}
+	}
 }
 
 func isStreamAssistComplete(obj map[string]any) bool {
