@@ -96,6 +96,7 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		if showBodyWhenFail {
 			newApiErr.Err = fmt.Errorf("bad response status code %d, body: %s", resp.StatusCode, string(responseBody))
 		} else {
+			// 生产请求默认不把上游 body 透传给客户端，但必须在日志里保留详细信息便于定位并做渠道熔断/禁用。
 			logger.LogError(ctx, fmt.Sprintf("bad response status code %d, body: %s", resp.StatusCode, string(responseBody)))
 			newApiErr.Err = fmt.Errorf("bad response status code %d", resp.StatusCode)
 		}
@@ -106,9 +107,16 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		// General format error (OpenAI, Anthropic, Gemini, etc.)
 		oaiError := errResponse.TryToOpenAIError()
 		if oaiError != nil {
+			if !showBodyWhenFail {
+				logger.LogError(ctx, fmt.Sprintf("bad response status code %d, upstream error: %s", resp.StatusCode, oaiError.Message))
+			}
 			newApiErr = types.WithOpenAIError(*oaiError, resp.StatusCode)
 			return
 		}
+	}
+
+	if !showBodyWhenFail {
+		logger.LogError(ctx, fmt.Sprintf("bad response status code %d, upstream error: %s", resp.StatusCode, errResponse.ToMessage()))
 	}
 	newApiErr = types.NewOpenAIError(errors.New(errResponse.ToMessage()), types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
 	return
