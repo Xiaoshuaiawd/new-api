@@ -68,6 +68,8 @@ const OperationSetting = () => {
     QuotaRemindThreshold: 0,
     AutomaticDisableChannelEnabled: false,
     AutomaticEnableChannelEnabled: false,
+    AutoDisableMinutes: 0,
+    RelayTimeout: 0,
     AutomaticDisableKeywords: '',
     AutomaticDisableModelKeywords: '',
     'monitor_setting.auto_test_channel_enabled': false,
@@ -84,6 +86,11 @@ const OperationSetting = () => {
       data.forEach((item) => {
         if (typeof inputs[item.key] === 'boolean') {
           newInputs[item.key] = toBoolean(item.value);
+        } else if (typeof inputs[item.key] === 'number') {
+          // Semi InputNumber expects number; options API returns string values.
+          // Keep NaN away by falling back to 0.
+          const n = Number(item.value);
+          newInputs[item.key] = Number.isFinite(n) ? n : 0;
         } else {
           newInputs[item.key] = item.value;
         }
