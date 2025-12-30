@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -34,6 +35,22 @@ func DisableChannel(channelError types.ChannelError, reason string) {
 
 	success := model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason)
 	if success {
+		// Optional: auto re-enable by duration configured in channel setting.
+		// We intentionally keep this best-effort and safe: only schedules when minutes > 0.
+		if common.AutoDisableMinutes > 0 {
+			if ch, err := model.GetChannelById(channelError.ChannelId, true); err == nil {
+				// Multi-key channels can be partially disabled per key; time-based auto re-enable is ambiguous here,
+				// so we only apply it for single-key channels.
+				if !ch.ChannelInfo.IsMultiKey {
+					ch.ChannelInfo.AutoDisabledUntil = time.Now().Add(time.Duration(common.AutoDisableMinutes) * time.Minute).Unix()
+					_ = ch.SaveWithoutKey()
+					// De-duplicate schedules for the same channel id.
+					cancelChannelReenable(channelError.ChannelId)
+					scheduleChannelReenable(channelError.ChannelId, common.AutoDisableMinutes)
+				}
+			}
+		}
+
 		subject := fmt.Sprintf("通道「%s」（#%d）已被禁用", channelError.ChannelName, channelError.ChannelId)
 		content := fmt.Sprintf("通道「%s」（#%d）已被禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, reason)
 		NotifyRootUser(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), subject, content)
@@ -75,6 +92,8 @@ func DisableChannelModel(channelError types.ChannelError, modelName string, reas
 }
 
 func EnableChannel(channelId int, usingKey string, channelName string) {
+	// If channel was scheduled for auto re-enable, cancel the task (manual re-enable / recovered early).
+	cancelChannelReenable(channelId)
 	success := model.UpdateChannelStatus(channelId, usingKey, common.ChannelStatusEnabled, "")
 	if success {
 		subject := fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, channelId)

@@ -80,6 +80,10 @@ type ChannelInfo struct {
 	// DisabledModels stores per-model disable state for this channel.
 	// Key is the (possibly normalized) model name in channel.Models.
 	DisabledModels map[string]ChannelModelDisabledInfo `json:"disabled_models,omitempty"`
+
+	// AutoDisabledUntil is an epoch timestamp (seconds). When set, the channel can be automatically re-enabled
+	// after this time if it is auto-disabled.
+	AutoDisabledUntil int64 `json:"auto_disabled_until,omitempty"`
 }
 
 type ChannelModelDisabledInfo struct {

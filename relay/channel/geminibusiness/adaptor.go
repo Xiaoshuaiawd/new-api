@@ -71,10 +71,17 @@ func getGeminiBusinessHttpClient(proxyURL string) (*http.Client, error) {
 		MaxIdleConnsPerHost: 5000,
 		IdleConnTimeout:     90 * time.Second,
 		ForceAttemptHTTP2:   false,
+		// 给上游首包/握手设置合理的超时，避免并发时出现长时间卡在连接/首包阶段。
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
 	}
 
 	if proxyURL == "" {
-		return &http.Client{Transport: transport}, nil
+		client := &http.Client{Transport: transport}
+		if common.RelayTimeout > 0 {
+			client.Timeout = time.Duration(common.RelayTimeout) * time.Second
+		}
+		return client, nil
 	}
 
 	parsed, err := url.Parse(proxyURL)
@@ -84,7 +91,11 @@ func getGeminiBusinessHttpClient(proxyURL string) (*http.Client, error) {
 	switch parsed.Scheme {
 	case "http", "https":
 		transport.Proxy = http.ProxyURL(parsed)
-		return &http.Client{Transport: transport}, nil
+		client := &http.Client{Transport: transport}
+		if common.RelayTimeout > 0 {
+			client.Timeout = time.Duration(common.RelayTimeout) * time.Second
+		}
+		return client, nil
 	default:
 		// socks5/socks5h 等复杂代理复用项目内实现
 		return service.GetHttpClientWithProxy(proxyURL)
@@ -914,6 +925,7 @@ func isStreamAssistComplete(obj map[string]any) bool {
 	if !ok {
 		return false
 	}
+	// 兼容不同上游字段：有些环境不返回 complete/done/finished，而是 state/status/finishReason。
 	for _, k := range []string{"complete", "done", "finished"} {
 		if v, ok := answer[k]; ok {
 			switch vv := v.(type) {
@@ -922,6 +934,20 @@ func isStreamAssistComplete(obj map[string]any) bool {
 			case string:
 				return strings.EqualFold(strings.TrimSpace(vv), "true")
 			}
+		}
+	}
+	for _, k := range []string{"state", "status"} {
+		if v, ok := answer[k]; ok {
+			s := strings.ToUpper(strings.TrimSpace(common.Interface2String(v)))
+			if s == "DONE" || s == "COMPLETED" || s == "FINISHED" || s == "COMPLETE" {
+				return true
+			}
+		}
+	}
+	if v, ok := answer["finishReason"]; ok {
+		s := strings.ToUpper(strings.TrimSpace(common.Interface2String(v)))
+		if s != "" {
+			return true
 		}
 	}
 	return false

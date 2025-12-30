@@ -37,6 +37,8 @@ export default function SettingsMonitoring(props) {
     QuotaRemindThreshold: '',
     AutomaticDisableChannelEnabled: false,
     AutomaticEnableChannelEnabled: false,
+    AutoDisableMinutes: 0,
+    RelayTimeout: 0,
     AutomaticDisableKeywords: '',
     AutomaticDisableModelKeywords: '',
     'monitor_setting.auto_test_channel_enabled': false,
@@ -201,6 +203,42 @@ export default function SettingsMonitoring(props) {
                     setInputs({
                       ...inputs,
                       AutomaticEnableChannelEnabled: value,
+                    })
+                  }
+                />
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.InputNumber
+                  label={t('自动禁用时长')}
+                  step={1}
+                  min={0}
+                  suffix={t('分钟')}
+                  extraText={t('通道被自动禁用后，过多少分钟自动恢复；0=不自动恢复')}
+                  placeholder={''}
+                  field={'AutoDisableMinutes'}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      AutoDisableMinutes: parseInt(value),
+                    })
+                  }
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.InputNumber
+                  label={t('上游请求超时')}
+                  step={1}
+                  min={0}
+                  suffix={t('秒')}
+                  extraText={t('请求上游超过此时间将中断并触发重试/切换通道；0=不设置超时')}
+                  placeholder={''}
+                  field={'RelayTimeout'}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      RelayTimeout: parseInt(value),
                     })
                   }
                 />
