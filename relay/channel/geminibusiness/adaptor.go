@@ -77,11 +77,7 @@ func getGeminiBusinessHttpClient(proxyURL string) (*http.Client, error) {
 	}
 
 	if proxyURL == "" {
-		client := &http.Client{Transport: transport}
-		if common.RelayTimeout > 0 {
-			client.Timeout = time.Duration(common.RelayTimeout) * time.Second
-		}
-		return client, nil
+		return &http.Client{Transport: transport}, nil
 	}
 
 	parsed, err := url.Parse(proxyURL)
@@ -91,11 +87,7 @@ func getGeminiBusinessHttpClient(proxyURL string) (*http.Client, error) {
 	switch parsed.Scheme {
 	case "http", "https":
 		transport.Proxy = http.ProxyURL(parsed)
-		client := &http.Client{Transport: transport}
-		if common.RelayTimeout > 0 {
-			client.Timeout = time.Duration(common.RelayTimeout) * time.Second
-		}
-		return client, nil
+		return &http.Client{Transport: transport}, nil
 	default:
 		// socks5/socks5h 等复杂代理复用项目内实现
 		return service.GetHttpClientWithProxy(proxyURL)
@@ -180,6 +172,10 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	client, err := getGeminiBusinessHttpClient(info.ChannelSetting.Proxy)
 	if err != nil {
 		return nil, err
+	}
+	// Only enforce total timeout for non-stream requests; streaming is expected to be long-lived.
+	if !info.IsStream && common.RelayTimeout > 0 {
+		client.Timeout = time.Duration(common.RelayTimeout) * time.Second
 	}
 
 	t1 := time.Now()

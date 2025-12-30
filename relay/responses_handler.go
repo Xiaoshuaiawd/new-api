@@ -82,6 +82,13 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	var httpResp *http.Response
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
+		if info.ApiType == constant.APITypeGeminiBusiness && !info.IsStream && service.IsTimeoutError(err) {
+			return types.NewErrorWithStatusCode(
+				err,
+				types.ErrorCode("channel:timeout"),
+				http.StatusTooManyRequests,
+			)
+		}
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 	}
 
