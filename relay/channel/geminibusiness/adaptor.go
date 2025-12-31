@@ -81,12 +81,15 @@ func getGeminiBusinessHttpClient(proxyURL string) (*http.Client, error) {
 		}
 	}
 
-	// Python 版本 httpx 明确 http2=False，这里也关闭以贴近其行为并规避部分环境下的 HTTP/2 额外等待。
+	// Gemini Business 上游为 Google 域名，HTTP/2 通常能更好地复用连接并降低高并发下的连接抖动。
 	transport := &http.Transport{
-		MaxIdleConns:        5000,
-		MaxIdleConnsPerHost: 5000,
+		// Align with the project's shared HTTP client defaults so operators can tune pool size globally.
+		MaxIdleConns:        common.RelayMaxIdleConns,
+		MaxIdleConnsPerHost: common.RelayMaxIdleConnsPerHost,
 		IdleConnTimeout:     90 * time.Second,
-		ForceAttemptHTTP2:   false,
+		// Most other channels use HTTP/2 (service.InitHttpClient sets ForceAttemptHTTP2=true).
+		// HTTP/2 multiplexing can significantly reduce connection churn under high RPM.
+		ForceAttemptHTTP2: true,
 		// 给上游首包/握手设置合理的超时，避免并发时出现长时间卡在连接/首包阶段。
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
