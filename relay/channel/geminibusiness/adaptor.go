@@ -3,6 +3,7 @@ package geminibusiness
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -10,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -29,6 +30,8 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"golang.org/x/net/proxy"
+	"golang.org/x/sync/singleflight"
 )
 
 type Adaptor struct {
@@ -59,12 +62,25 @@ type imagePayload struct {
 
 var (
 	jwtCache     sync.Map
-	randSource   = rand.New(rand.NewSource(time.Now().UnixNano()))
+	jwtGroup     singleflight.Group
+	clientCache  sync.Map
 	dataURLExp   = regexp.MustCompile(`^data:(image/[^;]+);base64,(.+)$`)
 	errStopParse = errors.New("stop_parse")
 )
 
 func getGeminiBusinessHttpClient(proxyURL string) (*http.Client, error) {
+	// IMPORTANT:
+	// - Reuse client/transport to keep connections hot; creating a new Transport per request will
+	//   quickly degrade under high RPM (too many TCP/TLS handshakes, goroutines, fd pressure).
+	// - Do NOT set client.Timeout here. Use per-request context deadlines instead so the shared client
+	//   remains safe under concurrency.
+	cacheKey := strings.TrimSpace(proxyURL)
+	if v, ok := clientCache.Load(cacheKey); ok {
+		if cli, ok := v.(*http.Client); ok && cli != nil {
+			return cli, nil
+		}
+	}
+
 	// Python 版本 httpx 明确 http2=False，这里也关闭以贴近其行为并规避部分环境下的 HTTP/2 额外等待。
 	transport := &http.Transport{
 		MaxIdleConns:        5000,
@@ -76,22 +92,40 @@ func getGeminiBusinessHttpClient(proxyURL string) (*http.Client, error) {
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
 
-	if proxyURL == "" {
-		return &http.Client{Transport: transport}, nil
+	if cacheKey != "" {
+		parsed, err := url.Parse(cacheKey)
+		if err != nil {
+			return nil, err
+		}
+		switch parsed.Scheme {
+		case "http", "https":
+			transport.Proxy = http.ProxyURL(parsed)
+		case "socks5", "socks5h":
+			var auth *proxy.Auth
+			if parsed.User != nil {
+				auth = &proxy.Auth{User: parsed.User.Username()}
+				if password, ok := parsed.User.Password(); ok {
+					auth.Password = password
+				}
+			}
+			dialer, err := proxy.SOCKS5("tcp", parsed.Host, auth, proxy.Direct)
+			if err != nil {
+				return nil, err
+			}
+			transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return dialer.Dial(network, addr)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported proxy scheme: %s, must be http, https, socks5 or socks5h", parsed.Scheme)
+		}
 	}
 
-	parsed, err := url.Parse(proxyURL)
-	if err != nil {
-		return nil, err
+	cli := &http.Client{Transport: transport}
+	actual, _ := clientCache.LoadOrStore(cacheKey, cli)
+	if cached, ok := actual.(*http.Client); ok && cached != nil {
+		return cached, nil
 	}
-	switch parsed.Scheme {
-	case "http", "https":
-		transport.Proxy = http.ProxyURL(parsed)
-		return &http.Client{Transport: transport}, nil
-	default:
-		// socks5/socks5h 等复杂代理复用项目内实现
-		return service.GetHttpClientWithProxy(proxyURL)
-	}
+	return cli, nil
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
@@ -157,12 +191,14 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if err := common.Unmarshal(body, &openAIReq); err != nil {
 		return nil, fmt.Errorf("parse request failed: %w", err)
 	}
-	// 根据路径或参数修正流式标识
+	// Gemini Business 上游本身永远是“流式数组输出”，但下游是否需要 SSE 要看请求参数。
+	// 这里的 downstreamStream 仅表示“是否以流式返回给客户端”，不要与上游响应形态混淆，
+	// 否则会导致非流请求不设置超时（出现你反馈的超时无效问题）。
+	downstreamStream := openAIReq.Stream
 	if strings.Contains(info.RequestURLPath, "stream") || strings.ToLower(c.Query("alt")) == "sse" {
-		info.IsStream = true
-	} else {
-		info.IsStream = info.IsStream || openAIReq.Stream
+		downstreamStream = true
 	}
+	info.IsStream = downstreamStream
 
 	cred, err := parseCredentials(info.ApiKey)
 	if err != nil {
@@ -173,19 +209,26 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if err != nil {
 		return nil, err
 	}
-	// Only enforce total timeout for non-stream requests; streaming is expected to be long-lived.
-	if !info.IsStream && common.RelayTimeout > 0 {
-		client.Timeout = time.Duration(common.RelayTimeout) * time.Second
+
+	// End-to-end timeout (non-stream only):
+	// Gemini Business is a multi-step upstream flow (JWT -> createSession -> streamAssist -> parse body).
+	// Using http.Client.Timeout would apply per HTTP call; under load the sum of steps could exceed the
+	// configured timeout. We instead enforce a single overall deadline via context.
+	ctx := c.Request.Context()
+	var cancel context.CancelFunc
+	if !downstreamStream && common.RelayTimeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(common.RelayTimeout)*time.Second)
+		defer cancel()
 	}
 
 	t1 := time.Now()
-	jwt, err := getJWT(client, cred, info)
+	jwt, err := getJWT(client, ctx, cred, info)
 	if err != nil {
 		return nil, err
 	}
 
 	t2 := time.Now()
-	session, err := createSession(client, cred, jwt)
+	session, err := createSession(client, ctx, cred, jwt)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +241,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 	fileIDs := make([]string, 0, len(images))
 	for _, img := range images {
-		fileID, err := uploadContextFile(client, cred, jwt, session, img)
+		fileID, err := uploadContextFile(client, ctx, cred, jwt, session, img)
 		if err != nil {
 			return nil, err
 		}
@@ -211,7 +254,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, discoveryBaseURL+streamAssistPath, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, discoveryBaseURL+streamAssistPath, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, err
 	}
@@ -350,6 +393,11 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		return nil
 	})
 	if err != nil {
+		// For Gemini Business non-stream, timeout should be treated as a channel error so the upper retry loop
+		// can auto-disable this channel and quickly switch to others.
+		if service.IsTimeoutError(err) {
+			return nil, types.NewErrorWithStatusCode(err, types.ErrorCode("channel:timeout"), http.StatusTooManyRequests)
+		}
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
@@ -411,7 +459,7 @@ func parseCredentials(raw string) (Credentials, error) {
 	return cred, nil
 }
 
-func getJWT(client *http.Client, cred Credentials, info *relaycommon.RelayInfo) (string, error) {
+func getJWT(client *http.Client, ctx context.Context, cred Credentials, info *relaycommon.RelayInfo) (string, error) {
 	cacheKey := fmt.Sprintf("gb:%d:%d:%s", info.ChannelId, info.ChannelMultiKeyIndex, cred.ID)
 	if val, ok := jwtCache.Load(cacheKey); ok {
 		if cached, ok := val.(cachedJWT); ok && cached.ExpiresAt.After(time.Now().Add(10*time.Second)) {
@@ -419,16 +467,32 @@ func getJWT(client *http.Client, cred Credentials, info *relaycommon.RelayInfo) 
 		}
 	}
 
-	token, expiresAt, err := refreshJWT(client, cred)
+	v, err, _ := jwtGroup.Do(cacheKey, func() (any, error) {
+		// double-check after acquiring singleflight
+		if val, ok := jwtCache.Load(cacheKey); ok {
+			if cached, ok := val.(cachedJWT); ok && cached.ExpiresAt.After(time.Now().Add(10*time.Second)) {
+				return cached.Token, nil
+			}
+		}
+		token, expiresAt, err := refreshJWT(client, ctx, cred)
+		if err != nil {
+			return "", err
+		}
+		jwtCache.Store(cacheKey, cachedJWT{Token: token, ExpiresAt: expiresAt})
+		return token, nil
+	})
 	if err != nil {
 		return "", err
 	}
-	jwtCache.Store(cacheKey, cachedJWT{Token: token, ExpiresAt: expiresAt})
+	token, _ := v.(string)
+	if token == "" {
+		return "", errors.New("empty jwt")
+	}
 	return token, nil
 }
 
-func refreshJWT(client *http.Client, cred Credentials) (string, time.Time, error) {
-	req, err := http.NewRequest(http.MethodGet, businessBaseURL+getXsrfPath, nil)
+func refreshJWT(client *http.Client, ctx context.Context, cred Credentials) (string, time.Time, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, businessBaseURL+getXsrfPath, nil)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -573,7 +637,7 @@ func getCommonHeaders(jwt string) map[string]string {
 	}
 }
 
-func createSession(client *http.Client, cred Credentials, jwt string) (string, error) {
+func createSession(client *http.Client, ctx context.Context, cred Credentials, jwt string) (string, error) {
 	body := map[string]any{
 		"configId": cred.ConfigID,
 		"additionalParams": map[string]any{
@@ -587,7 +651,7 @@ func createSession(client *http.Client, cred Credentials, jwt string) (string, e
 		},
 	}
 	payload, _ := json.Marshal(body)
-	req, err := http.NewRequest(http.MethodPost, discoveryBaseURL+createSessionPath, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, discoveryBaseURL+createSessionPath, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}
@@ -620,10 +684,10 @@ func createSession(client *http.Client, cred Credentials, jwt string) (string, e
 	return data.Session.Name, nil
 }
 
-func uploadContextFile(client *http.Client, cred Credentials, jwt, session string, img imagePayload) (string, error) {
+func uploadContextFile(client *http.Client, ctx context.Context, cred Credentials, jwt, session string, img imagePayload) (string, error) {
 	ext := guessExtension(img.Mime)
-	// 使用时间 + 随机数确保唯一
-	fileName := fmt.Sprintf("upload_%d_%d.%s", time.Now().Unix(), randSource.Intn(100000), ext)
+	// 使用纳秒时间戳确保唯一（避免并发下 rand 竞争/数据竞争）
+	fileName := fmt.Sprintf("upload_%d.%s", time.Now().UnixNano(), ext)
 
 	body := map[string]any{
 		"configId": cred.ConfigID,
@@ -638,7 +702,7 @@ func uploadContextFile(client *http.Client, cred Credentials, jwt, session strin
 		},
 	}
 	payload, _ := json.Marshal(body)
-	req, err := http.NewRequest(http.MethodPost, discoveryBaseURL+addFilePath, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, discoveryBaseURL+addFilePath, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}
@@ -935,7 +999,7 @@ func isStreamAssistComplete(obj map[string]any) bool {
 	for _, k := range []string{"state", "status"} {
 		if v, ok := answer[k]; ok {
 			s := strings.ToUpper(strings.TrimSpace(common.Interface2String(v)))
-			if s == "DONE" || s == "COMPLETED" || s == "FINISHED" || s == "COMPLETE" {
+			if s == "DONE" || s == "COMPLETED" || s == "FINISHED" || s == "COMPLETE" || s == "SUCCEEDED" || s == "SUCCESS" {
 				return true
 			}
 		}

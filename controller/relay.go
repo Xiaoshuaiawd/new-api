@@ -400,6 +400,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			})
 		}
 	} else if service.ShouldDisableChannel(channelError.ChannelType, err) && channelError.AutoBan {
+		// For timeout-based channel errors we want the next retry to avoid selecting the same channel again.
+		// Update in-memory cache synchronously (fast), then persist/notify asynchronously.
+		if err.GetErrorCode() == types.ErrorCode("channel:timeout") {
+			model.CacheUpdateChannelStatus(channelError.ChannelId, common.ChannelStatusAutoDisabled)
+		}
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.Error())
 		})

@@ -17,6 +17,7 @@ var NotificationLimitDurationMinute int
 var GenerateDefaultToken bool
 var ErrorLogEnabled bool
 var TaskQueryLimit int
+
 // PassThroughUpstreamError controls whether upstream error bodies/messages are returned to downstream clients.
 // Default false for safety; enable via env `PASS_THROUGH_UPSTREAM_ERROR=true` when you need detailed upstream errors.
 var PassThroughUpstreamError bool

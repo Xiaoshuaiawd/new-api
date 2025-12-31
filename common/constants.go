@@ -102,6 +102,7 @@ var QuotaForInvitee = 0
 var ChannelDisableThreshold = 5.0
 var AutomaticDisableChannelEnabled = false
 var AutomaticEnableChannelEnabled = false
+
 // AutoDisableMinutes controls how long an auto-disabled channel stays disabled before auto re-enable.
 // 0 means do not auto re-enable by duration.
 var AutoDisableMinutes = 0
