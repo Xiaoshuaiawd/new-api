@@ -66,7 +66,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	requestId := c.GetString(common.RequestIdKey)
 	//group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
-	//originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
+	originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 
 	var (
 		newAPIError *types.NewAPIError
@@ -212,7 +212,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		// 更新 Prometheus metrics context（重试时可能切换到不同的渠道）
-		if i > 0 && metricsCtx != nil {
+		if retryParam.GetRetry() > 0 && metricsCtx != nil {
 			metricsCtx.ChannelID = channel.Id
 			metricsCtx.ChannelName = channel.Name
 			metricsCtx.ChannelType = channel.Type
