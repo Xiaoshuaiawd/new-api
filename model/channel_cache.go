@@ -147,6 +147,11 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	for _, channelId := range channels {
 		if channel, ok := channelsIDM[channelId]; ok {
 			if channel.GetPriority() == targetPriority {
+				// 检查该渠道的这个模型是否被禁用
+				if IsModelDisabledForChannel(channelId, model) {
+					common.SysLog(fmt.Sprintf("跳过渠道 #%d，模型「%s」已被禁用", channelId, model))
+					continue
+				}
 				sumWeight += channel.GetWeight()
 				targetChannels = append(targetChannels, channel)
 			}
