@@ -95,6 +95,8 @@ func ShouldDisableChannel(channelType int, err *types.NewAPIError) bool {
 		return true
 	case "Arrearage":
 		return true
+	case "rate_limit_exceeded": // 速率限制错误
+		return true
 	}
 	switch oaiErr.Type {
 	case "insufficient_quota":
