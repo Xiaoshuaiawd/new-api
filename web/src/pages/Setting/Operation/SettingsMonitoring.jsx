@@ -123,6 +123,12 @@ export default function SettingsMonitoring(props) {
         currentInputs[key] = props.options[key];
       }
     }
+    // 调试：检查是否收到了新选项
+    console.log('Received options:', props.options);
+    console.log('DisableModelOnFailureEnabled:', props.options.DisableModelOnFailureEnabled);
+    console.log('ForceRetryOnRelayErrorEnabled:', props.options.ForceRetryOnRelayErrorEnabled);
+    console.log('Current inputs:', currentInputs);
+
     setInputs(currentInputs);
     setInputsRow(structuredClone(currentInputs));
     refForm.current.setValues(currentInputs);
