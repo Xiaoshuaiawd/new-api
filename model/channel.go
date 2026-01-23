@@ -613,11 +613,12 @@ func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason
 // DisableChannelModel 禁用渠道的特定模型
 func DisableChannelModel(channelId int, modelName string, reason string) bool {
 	if common.MemoryCacheEnabled {
-		channelStatusLock.Lock()
-		defer channelStatusLock.Unlock()
+		// 必须使用 channelSyncLock 而不是 channelStatusLock，因为 channelsIDM 是用 channelSyncLock 保护的
+		channelSyncLock.Lock()
+		defer channelSyncLock.Unlock()
 
-		channelCache, _ := CacheGetChannel(channelId)
-		if channelCache == nil {
+		channelCache, ok := channelsIDM[channelId]
+		if !ok || channelCache == nil {
 			common.SysError(fmt.Sprintf("禁用模型失败：无法从缓存获取渠道 #%d", channelId))
 			return false
 		}
@@ -633,7 +634,7 @@ func DisableChannelModel(channelId int, modelName string, reason string) bool {
 		channelCache.ChannelInfo.DisabledModels[modelName] = timestamp
 		common.SysLog(fmt.Sprintf("渠道 #%d 缓存中添加禁用模型「%s」，时间戳：%d", channelId, modelName, timestamp))
 
-		// 必须更新缓存 map，否则修改不会生效
+		// 更新缓存 map（虽然是指针，但为了保持一致性还是显式更新）
 		channelsIDM[channelId] = channelCache
 		common.SysLog(fmt.Sprintf("渠道 #%d 缓存已更新，DisabledModels: %v", channelId, channelCache.ChannelInfo.DisabledModels))
 	}
@@ -667,11 +668,12 @@ func DisableChannelModel(channelId int, modelName string, reason string) bool {
 // EnableChannelModel 启用渠道的特定模型
 func EnableChannelModel(channelId int, modelName string) bool {
 	if common.MemoryCacheEnabled {
-		channelStatusLock.Lock()
-		defer channelStatusLock.Unlock()
+		// 必须使用 channelSyncLock 而不是 channelStatusLock，因为 channelsIDM 是用 channelSyncLock 保护的
+		channelSyncLock.Lock()
+		defer channelSyncLock.Unlock()
 
-		channelCache, _ := CacheGetChannel(channelId)
-		if channelCache == nil {
+		channelCache, ok := channelsIDM[channelId]
+		if !ok || channelCache == nil {
 			common.SysError(fmt.Sprintf("启用模型失败：无法从缓存获取渠道 #%d", channelId))
 			return false
 		}
@@ -682,7 +684,7 @@ func EnableChannelModel(channelId int, modelName string) bool {
 			common.SysLog(fmt.Sprintf("渠道 #%d 缓存中删除禁用模型「%s」", channelId, modelName))
 		}
 
-		// 必须更新缓存 map，否则修改不会生效
+		// 更新缓存 map（虽然是指针，但为了保持一致性还是显式更新）
 		channelsIDM[channelId] = channelCache
 		common.SysLog(fmt.Sprintf("渠道 #%d 缓存已更新，DisabledModels: %v", channelId, channelCache.ChannelInfo.DisabledModels))
 	}
