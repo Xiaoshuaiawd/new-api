@@ -325,13 +325,24 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 		return true
 	}
 
-	// TODO: 检查是否启用了"Relay error 强制重试"功能
-	// 如果 common.ForceRetryOnRelayErrorEnabled 为 true，则所有错误都重试
-	// 但需要注意：不要与自动禁用冲突
-	// 即：如果错误会触发自动禁用（service.ShouldDisableChannel 返回 true），则不强制重试
-	// 否则，返回 true 强制重试
-	// 如果未启用强制重试，则按原逻辑：operation_setting.ShouldRetryByStatusCode(code)
+	// 检查是否启用了"Relay error 强制重试"功能
+	if common.ForceRetryOnRelayErrorEnabled {
+		// 获取渠道类型以判断是否会触发自动禁用
+		channelId := c.GetInt("channel_id")
+		channelType := c.GetInt("channel_type")
 
+		// 如果错误会触发自动禁用，则不强制重试（避免冲突）
+		if service.ShouldDisableChannel(channelType, openaiErr) {
+			// 会触发自动禁用，按原逻辑处理
+			return operation_setting.ShouldRetryByStatusCode(code)
+		}
+
+		// 不会触发自动禁用，强制重试
+		common.SysLog(fmt.Sprintf("强制重试已启用，渠道 #%d 错误码 %d 将被重试", channelId, code))
+		return true
+	}
+
+	// 如果未启用强制重试，则按原逻辑：根据状态码判断是否重试
 	return operation_setting.ShouldRetryByStatusCode(code)
 }
 
