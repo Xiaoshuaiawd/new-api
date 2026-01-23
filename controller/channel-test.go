@@ -628,7 +628,20 @@ func testAllChannels(notify bool) error {
 
 			// disable channel
 			if isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+				// 获取测试使用的模型名称
+				testModel := ""
+				if channel.TestModel != nil && *channel.TestModel != "" {
+					testModel = strings.TrimSpace(*channel.TestModel)
+				} else {
+					models := channel.GetModels()
+					if len(models) > 0 {
+						testModel = strings.TrimSpace(models[0])
+					}
+					if testModel == "" {
+						testModel = "gpt-4o-mini"
+					}
+				}
+				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan(), testModel), newAPIError)
 			}
 
 			// enable channel

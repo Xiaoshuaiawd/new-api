@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -611,36 +612,120 @@ func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason
 
 // DisableChannelModel 禁用渠道的特定模型
 func DisableChannelModel(channelId int, modelName string, reason string) bool {
-	// TODO: 实现禁用渠道特定模型的逻辑
-	// 1. 如果启用了内存缓存，需要更新缓存中的 DisabledModels 字段
-	// 2. 获取渠道信息，初始化 DisabledModels map（如果为 nil）
-	// 3. 将模型名称和当前时间戳添加到 DisabledModels map 中
-	// 4. 更新数据库中的 channel_info 字段
-	// 5. 记录日志：fmt.Sprintf("渠道「#%d」的模型「%s」已被禁用，原因：%s", channelId, modelName, reason)
-	// 注意：需要使用锁保护并发访问
-	return false
+	if common.MemoryCacheEnabled {
+		channelStatusLock.Lock()
+		defer channelStatusLock.Unlock()
+
+		channelCache, _ := CacheGetChannel(channelId)
+		if channelCache == nil {
+			return false
+		}
+
+		// 初始化 DisabledModels map（如果为 nil）
+		if channelCache.ChannelInfo.DisabledModels == nil {
+			channelCache.ChannelInfo.DisabledModels = make(map[string]int64)
+		}
+
+		// 将模型名称和当前时间戳添加到 DisabledModels map 中
+		channelCache.ChannelInfo.DisabledModels[modelName] = time.Now().Unix()
+		// 缓存中的 channel 对象会自动更新，不需要调用 CacheSetChannel
+	}
+
+	// 更新数据库
+	channel, err := GetChannelById(channelId, false)
+	if err != nil {
+		return false
+	}
+
+	// 初始化 DisabledModels map（如果为 nil）
+	if channel.ChannelInfo.DisabledModels == nil {
+		channel.ChannelInfo.DisabledModels = make(map[string]int64)
+	}
+
+	// 将模型名称和当前时间戳添加到 DisabledModels map 中
+	channel.ChannelInfo.DisabledModels[modelName] = time.Now().Unix()
+
+	// 更新数据库中的 channel_info 字段
+	err = DB.Model(&Channel{}).Where("id = ?", channelId).Update("channel_info", channel.ChannelInfo).Error
+	if err != nil {
+		common.SysError(fmt.Sprintf("禁用渠道「#%d」的模型「%s」失败：%s", channelId, modelName, err.Error()))
+		return false
+	}
+
+	// 记录日志
+	common.SysLog(fmt.Sprintf("渠道「#%d」的模型「%s」已被禁用，原因：%s", channelId, modelName, reason))
+	return true
 }
 
 // EnableChannelModel 启用渠道的特定模型
 func EnableChannelModel(channelId int, modelName string) bool {
-	// TODO: 实现启用渠道特定模型的逻辑
-	// 1. 如果启用了内存缓存，需要更新缓存中的 DisabledModels 字段
-	// 2. 获取渠道信息
-	// 3. 从 DisabledModels map 中删除该模型名称
-	// 4. 更新数据库中的 channel_info 字段
-	// 5. 记录日志：fmt.Sprintf("渠道「#%d」的模型「%s」已被启用", channelId, modelName)
-	// 注意：需要使用锁保护并发访问
-	return false
+	if common.MemoryCacheEnabled {
+		channelStatusLock.Lock()
+		defer channelStatusLock.Unlock()
+
+		channelCache, _ := CacheGetChannel(channelId)
+		if channelCache == nil {
+			return false
+		}
+
+		// 从 DisabledModels map 中删除该模型名称
+		if channelCache.ChannelInfo.DisabledModels != nil {
+			delete(channelCache.ChannelInfo.DisabledModels, modelName)
+		}
+	}
+
+	// 更新数据库
+	channel, err := GetChannelById(channelId, false)
+	if err != nil {
+		return false
+	}
+
+	// 从 DisabledModels map 中删除该模型名称
+	if channel.ChannelInfo.DisabledModels != nil {
+		delete(channel.ChannelInfo.DisabledModels, modelName)
+	}
+
+	// 更新数据库中的 channel_info 字段
+	err = DB.Model(&Channel{}).Where("id = ?", channelId).Update("channel_info", channel.ChannelInfo).Error
+	if err != nil {
+		common.SysError(fmt.Sprintf("启用渠道「#%d」的模型「%s」失败：%s", channelId, modelName, err.Error()))
+		return false
+	}
+
+	// 记录日志
+	common.SysLog(fmt.Sprintf("渠道「#%d」的模型「%s」已被启用", channelId, modelName))
+	return true
 }
 
 // IsModelDisabledForChannel 检查渠道的特定模型是否被禁用
 func IsModelDisabledForChannel(channelId int, modelName string) bool {
-	// TODO: 实现检查模型是否被禁用的逻辑
-	// 1. 如果启用了内存缓存，从缓存中获取渠道信息
-	// 2. 检查 DisabledModels map 中是否存在该模型名称
-	// 3. 返回是否被禁用的布尔值
-	// 注意：需要处理 DisabledModels 为 nil 的情况
-	return false
+	if common.MemoryCacheEnabled {
+		channelCache, _ := CacheGetChannel(channelId)
+		if channelCache == nil {
+			return false
+		}
+
+		// 检查 DisabledModels map 中是否存在该模型名称
+		if channelCache.ChannelInfo.DisabledModels == nil {
+			return false
+		}
+
+		_, disabled := channelCache.ChannelInfo.DisabledModels[modelName]
+		return disabled
+	}
+
+	// 如果没有启用缓存，从数据库查询
+	channel, err := GetChannelById(channelId, false)
+	if err != nil {
+		return false
+	}
+
+	if channel.ChannelInfo.DisabledModels == nil {
+		return false
+	}
+
+	_, disabled := channel.ChannelInfo.DisabledModels[modelName]
+	return disabled
 }
 
 func UpdateChannelStatus(channelId int, usingKey string, status int, reason string) bool {

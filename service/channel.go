@@ -27,11 +27,18 @@ func DisableChannel(channelError types.ChannelError, reason string) {
 		return
 	}
 
-	// TODO: 检查是否启用了"失败时拆分模型禁用"功能
-	// 如果 common.DisableModelOnFailureEnabled 为 true，则只禁用当前模型而不是整个渠道
-	// 需要从 channelError 中获取 ModelName 字段（可能需要在 types.ChannelError 中添加此字段）
-	// 调用 model.DisableChannelModel(channelError.ChannelId, channelError.ModelName, reason)
-	// 并发送通知：fmt.Sprintf("通道「%s」（#%d）的模型「%s」已被禁用", channelError.ChannelName, channelError.ChannelId, channelError.ModelName)
+	// 检查是否启用了"失败时拆分模型禁用"功能
+	if common.DisableModelOnFailureEnabled && channelError.ModelName != "" {
+		// 只禁用当前模型而不是整个渠道
+		success := model.DisableChannelModel(channelError.ChannelId, channelError.ModelName, reason)
+		if success {
+			subject := fmt.Sprintf("通道「%s」（#%d）的模型「%s」已被禁用", channelError.ChannelName, channelError.ChannelId, channelError.ModelName)
+			content := fmt.Sprintf("通道「%s」（#%d）的模型「%s」已被禁用，原因：%s", channelError.ChannelName, channelError.ChannelId, channelError.ModelName, reason)
+			NotifyRootUser(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), subject, content)
+		}
+		return
+	}
+
 	// 否则，按原逻辑禁用整个渠道
 
 	success := model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason)
