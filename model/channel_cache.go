@@ -116,7 +116,13 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	}
 
 	if len(channels) == 1 {
-		if channel, ok := channelsIDM[channels[0]]; ok {
+		channelId := channels[0]
+		if channel, ok := channelsIDM[channelId]; ok {
+			// 检查该渠道的这个模型是否被禁用
+			if IsModelDisabledForChannel(channelId, model) {
+				common.SysLog(fmt.Sprintf("跳过渠道 #%d（唯一渠道），模型「%s」已被禁用", channelId, model))
+				return nil, fmt.Errorf("no available channel for model %s (only channel #%d has this model disabled)", model, channelId)
+			}
 			return channel, nil
 		}
 		return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channels[0])
