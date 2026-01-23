@@ -618,17 +618,24 @@ func DisableChannelModel(channelId int, modelName string, reason string) bool {
 
 		channelCache, _ := CacheGetChannel(channelId)
 		if channelCache == nil {
+			common.SysError(fmt.Sprintf("禁用模型失败：无法从缓存获取渠道 #%d", channelId))
 			return false
 		}
 
 		// 初始化 DisabledModels map（如果为 nil）
 		if channelCache.ChannelInfo.DisabledModels == nil {
 			channelCache.ChannelInfo.DisabledModels = make(map[string]int64)
+			common.SysLog(fmt.Sprintf("渠道 #%d 初始化 DisabledModels map", channelId))
 		}
 
 		// 将模型名称和当前时间戳添加到 DisabledModels map 中
-		channelCache.ChannelInfo.DisabledModels[modelName] = time.Now().Unix()
-		// 缓存中的 channel 对象会自动更新，不需要调用 CacheSetChannel
+		timestamp := time.Now().Unix()
+		channelCache.ChannelInfo.DisabledModels[modelName] = timestamp
+		common.SysLog(fmt.Sprintf("渠道 #%d 缓存中添加禁用模型「%s」，时间戳：%d", channelId, modelName, timestamp))
+
+		// 必须更新缓存 map，否则修改不会生效
+		channelsIDM[channelId] = channelCache
+		common.SysLog(fmt.Sprintf("渠道 #%d 缓存已更新，DisabledModels: %v", channelId, channelCache.ChannelInfo.DisabledModels))
 	}
 
 	// 更新数据库
@@ -665,13 +672,19 @@ func EnableChannelModel(channelId int, modelName string) bool {
 
 		channelCache, _ := CacheGetChannel(channelId)
 		if channelCache == nil {
+			common.SysError(fmt.Sprintf("启用模型失败：无法从缓存获取渠道 #%d", channelId))
 			return false
 		}
 
 		// 从 DisabledModels map 中删除该模型名称
 		if channelCache.ChannelInfo.DisabledModels != nil {
 			delete(channelCache.ChannelInfo.DisabledModels, modelName)
+			common.SysLog(fmt.Sprintf("渠道 #%d 缓存中删除禁用模型「%s」", channelId, modelName))
 		}
+
+		// 必须更新缓存 map，否则修改不会生效
+		channelsIDM[channelId] = channelCache
+		common.SysLog(fmt.Sprintf("渠道 #%d 缓存已更新，DisabledModels: %v", channelId, channelCache.ChannelInfo.DisabledModels))
 	}
 
 	// 更新数据库
@@ -702,15 +715,19 @@ func IsModelDisabledForChannel(channelId int, modelName string) bool {
 	if common.MemoryCacheEnabled {
 		channelCache, _ := CacheGetChannel(channelId)
 		if channelCache == nil {
+			common.SysLog(fmt.Sprintf("检查模型禁用状态：无法从缓存获取渠道 #%d", channelId))
 			return false
 		}
 
 		// 检查 DisabledModels map 中是否存在该模型名称
 		if channelCache.ChannelInfo.DisabledModels == nil {
+			common.SysLog(fmt.Sprintf("检查模型禁用状态：渠道 #%d 的 DisabledModels 为 nil", channelId))
 			return false
 		}
 
-		_, disabled := channelCache.ChannelInfo.DisabledModels[modelName]
+		timestamp, disabled := channelCache.ChannelInfo.DisabledModels[modelName]
+		common.SysLog(fmt.Sprintf("检查模型禁用状态：渠道 #%d，模型「%s」，禁用状态：%v，时间戳：%d，DisabledModels: %v",
+			channelId, modelName, disabled, timestamp, channelCache.ChannelInfo.DisabledModels))
 		return disabled
 	}
 
