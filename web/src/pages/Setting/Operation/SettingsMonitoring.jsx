@@ -44,6 +44,8 @@ export default function SettingsMonitoring(props) {
     QuotaRemindThreshold: '',
     AutomaticDisableChannelEnabled: false,
     AutomaticEnableChannelEnabled: false,
+    DisableModelOnFailureEnabled: false,
+    ForceRetryOnRelayErrorEnabled: false,
     AutomaticDisableKeywords: '',
     AutomaticDisableStatusCodes: '401',
     AutomaticRetryStatusCodes: '100-199,300-399,401-407,409-499,500-503,505-523,525-599',
@@ -285,6 +287,51 @@ export default function SettingsMonitoring(props) {
             <Row>
               <Button size='default' onClick={onSubmit}>
                 {t('保存监控设置')}
+              </Button>
+            </Row>
+          </Form.Section>
+          <Form.Section text={t('禁用/重试')}>
+            <Row gutter={16}>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'DisableModelOnFailureEnabled'}
+                  label={t('失败时拆分模型禁用')}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  extraText={t(
+                    '开启后，遇到自动禁用关键词时只禁用当前渠道的特定模型，而不是禁用整个渠道',
+                  )}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      DisableModelOnFailureEnabled: value,
+                    })
+                  }
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'ForceRetryOnRelayErrorEnabled'}
+                  label={t('Relay error 强制重试')}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  extraText={t(
+                    '开启后，所有错误都会重试，但不会与自动禁用冲突',
+                  )}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      ForceRetryOnRelayErrorEnabled: value,
+                    })
+                  }
+                />
+              </Col>
+            </Row>
+            <Row>
+              <Button size='default' onClick={onSubmit}>
+                {t('保存禁用/重试设置')}
               </Button>
             </Row>
           </Form.Section>

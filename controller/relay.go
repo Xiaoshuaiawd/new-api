@@ -324,6 +324,14 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if code < 100 || code > 599 {
 		return true
 	}
+
+	// TODO: 检查是否启用了"Relay error 强制重试"功能
+	// 如果 common.ForceRetryOnRelayErrorEnabled 为 true，则所有错误都重试
+	// 但需要注意：不要与自动禁用冲突
+	// 即：如果错误会触发自动禁用（service.ShouldDisableChannel 返回 true），则不强制重试
+	// 否则，返回 true 强制重试
+	// 如果未启用强制重试，则按原逻辑：operation_setting.ShouldRetryByStatusCode(code)
+
 	return operation_setting.ShouldRetryByStatusCode(code)
 }
 

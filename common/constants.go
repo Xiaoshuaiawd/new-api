@@ -106,6 +106,8 @@ var QuotaForInvitee = 0
 var ChannelDisableThreshold = 5.0
 var AutomaticDisableChannelEnabled = false
 var AutomaticEnableChannelEnabled = false
+var DisableModelOnFailureEnabled = false  // 失败时拆分模型禁用（只禁用当前渠道的特定模型，而不是整个渠道）
+var ForceRetryOnRelayErrorEnabled = false // Relay error 强制重试（所有错误都重试，但不与自动禁用冲突）
 var QuotaRemindThreshold = 1000
 var PreConsumedQuota = 500
 

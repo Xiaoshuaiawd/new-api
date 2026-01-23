@@ -65,6 +65,7 @@ type ChannelInfo struct {
 	MultiKeyDisabledTime   map[int]int64         `json:"multi_key_disabled_time,omitempty"`   // key禁用时间列表，key index -> time
 	MultiKeyPollingIndex   int                   `json:"multi_key_polling_index"`             // 多Key模式下轮询的key索引
 	MultiKeyMode           constant.MultiKeyMode `json:"multi_key_mode"`
+	DisabledModels         map[string]int64      `json:"disabled_models,omitempty"`           // 禁用的模型列表，model name -> disabled time
 }
 
 // Value implements driver.Valuer interface
@@ -606,6 +607,40 @@ func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason
 			channel.SetOtherInfo(info)
 		}
 	}
+}
+
+// DisableChannelModel 禁用渠道的特定模型
+func DisableChannelModel(channelId int, modelName string, reason string) bool {
+	// TODO: 实现禁用渠道特定模型的逻辑
+	// 1. 如果启用了内存缓存，需要更新缓存中的 DisabledModels 字段
+	// 2. 获取渠道信息，初始化 DisabledModels map（如果为 nil）
+	// 3. 将模型名称和当前时间戳添加到 DisabledModels map 中
+	// 4. 更新数据库中的 channel_info 字段
+	// 5. 记录日志：fmt.Sprintf("渠道「#%d」的模型「%s」已被禁用，原因：%s", channelId, modelName, reason)
+	// 注意：需要使用锁保护并发访问
+	return false
+}
+
+// EnableChannelModel 启用渠道的特定模型
+func EnableChannelModel(channelId int, modelName string) bool {
+	// TODO: 实现启用渠道特定模型的逻辑
+	// 1. 如果启用了内存缓存，需要更新缓存中的 DisabledModels 字段
+	// 2. 获取渠道信息
+	// 3. 从 DisabledModels map 中删除该模型名称
+	// 4. 更新数据库中的 channel_info 字段
+	// 5. 记录日志：fmt.Sprintf("渠道「#%d」的模型「%s」已被启用", channelId, modelName)
+	// 注意：需要使用锁保护并发访问
+	return false
+}
+
+// IsModelDisabledForChannel 检查渠道的特定模型是否被禁用
+func IsModelDisabledForChannel(channelId int, modelName string) bool {
+	// TODO: 实现检查模型是否被禁用的逻辑
+	// 1. 如果启用了内存缓存，从缓存中获取渠道信息
+	// 2. 检查 DisabledModels map 中是否存在该模型名称
+	// 3. 返回是否被禁用的布尔值
+	// 注意：需要处理 DisabledModels 为 nil 的情况
+	return false
 }
 
 func UpdateChannelStatus(channelId int, usingKey string, status int, reason string) bool {
