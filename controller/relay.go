@@ -165,6 +165,29 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}
 
+	// 内容审核检查（使用渠道的API密钥调用OpenAI Moderation API）
+	channelSetting, hasChannelSetting := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+	if hasChannelSetting && channelSetting.ContentModerationEnabled && meta != nil && meta.CombineText != "" {
+		channelKey := common.GetContextKeyString(c, constant.ContextKeyChannelKey)
+		channelBaseUrl := common.GetContextKeyString(c, constant.ContextKeyChannelBaseUrl)
+
+		moderationText := service.ExtractTextFromMessages(meta.CombineText)
+		moderationErr, checkErr := service.CheckContentModeration(channelKey, channelBaseUrl, moderationText)
+		if checkErr != nil {
+			logger.LogError(c, fmt.Sprintf("content moderation check failed: %s", checkErr.Error()))
+			// 审核服务出错时不阻止请求，只记录日志
+		} else if moderationErr != nil && moderationErr.Flagged {
+			logger.LogWarn(c, fmt.Sprintf("content moderation flagged: %s", moderationErr.Message))
+			newAPIError = types.NewErrorWithStatusCode(
+				fmt.Errorf(moderationErr.Message),
+				types.ErrorCodeContentModerationError,
+				http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(),
+			)
+			return
+		}
+	}
+
 	tokens, err := service.EstimateRequestToken(c, meta, relayInfo)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeCountTokenFailed)

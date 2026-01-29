@@ -40,6 +40,7 @@ type ErrorCode string
 const (
 	ErrorCodeInvalidRequest         ErrorCode = "invalid_request"
 	ErrorCodeSensitiveWordsDetected ErrorCode = "sensitive_words_detected"
+	ErrorCodeContentModerationError ErrorCode = "content_moderation_error" // 内容审核被拒绝
 
 	// new api error
 	ErrorCodeCountTokenFailed   ErrorCode = "count_token_failed"

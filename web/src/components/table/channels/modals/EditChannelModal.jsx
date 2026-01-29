@@ -156,6 +156,7 @@ const EditChannelModal = (props) => {
     pass_through_body_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
+    content_moderation_enabled: false, // 是否启用内容审核
     settings: '',
     // 仅 Vertex: 密钥格式（存入 settings.vertex_key_type）
     vertex_key_type: 'json',
@@ -374,6 +375,7 @@ const EditChannelModal = (props) => {
     proxy: '',
     pass_through_body_enabled: false,
     system_prompt: '',
+    content_moderation_enabled: false,
   });
   const showApiConfigCard = true; // 控制是否显示 API 配置卡片
   const getInitValues = () => ({ ...originInputs });
@@ -584,6 +586,8 @@ const EditChannelModal = (props) => {
           data.system_prompt = parsedSettings.system_prompt || '';
           data.system_prompt_override =
             parsedSettings.system_prompt_override || false;
+          data.content_moderation_enabled =
+            parsedSettings.content_moderation_enabled || false;
         } catch (error) {
           console.error('解析渠道设置失败:', error);
           data.force_format = false;
@@ -592,6 +596,7 @@ const EditChannelModal = (props) => {
           data.pass_through_body_enabled = false;
           data.system_prompt = '';
           data.system_prompt_override = false;
+          data.content_moderation_enabled = false;
         }
       } else {
         data.force_format = false;
@@ -600,6 +605,7 @@ const EditChannelModal = (props) => {
         data.pass_through_body_enabled = false;
         data.system_prompt = '';
         data.system_prompt_override = false;
+        data.content_moderation_enabled = false;
       }
 
       if (data.settings) {
@@ -1301,6 +1307,7 @@ const EditChannelModal = (props) => {
       pass_through_body_enabled: localInputs.pass_through_body_enabled || false,
       system_prompt: localInputs.system_prompt || '',
       system_prompt_override: localInputs.system_prompt_override || false,
+      content_moderation_enabled: localInputs.content_moderation_enabled || false,
     };
     localInputs.setting = JSON.stringify(channelExtraSettings);
 
@@ -1352,6 +1359,7 @@ const EditChannelModal = (props) => {
     delete localInputs.pass_through_body_enabled;
     delete localInputs.system_prompt;
     delete localInputs.system_prompt_override;
+    delete localInputs.content_moderation_enabled;
     delete localInputs.is_enterprise_account;
     // 顶层的 vertex_key_type 不应发送给后端
     delete localInputs.vertex_key_type;
@@ -3272,6 +3280,22 @@ const EditChannelModal = (props) => {
                       }
                       extraText={t(
                         '如果用户请求中包含系统提示词，则使用此设置拼接到用户的系统提示词前面',
+                      )}
+                    />
+
+                    <Form.Switch
+                      field='content_moderation_enabled'
+                      label={t('内容审核')}
+                      checkedText={t('开')}
+                      uncheckedText={t('关')}
+                      onChange={(value) =>
+                        handleChannelSettingsChange(
+                          'content_moderation_enabled',
+                          value,
+                        )
+                      }
+                      extraText={t(
+                        '启用后将使用当前渠道密钥调用 OpenAI Moderation API 审核请求内容，如内容违规将返回 403 错误',
                       )}
                     />
                   </Card>

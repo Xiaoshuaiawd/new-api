@@ -1830,6 +1830,8 @@
     "系统提示覆盖": "System prompt override",
     "系统提示词": "System Prompt",
     "系统提示词拼接": "System prompt append",
+    "内容审核": "Content Moderation",
+    "启用后将使用当前渠道密钥调用 OpenAI Moderation API 审核请求内容，如内容违规将返回 403 错误": "When enabled, the channel's API key will be used to call OpenAI Moderation API to review request content. If content violates policies, a 403 error will be returned",
     "系统数据统计": "System data statistics",
     "系统文档和帮助信息": "System documentation and help information",
     "系统消息": "System message",
