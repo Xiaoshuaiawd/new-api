@@ -139,15 +139,10 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 
 	finalOutput := buildMergedOutputs(outputFromCompleted, outputByIndex, outputNoIndex)
 
-	if completedResponseRaw != "" && len(finalOutput) > 0 {
-		if mergedOutputJSON, err := common.Marshal(finalOutput); err == nil {
-			if updated, err := sjson.SetRaw(completedResponseRaw, "output", string(mergedOutputJSON)); err == nil {
-				completedResponseRaw = updated
-			}
-		}
-	}
-
 	if completedResponseRaw != "" {
+		if updated, err := sjson.Set(completedResponseRaw, "billing.payer", "developer"); err == nil {
+			completedResponseRaw = updated
+		}
 		c.Writer.Header().Set("Content-Type", "application/json")
 		c.Writer.WriteHeader(resp.StatusCode)
 		_, _ = c.Writer.Write([]byte(completedResponseRaw))
@@ -194,6 +189,9 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	jsonData, err := common.Marshal(finalResponse)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+	}
+	if updated, err := sjson.Set(string(jsonData), "billing.payer", "developer"); err == nil {
+		jsonData = []byte(updated)
 	}
 
 	c.Writer.Header().Set("Content-Type", "application/json")
