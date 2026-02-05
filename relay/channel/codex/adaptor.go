@@ -14,6 +14,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/google/uuid"
 
 	"github.com/gin-gonic/gin"
 )
@@ -94,6 +95,33 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	// Keep it consistent with Codex CLI behavior by defaulting to an empty string.
 	if len(request.Instructions) == 0 {
 		request.Instructions = json.RawMessage(`""`)
+	}
+
+	// Codex requires prompt_cache_key to be present. Generate one when missing.
+	if len(request.PromptCacheKey) == 0 {
+		if b, err := common.Marshal(uuid.New().String()); err == nil {
+			request.PromptCacheKey = b
+		} else {
+			return nil, err
+		}
+	}
+
+	// If tools are missing, remove tool_choice/parallel_tool_calls.
+	// If tools exist and these fields are missing, add defaults.
+	if len(request.Tools) == 0 {
+		request.ToolChoice = nil
+		request.ParallelToolCalls = nil
+	} else {
+		if len(request.ToolChoice) == 0 {
+			if b, err := common.Marshal("auto"); err == nil {
+				request.ToolChoice = b
+			} else {
+				return nil, err
+			}
+		}
+		if len(request.ParallelToolCalls) == 0 {
+			request.ParallelToolCalls = json.RawMessage("false")
+		}
 	}
 
 	if isCompact {
