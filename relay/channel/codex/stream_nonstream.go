@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 
 	"github.com/gin-gonic/gin"
 )
@@ -136,17 +137,14 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
-	finalOutput := outputFromCompleted
-	if len(finalOutput) == 0 && (len(outputByIndex) > 0 || len(outputNoIndex) > 0) {
-		indices := make([]int, 0, len(outputByIndex))
-		for idx := range outputByIndex {
-			indices = append(indices, idx)
+	finalOutput := buildMergedOutputs(outputFromCompleted, outputByIndex, outputNoIndex)
+
+	if completedResponseRaw != "" && len(finalOutput) > 0 {
+		if mergedOutputJSON, err := common.Marshal(finalOutput); err == nil {
+			if updated, err := sjson.SetRaw(completedResponseRaw, "output", string(mergedOutputJSON)); err == nil {
+				completedResponseRaw = updated
+			}
 		}
-		sort.Ints(indices)
-		for _, idx := range indices {
-			finalOutput = append(finalOutput, outputByIndex[idx])
-		}
-		finalOutput = append(finalOutput, outputNoIndex...)
 	}
 
 	if completedResponseRaw != "" {
@@ -166,7 +164,7 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 			Model:     info.UpstreamModelName,
 		}
 	}
-	if len(finalResponse.Output) == 0 && len(finalOutput) > 0 {
+	if len(finalOutput) > 0 {
 		finalResponse.Output = finalOutput
 	} else if len(finalResponse.Output) == 0 && outputText.Len() > 0 {
 		role := "assistant"
@@ -203,6 +201,47 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	_, _ = c.Writer.Write(jsonData)
 
 	return finalizeCodexUsage(c, info, usage, &outputText, finalResponse, finalOutput)
+}
+
+func buildMergedOutputs(outputFromCompleted []dto.ResponsesOutput, outputByIndex map[int]dto.ResponsesOutput, outputNoIndex []dto.ResponsesOutput) []dto.ResponsesOutput {
+	if len(outputFromCompleted) == 0 {
+		if len(outputByIndex) == 0 {
+			return append([]dto.ResponsesOutput{}, outputNoIndex...)
+		}
+		indices := make([]int, 0, len(outputByIndex))
+		for idx := range outputByIndex {
+			indices = append(indices, idx)
+		}
+		sort.Ints(indices)
+		outputs := make([]dto.ResponsesOutput, 0, len(indices)+len(outputNoIndex))
+		for _, idx := range indices {
+			outputs = append(outputs, outputByIndex[idx])
+		}
+		return append(outputs, outputNoIndex...)
+	}
+
+	outputs := make([]dto.ResponsesOutput, 0, len(outputFromCompleted)+len(outputNoIndex))
+	if len(outputByIndex) == 0 {
+		outputs = append(outputs, outputFromCompleted...)
+		return append(outputs, outputNoIndex...)
+	}
+
+	maxIndex := len(outputFromCompleted) - 1
+	for idx := range outputByIndex {
+		if idx > maxIndex {
+			maxIndex = idx
+		}
+	}
+	for i := 0; i <= maxIndex; i++ {
+		if item, ok := outputByIndex[i]; ok {
+			outputs = append(outputs, item)
+			continue
+		}
+		if i < len(outputFromCompleted) {
+			outputs = append(outputs, outputFromCompleted[i])
+		}
+	}
+	return append(outputs, outputNoIndex...)
 }
 
 func finalizeCodexUsage(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage, outputText *strings.Builder, response *dto.OpenAIResponsesResponse, outputs []dto.ResponsesOutput) (*dto.Usage, *types.NewAPIError) {
