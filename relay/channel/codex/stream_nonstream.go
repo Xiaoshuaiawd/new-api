@@ -140,9 +140,7 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	finalOutput := buildMergedOutputs(outputFromCompleted, outputByIndex, outputNoIndex)
 
 	if completedResponseRaw != "" {
-		if updated, err := sjson.Set(completedResponseRaw, "billing.payer", "developer"); err == nil {
-			completedResponseRaw = updated
-		}
+		completedResponseRaw = forceBillingDeveloper(completedResponseRaw)
 		c.Writer.Header().Set("Content-Type", "application/json")
 		c.Writer.WriteHeader(resp.StatusCode)
 		_, _ = c.Writer.Write([]byte(completedResponseRaw))
@@ -190,9 +188,7 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 	}
-	if updated, err := sjson.Set(string(jsonData), "billing.payer", "developer"); err == nil {
-		jsonData = []byte(updated)
-	}
+	jsonData = []byte(forceBillingDeveloper(string(jsonData)))
 
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
@@ -240,6 +236,164 @@ func buildMergedOutputs(outputFromCompleted []dto.ResponsesOutput, outputByIndex
 		}
 	}
 	return append(outputs, outputNoIndex...)
+}
+
+func forceBillingDeveloper(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	if cleaned, err := sjson.Delete(raw, "billing"); err == nil {
+		raw = cleaned
+	}
+	inserted := insertFieldAfterKey(raw, "background", `"billing":{"payer":"developer"}`)
+	if inserted != "" {
+		return inserted
+	}
+	if updated, err := sjson.Set(raw, "billing.payer", "developer"); err == nil {
+		return updated
+	}
+	return raw
+}
+
+func insertFieldAfterKey(raw string, key string, field string) string {
+	if raw == "" || key == "" || field == "" {
+		return ""
+	}
+	needle := `"` + key + `"`
+	idx := strings.Index(raw, needle)
+	if idx == -1 {
+		return ""
+	}
+	colon := strings.Index(raw[idx+len(needle):], ":")
+	if colon == -1 {
+		return ""
+	}
+	valStart := idx + len(needle) + colon + 1
+	valStart = skipSpaces(raw, valStart)
+	end := findJSONValueEnd(raw, valStart)
+	if end == -1 {
+		return ""
+	}
+	return raw[:end] + "," + field + raw[end:]
+}
+
+func skipSpaces(s string, i int) int {
+	for i < len(s) {
+		switch s[i] {
+		case ' ', '\n', '\r', '\t':
+			i++
+		default:
+			return i
+		}
+	}
+	return i
+}
+
+func findJSONValueEnd(s string, i int) int {
+	if i >= len(s) {
+		return -1
+	}
+	switch s[i] {
+	case '"':
+		return findJSONStringEnd(s, i)
+	case '{', '[':
+		return findJSONCompoundEnd(s, i)
+	case 't':
+		if strings.HasPrefix(s[i:], "true") {
+			return i + 4
+		}
+	case 'f':
+		if strings.HasPrefix(s[i:], "false") {
+			return i + 5
+		}
+	case 'n':
+		if strings.HasPrefix(s[i:], "null") {
+			return i + 4
+		}
+	default:
+		return findJSONNumberEnd(s, i)
+	}
+	return -1
+}
+
+func findJSONStringEnd(s string, i int) int {
+	if i >= len(s) || s[i] != '"' {
+		return -1
+	}
+	escaped := false
+	for j := i + 1; j < len(s); j++ {
+		switch s[j] {
+		case '\\':
+			escaped = !escaped
+		case '"':
+			if !escaped {
+				return j + 1
+			}
+			escaped = false
+		default:
+			escaped = false
+		}
+	}
+	return -1
+}
+
+func findJSONCompoundEnd(s string, i int) int {
+	if i >= len(s) {
+		return -1
+	}
+	stack := []byte{s[i]}
+	inString := false
+	escaped := false
+	for j := i + 1; j < len(s); j++ {
+		ch := s[j]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{', '[':
+			stack = append(stack, ch)
+		case '}', ']':
+			if len(stack) == 0 {
+				return -1
+			}
+			stack = stack[:len(stack)-1]
+			if len(stack) == 0 {
+				return j + 1
+			}
+		}
+	}
+	return -1
+}
+
+func findJSONNumberEnd(s string, i int) int {
+	j := i
+	for j < len(s) {
+		switch s[j] {
+		case '+', '-', '.', 'e', 'E':
+			j++
+		default:
+			if s[j] >= '0' && s[j] <= '9' {
+				j++
+				continue
+			}
+			return j
+		}
+	}
+	return j
 }
 
 func finalizeCodexUsage(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage, outputText *strings.Builder, response *dto.OpenAIResponsesResponse, outputs []dto.ResponsesOutput) (*dto.Usage, *types.NewAPIError) {
