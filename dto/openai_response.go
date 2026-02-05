@@ -37,13 +37,15 @@ type OpenAITextResponseChoice struct {
 }
 
 type OpenAITextResponse struct {
-	Id      string                     `json:"id"`
-	Model   string                     `json:"model"`
-	Object  string                     `json:"object"`
-	Created any                        `json:"created"`
-	Choices []OpenAITextResponseChoice `json:"choices"`
-	Error   any                        `json:"error,omitempty"`
-	Usage   `json:"usage"`
+	Id                string                     `json:"id"`
+	Model             string                     `json:"model"`
+	Object            string                     `json:"object"`
+	Created           any                        `json:"created"`
+	Choices           []OpenAITextResponseChoice `json:"choices"`
+	Error             any                        `json:"error,omitempty"`
+	Usage             `json:"usage"`
+	ServiceTier       string  `json:"service_tier,omitempty"`
+	SystemFingerprint *string `json:"system_fingerprint"`
 }
 
 // GetOpenAIError 从动态错误类型中提取OpenAIError结构
@@ -89,6 +91,7 @@ type ChatCompletionsStreamResponseChoiceDelta struct {
 	ReasoningContent *string            `json:"reasoning_content,omitempty"`
 	Reasoning        *string            `json:"reasoning,omitempty"`
 	Role             string             `json:"role,omitempty"`
+	Refusal          json.RawMessage    `json:"refusal,omitempty"`
 	ToolCalls        []ToolCallResponse `json:"tool_calls,omitempty"`
 }
 
@@ -144,8 +147,10 @@ type ChatCompletionsStreamResponse struct {
 	Created           int64                                 `json:"created"`
 	Model             string                                `json:"model"`
 	SystemFingerprint *string                               `json:"system_fingerprint"`
+	ServiceTier       string                                `json:"service_tier,omitempty"`
 	Choices           []ChatCompletionsStreamResponseChoice `json:"choices"`
 	Usage             *Usage                                `json:"usage"`
+	Obfuscation       string                                `json:"obfuscation,omitempty"`
 }
 
 func (c *ChatCompletionsStreamResponse) IsFinished() bool {
@@ -191,8 +196,10 @@ func (c *ChatCompletionsStreamResponse) Copy() *ChatCompletionsStreamResponse {
 		Created:           c.Created,
 		Model:             c.Model,
 		SystemFingerprint: c.SystemFingerprint,
+		ServiceTier:       c.ServiceTier,
 		Choices:           choices,
 		Usage:             c.Usage,
+		Obfuscation:       c.Obfuscation,
 	}
 }
 
@@ -258,9 +265,11 @@ type InputTokenDetails struct {
 }
 
 type OutputTokenDetails struct {
-	TextTokens      int `json:"text_tokens"`
-	AudioTokens     int `json:"audio_tokens"`
-	ReasoningTokens int `json:"reasoning_tokens"`
+	TextTokens               int `json:"text_tokens"`
+	AudioTokens              int `json:"audio_tokens"`
+	ReasoningTokens          int `json:"reasoning_tokens"`
+	AcceptedPredictionTokens int `json:"accepted_prediction_tokens"`
+	RejectedPredictionTokens int `json:"rejected_prediction_tokens"`
 }
 
 type OpenAIResponsesResponse struct {
@@ -284,6 +293,7 @@ type OpenAIResponsesResponse struct {
 	TopP               float64            `json:"top_p"`
 	Truncation         string             `json:"truncation"`
 	Usage              *Usage             `json:"usage"`
+	ServiceTier        string             `json:"service_tier,omitempty"`
 	User               json.RawMessage    `json:"user"`
 	Metadata           json.RawMessage    `json:"metadata"`
 }
@@ -374,10 +384,11 @@ const (
 
 // ResponsesStreamResponse 用于处理 /v1/responses 流式响应
 type ResponsesStreamResponse struct {
-	Type     string                   `json:"type"`
-	Response *OpenAIResponsesResponse `json:"response,omitempty"`
-	Delta    string                   `json:"delta,omitempty"`
-	Item     *ResponsesOutput         `json:"item,omitempty"`
+	Type        string                   `json:"type"`
+	Response    *OpenAIResponsesResponse `json:"response,omitempty"`
+	Delta       string                   `json:"delta,omitempty"`
+	Item        *ResponsesOutput         `json:"item,omitempty"`
+	Obfuscation string                   `json:"obfuscation,omitempty"`
 	// - response.function_call_arguments.delta
 	// - response.function_call_arguments.done
 	OutputIndex  *int                           `json:"output_index,omitempty"`

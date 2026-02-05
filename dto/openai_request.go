@@ -296,6 +296,8 @@ type Message struct {
 	Prefix           *bool           `json:"prefix,omitempty"`
 	ReasoningContent string          `json:"reasoning_content,omitempty"`
 	Reasoning        string          `json:"reasoning,omitempty"`
+	Refusal          json.RawMessage `json:"refusal,omitempty"`
+	Annotations      json.RawMessage `json:"annotations,omitempty"`
 	ToolCalls        json.RawMessage `json:"tool_calls,omitempty"`
 	ToolCallId       string          `json:"tool_call_id,omitempty"`
 	parsedContent    []MediaContent

@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -90,6 +91,8 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	responseId := helper.GetResponseID(c)
 	createAt := time.Now().Unix()
 	model := info.UpstreamModelName
+	serviceTier := ""
+	lastObfuscation := ""
 
 	var (
 		usage       = &dto.Usage{}
@@ -108,11 +111,21 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	toolCallCanonicalIDByItemID := make(map[string]string)
 	//reasoningSummaryTextByKey := make(map[string]string)
 
-	sendStartIfNeeded := func() bool {
+	sendStartIfNeeded := func(obfuscation string) bool {
 		if sentStart {
 			return true
 		}
-		if err := helper.ObjectData(c, helper.GenerateStartEmptyResponse(responseId, createAt, model, nil)); err != nil {
+		start := helper.GenerateStartEmptyResponse(responseId, createAt, model, nil)
+		if serviceTier != "" {
+			start.ServiceTier = serviceTier
+		}
+		if obfuscation != "" {
+			start.Obfuscation = obfuscation
+		}
+		if len(start.Choices) > 0 {
+			start.Choices[0].Delta.Refusal = json.RawMessage("null")
+		}
+		if err := helper.ObjectData(c, start); err != nil {
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			return false
 		}
@@ -150,20 +163,22 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	//	return true
 	//}
 
-	sendReasoningSummaryDelta := func(delta string) bool {
+	sendReasoningSummaryDelta := func(delta string, obfuscation string) bool {
 		if delta == "" {
 			return true
 		}
-		if !sendStartIfNeeded() {
+		if !sendStartIfNeeded(obfuscation) {
 			return false
 		}
 
 		usageText.WriteString(delta)
 		chunk := &dto.ChatCompletionsStreamResponse{
-			Id:      responseId,
-			Object:  "chat.completion.chunk",
-			Created: createAt,
-			Model:   model,
+			Id:          responseId,
+			Object:      "chat.completion.chunk",
+			Created:     createAt,
+			Model:       model,
+			ServiceTier: serviceTier,
+			Obfuscation: obfuscation,
 			Choices: []dto.ChatCompletionsStreamResponseChoice{
 				{
 					Index: 0,
@@ -180,7 +195,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return true
 	}
 
-	sendToolCallDelta := func(callID string, name string, argsDelta string) bool {
+	sendToolCallDelta := func(callID string, name string, argsDelta string, obfuscation string) bool {
 		if callID == "" {
 			return true
 		}
@@ -188,7 +203,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			// Prefer streaming assistant text over tool calls to match non-stream behavior.
 			return true
 		}
-		if !sendStartIfNeeded() {
+		if !sendStartIfNeeded(obfuscation) {
 			return false
 		}
 
@@ -218,10 +233,12 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 
 		chunk := &dto.ChatCompletionsStreamResponse{
-			Id:      responseId,
-			Object:  "chat.completion.chunk",
-			Created: createAt,
-			Model:   model,
+			Id:          responseId,
+			Object:      "chat.completion.chunk",
+			Created:     createAt,
+			Model:       model,
+			ServiceTier: serviceTier,
+			Obfuscation: obfuscation,
 			Choices: []dto.ChatCompletionsStreamResponseChoice{
 				{
 					Index: 0,
@@ -267,6 +284,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				if streamResp.Response.CreatedAt != 0 {
 					createAt = int64(streamResp.Response.CreatedAt)
 				}
+				if streamResp.Response.ServiceTier != "" {
+					serviceTier = streamResp.Response.ServiceTier
+				}
 			}
 
 		//case "response.reasoning_text.delta":
@@ -277,7 +297,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		//case "response.reasoning_text.done":
 
 		case "response.reasoning_summary_text.delta":
-			if !sendReasoningSummaryDelta(streamResp.Delta) {
+			if streamResp.Obfuscation != "" {
+				lastObfuscation = streamResp.Obfuscation
+			}
+			if !sendReasoningSummaryDelta(streamResp.Delta, streamResp.Obfuscation) {
 				return false
 			}
 
@@ -301,7 +324,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		//	}
 
 		case "response.output_text.delta":
-			if !sendStartIfNeeded() {
+			if streamResp.Obfuscation != "" {
+				lastObfuscation = streamResp.Obfuscation
+			}
+			if !sendStartIfNeeded(streamResp.Obfuscation) {
 				return false
 			}
 
@@ -310,10 +336,12 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				usageText.WriteString(streamResp.Delta)
 				delta := streamResp.Delta
 				chunk := &dto.ChatCompletionsStreamResponse{
-					Id:      responseId,
-					Object:  "chat.completion.chunk",
-					Created: createAt,
-					Model:   model,
+					Id:          responseId,
+					Object:      "chat.completion.chunk",
+					Created:     createAt,
+					Model:       model,
+					ServiceTier: serviceTier,
+					Obfuscation: streamResp.Obfuscation,
 					Choices: []dto.ChatCompletionsStreamResponseChoice{
 						{
 							Index: 0,
@@ -362,7 +390,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				toolCallArgsByID[callID] = newArgs
 			}
 
-			if !sendToolCallDelta(callID, name, argsDelta) {
+			if !sendToolCallDelta(callID, name, argsDelta, streamResp.Obfuscation) {
 				return false
 			}
 
@@ -376,7 +404,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				break
 			}
 			toolCallArgsByID[callID] += streamResp.Delta
-			if !sendToolCallDelta(callID, "", streamResp.Delta) {
+			if !sendToolCallDelta(callID, "", streamResp.Delta, streamResp.Obfuscation) {
 				return false
 			}
 
@@ -389,6 +417,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				}
 				if streamResp.Response.CreatedAt != 0 {
 					createAt = int64(streamResp.Response.CreatedAt)
+				}
+				if streamResp.Response.ServiceTier != "" {
+					serviceTier = streamResp.Response.ServiceTier
 				}
 				if streamResp.Response.Usage != nil {
 					if streamResp.Response.Usage.InputTokens != 0 {
@@ -415,7 +446,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				}
 			}
 
-			if !sendStartIfNeeded() {
+			if !sendStartIfNeeded(lastObfuscation) {
 				return false
 			}
 			if !sentStop {
@@ -424,6 +455,12 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 					finishReason = "tool_calls"
 				}
 				stop := helper.GenerateStopResponse(responseId, createAt, model, finishReason)
+				if serviceTier != "" {
+					stop.ServiceTier = serviceTier
+				}
+				if lastObfuscation != "" {
+					stop.Obfuscation = lastObfuscation
+				}
 				if err := helper.ObjectData(c, stop); err != nil {
 					streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 					return false
@@ -456,7 +493,17 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	}
 
 	if !sentStart {
-		if err := helper.ObjectData(c, helper.GenerateStartEmptyResponse(responseId, createAt, model, nil)); err != nil {
+		start := helper.GenerateStartEmptyResponse(responseId, createAt, model, nil)
+		if serviceTier != "" {
+			start.ServiceTier = serviceTier
+		}
+		if lastObfuscation != "" {
+			start.Obfuscation = lastObfuscation
+		}
+		if len(start.Choices) > 0 {
+			start.Choices[0].Delta.Refusal = json.RawMessage("null")
+		}
+		if err := helper.ObjectData(c, start); err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
 	}
@@ -466,12 +513,25 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			finishReason = "tool_calls"
 		}
 		stop := helper.GenerateStopResponse(responseId, createAt, model, finishReason)
+		if serviceTier != "" {
+			stop.ServiceTier = serviceTier
+		}
+		if lastObfuscation != "" {
+			stop.Obfuscation = lastObfuscation
+		}
 		if err := helper.ObjectData(c, stop); err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
 	}
 	if info.ShouldIncludeUsage && usage != nil {
-		if err := helper.ObjectData(c, helper.GenerateFinalUsageResponse(responseId, createAt, model, *usage)); err != nil {
+		finalUsage := helper.GenerateFinalUsageResponse(responseId, createAt, model, *usage)
+		if serviceTier != "" {
+			finalUsage.ServiceTier = serviceTier
+		}
+		if lastObfuscation != "" {
+			finalUsage.Obfuscation = lastObfuscation
+		}
+		if err := helper.ObjectData(c, finalUsage); err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
 	}
