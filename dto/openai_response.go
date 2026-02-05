@@ -38,14 +38,14 @@ type OpenAITextResponseChoice struct {
 
 type OpenAITextResponse struct {
 	Id                string                     `json:"id"`
-	Model             string                     `json:"model"`
 	Object            string                     `json:"object"`
 	Created           any                        `json:"created"`
+	Model             string                     `json:"model"`
 	Choices           []OpenAITextResponseChoice `json:"choices"`
-	Error             any                        `json:"error,omitempty"`
 	Usage             `json:"usage"`
 	ServiceTier       string  `json:"service_tier,omitempty"`
 	SystemFingerprint *string `json:"system_fingerprint"`
+	Error             any     `json:"error,omitempty"`
 }
 
 // GetOpenAIError 从动态错误类型中提取OpenAIError结构
@@ -81,7 +81,7 @@ type FlexibleEmbeddingResponse struct {
 
 type ChatCompletionsStreamResponseChoice struct {
 	Delta        ChatCompletionsStreamResponseChoiceDelta `json:"delta,omitempty"`
-	Logprobs     *any                                     `json:"logprobs"`
+	Logprobs     *any                                     `json:"logprobs,omitempty"`
 	FinishReason *string                                  `json:"finish_reason"`
 	Index        int                                      `json:"index"`
 }
@@ -151,6 +151,67 @@ type ChatCompletionsStreamResponse struct {
 	Choices           []ChatCompletionsStreamResponseChoice `json:"choices"`
 	Usage             *Usage                                `json:"usage"`
 	Obfuscation       string                                `json:"obfuscation,omitempty"`
+}
+
+func (c *ChatCompletionsStreamResponse) MarshalJSON() ([]byte, error) {
+	type deltaOut struct {
+		Role             string             `json:"role,omitempty"`
+		Content          *string            `json:"content,omitempty"`
+		ReasoningContent *string            `json:"reasoning_content,omitempty"`
+		Reasoning        *string            `json:"reasoning,omitempty"`
+		Refusal          json.RawMessage    `json:"refusal,omitempty"`
+		ToolCalls        []ToolCallResponse `json:"tool_calls,omitempty"`
+	}
+	type choiceOut struct {
+		Index        int      `json:"index"`
+		Delta        deltaOut `json:"delta,omitempty"`
+		FinishReason *string  `json:"finish_reason"`
+	}
+	type streamOut struct {
+		Id                string      `json:"id"`
+		Object            string      `json:"object"`
+		Created           int64       `json:"created"`
+		Model             string      `json:"model"`
+		ServiceTier       string      `json:"service_tier,omitempty"`
+		SystemFingerprint *string     `json:"system_fingerprint"`
+		Choices           []choiceOut `json:"choices"`
+		Usage             *Usage      `json:"usage,omitempty"`
+		Obfuscation       string      `json:"obfuscation,omitempty"`
+	}
+
+	out := streamOut{
+		Id:                c.Id,
+		Object:            c.Object,
+		Created:           c.Created,
+		Model:             c.Model,
+		ServiceTier:       c.ServiceTier,
+		SystemFingerprint: c.SystemFingerprint,
+		Usage:             c.Usage,
+		Obfuscation:       c.Obfuscation,
+	}
+
+	if len(c.Choices) > 0 {
+		out.Choices = make([]choiceOut, 0, len(c.Choices))
+		for _, choice := range c.Choices {
+			delta := deltaOut{
+				Role:             choice.Delta.Role,
+				Content:          choice.Delta.Content,
+				ReasoningContent: choice.Delta.ReasoningContent,
+				Reasoning:        choice.Delta.Reasoning,
+				Refusal:          choice.Delta.Refusal,
+				ToolCalls:        choice.Delta.ToolCalls,
+			}
+			out.Choices = append(out.Choices, choiceOut{
+				Index:        choice.Index,
+				Delta:        delta,
+				FinishReason: choice.FinishReason,
+			})
+		}
+	} else {
+		out.Choices = make([]choiceOut, 0)
+	}
+
+	return json.Marshal(out)
 }
 
 func (c *ChatCompletionsStreamResponse) IsFinished() bool {

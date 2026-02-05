@@ -304,6 +304,36 @@ type Message struct {
 	//parsedStringContent *string
 }
 
+func (m Message) MarshalJSON() ([]byte, error) {
+	type msgOut struct {
+		Role             string          `json:"role"`
+		Content          any             `json:"content"`
+		Refusal          json.RawMessage `json:"refusal,omitempty"`
+		Annotations      json.RawMessage `json:"annotations,omitempty"`
+		ToolCalls        json.RawMessage `json:"tool_calls,omitempty"`
+		ToolCallId       string          `json:"tool_call_id,omitempty"`
+		Name             *string         `json:"name,omitempty"`
+		Prefix           *bool           `json:"prefix,omitempty"`
+		Reasoning        string          `json:"reasoning,omitempty"`
+		ReasoningContent string          `json:"reasoning_content,omitempty"`
+	}
+
+	out := msgOut{
+		Role:             m.Role,
+		Content:          m.Content,
+		Refusal:          m.Refusal,
+		Annotations:      m.Annotations,
+		ToolCalls:        m.ToolCalls,
+		ToolCallId:       m.ToolCallId,
+		Name:             m.Name,
+		Prefix:           m.Prefix,
+		Reasoning:        m.Reasoning,
+		ReasoningContent: m.ReasoningContent,
+	}
+
+	return json.Marshal(out)
+}
+
 type MediaContent struct {
 	Type       string `json:"type"`
 	Text       string `json:"text,omitempty"`
