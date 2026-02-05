@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"io"
@@ -156,7 +157,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	if info.IsStream {
 		return openai.OaiResponsesStreamHandler(c, info, resp)
 	}
-	if resp != nil && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+	if resp != nil && isResponsesStream(resp) {
 		return responsesStreamToNonStreamHandler(c, info, resp)
 	}
 	return openai.OaiResponsesHandler(c, info, resp)
@@ -227,4 +228,26 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	}
 
 	return nil
+}
+
+func isResponsesStream(resp *http.Response) bool {
+	if resp == nil || resp.Body == nil {
+		return false
+	}
+	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
+	if strings.HasPrefix(contentType, "text/event-stream") {
+		return true
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	peek, err := reader.Peek(64)
+	if err == nil || err == io.EOF {
+		trimmed := strings.TrimLeft(string(peek), " \r\n\t")
+		if strings.HasPrefix(trimmed, "event:") || strings.HasPrefix(trimmed, "data:") {
+			resp.Body = io.NopCloser(reader)
+			return true
+		}
+	}
+	resp.Body = io.NopCloser(reader)
+	return false
 }
