@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,12 +10,14 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,6 +49,10 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	defer service.CloseResponseBodyGracefully(resp)
 
+	if isResponsesStream(resp) {
+		return responsesStreamToChatNonStreamHandler(c, info, resp)
+	}
+
 	var responsesResp dto.OpenAIResponsesResponse
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -68,6 +75,122 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	if usage == nil || usage.TotalTokens == 0 {
 		text := service.ExtractOutputTextFromResponses(&responsesResp)
+		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
+		chatResp.Usage = *usage
+	}
+
+	chatBody, err := common.Marshal(chatResp)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+	}
+
+	service.IOCopyBytesGracefully(c, resp, chatBody)
+	return usage, nil
+}
+
+func isResponsesStream(resp *http.Response) bool {
+	if resp == nil || resp.Body == nil {
+		return false
+	}
+	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
+	if strings.HasPrefix(contentType, "text/event-stream") {
+		return true
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	peek, err := reader.Peek(64)
+	if err == nil || err == io.EOF {
+		trimmed := strings.TrimLeft(string(peek), " \r\n\t")
+		if strings.HasPrefix(trimmed, "event:") || strings.HasPrefix(trimmed, "data:") {
+			resp.Body = io.NopCloser(reader)
+			return true
+		}
+	}
+	resp.Body = io.NopCloser(reader)
+	return false
+}
+
+func responsesStreamToChatNonStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	if resp == nil || resp.Body == nil {
+		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+
+	var (
+		usage                = &dto.Usage{}
+		completedResponse    *dto.OpenAIResponsesResponse
+		completedResponseRaw string
+	)
+
+	scanner := bufio.NewScanner(resp.Body)
+	maxBuf := helper.DefaultMaxScannerBufferSize
+	if constant.StreamScannerMaxBufferMB > 0 {
+		maxBuf = constant.StreamScannerMaxBufferMB << 20
+	}
+	scanner.Buffer(make([]byte, helper.InitialScannerBufferSize), maxBuf)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if len(line) < 6 {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") && !strings.HasPrefix(line, "[DONE]") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		data = strings.TrimSuffix(data, "\r")
+		if strings.HasPrefix(data, "[DONE]") {
+			break
+		}
+		if data == "" {
+			continue
+		}
+
+		if info != nil {
+			info.SetFirstResponseTime()
+		}
+
+		var streamResp dto.ResponsesStreamResponse
+		if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
+			logger.LogError(c, "failed to unmarshal responses stream event: "+err.Error())
+			continue
+		}
+
+		if streamResp.Type == "response.completed" && streamResp.Response != nil {
+			completedResponse = streamResp.Response
+			if raw := gjson.Get(data, "response"); raw.Exists() && raw.Type == gjson.JSON {
+				completedResponseRaw = raw.Raw
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil && err != io.EOF {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	if completedResponse == nil && completedResponseRaw == "" {
+		return nil, types.NewOpenAIError(fmt.Errorf("responses stream missing completed event"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	if completedResponse == nil && completedResponseRaw != "" {
+		if err := common.UnmarshalJsonStr(completedResponseRaw, &completedResponse); err != nil {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+	}
+
+	if completedResponse != nil {
+		if oaiError := completedResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+			return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+		}
+	}
+
+	chatId := helper.GetResponseID(c)
+	chatResp, usage, err := service.ResponsesResponseToChatCompletionsResponse(completedResponse, chatId)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	if usage == nil || usage.TotalTokens == 0 {
+		text := service.ExtractOutputTextFromResponses(completedResponse)
 		usage = service.ResponseText2Usage(c, text, info.UpstreamModelName, info.GetEstimatePromptTokens())
 		chatResp.Usage = *usage
 	}
