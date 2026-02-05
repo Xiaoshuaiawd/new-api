@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -16,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
 )
@@ -27,13 +29,15 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	defer service.CloseResponseBodyGracefully(resp)
 
 	var (
-		usage               = &dto.Usage{}
-		outputFromCompleted []dto.ResponsesOutput
-		outputByIndex       = make(map[int]dto.ResponsesOutput)
-		outputNoIndex       = make([]dto.ResponsesOutput, 0)
-		outputText          strings.Builder
-		lastMessageID       string
-		lastMessageRole     string
+		usage                = &dto.Usage{}
+		completedResponse    *dto.OpenAIResponsesResponse
+		completedResponseRaw string
+		outputFromCompleted  []dto.ResponsesOutput
+		outputByIndex        = make(map[int]dto.ResponsesOutput)
+		outputNoIndex        = make([]dto.ResponsesOutput, 0)
+		outputText           strings.Builder
+		lastMessageID        string
+		lastMessageRole      string
 	)
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -71,8 +75,16 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 		}
 
 		switch streamResp.Type {
+		case "response.created", "response.in_progress":
+			if completedResponse == nil && streamResp.Response != nil {
+				completedResponse = streamResp.Response
+			}
 		case "response.completed":
 			if streamResp.Response != nil {
+				completedResponse = streamResp.Response
+				if raw := gjson.Get(data, "response"); raw.Exists() && raw.Type == gjson.JSON {
+					completedResponseRaw = raw.Raw
+				}
 				if oaiError := streamResp.Response.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 					return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 				}
@@ -137,7 +149,26 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 		finalOutput = append(finalOutput, outputNoIndex...)
 	}
 
-	if len(finalOutput) == 0 && outputText.Len() > 0 {
+	if completedResponseRaw != "" {
+		c.Writer.Header().Set("Content-Type", "application/json")
+		c.Writer.WriteHeader(resp.StatusCode)
+		_, _ = c.Writer.Write([]byte(completedResponseRaw))
+		return finalizeCodexUsage(c, info, usage, &outputText, completedResponse, finalOutput)
+	}
+
+	finalResponse := completedResponse
+	if finalResponse == nil {
+		finalResponse = &dto.OpenAIResponsesResponse{
+			ID:        "resp_" + common.GetUUID(),
+			Object:    "response",
+			CreatedAt: int(time.Now().Unix()),
+			Status:    "completed",
+			Model:     info.UpstreamModelName,
+		}
+	}
+	if len(finalResponse.Output) == 0 && len(finalOutput) > 0 {
+		finalResponse.Output = finalOutput
+	} else if len(finalResponse.Output) == 0 && outputText.Len() > 0 {
 		role := "assistant"
 		if lastMessageRole != "" {
 			role = lastMessageRole
@@ -146,7 +177,7 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 		if id == "" {
 			id = "msg_" + common.GetUUID()
 		}
-		finalOutput = []dto.ResponsesOutput{
+		finalResponse.Output = []dto.ResponsesOutput{
 			{
 				Type: "message",
 				ID:   id,
@@ -162,9 +193,7 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 		}
 	}
 
-	finalOutput = filterMessageOutputs(finalOutput)
-
-	jsonData, err := common.Marshal(finalOutput)
+	jsonData, err := common.Marshal(finalResponse)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 	}
@@ -173,9 +202,27 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	c.Writer.WriteHeader(resp.StatusCode)
 	_, _ = c.Writer.Write(jsonData)
 
-	if usage.CompletionTokens == 0 && outputText.Len() > 0 {
-		usage.CompletionTokens = service.CountTextToken(outputText.String(), info.UpstreamModelName)
+	return finalizeCodexUsage(c, info, usage, &outputText, finalResponse, finalOutput)
+}
+
+func finalizeCodexUsage(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.Usage, outputText *strings.Builder, response *dto.OpenAIResponsesResponse, outputs []dto.ResponsesOutput) (*dto.Usage, *types.NewAPIError) {
+	if usage.CompletionTokens == 0 {
+		if outputText != nil && outputText.Len() > 0 {
+			usage.CompletionTokens = service.CountTextToken(outputText.String(), info.UpstreamModelName)
+		} else if response != nil {
+			text := service.ExtractOutputTextFromResponses(response)
+			if text != "" {
+				usage.CompletionTokens = service.CountTextToken(text, info.UpstreamModelName)
+			}
+		} else if len(outputs) > 0 {
+			tmpResp := &dto.OpenAIResponsesResponse{Output: outputs}
+			text := service.ExtractOutputTextFromResponses(tmpResp)
+			if text != "" {
+				usage.CompletionTokens = service.CountTextToken(text, info.UpstreamModelName)
+			}
+		}
 	}
+
 	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
 		usage.PromptTokens = info.GetEstimatePromptTokens()
 	}
@@ -184,20 +231,4 @@ func responsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayIn
 	}
 
 	return usage, nil
-}
-
-func filterMessageOutputs(outputs []dto.ResponsesOutput) []dto.ResponsesOutput {
-	if len(outputs) == 0 {
-		return outputs
-	}
-	messages := make([]dto.ResponsesOutput, 0, len(outputs))
-	for _, item := range outputs {
-		if item.Type == "message" {
-			messages = append(messages, item)
-		}
-	}
-	if len(messages) > 0 {
-		return messages
-	}
-	return outputs
 }
