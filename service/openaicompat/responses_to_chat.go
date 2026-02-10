@@ -1,6 +1,7 @@
 package openaicompat
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -75,6 +76,8 @@ func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesRespons
 		Role:    "assistant",
 		Content: text,
 	}
+	msg.Refusal = json.RawMessage("null")
+	msg.Annotations = json.RawMessage("[]")
 	if len(toolCalls) > 0 {
 		msg.SetToolCalls(toolCalls)
 		msg.Content = ""
@@ -93,6 +96,9 @@ func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesRespons
 			},
 		},
 		Usage: *usage,
+	}
+	if resp.ServiceTier != "" {
+		out.ServiceTier = resp.ServiceTier
 	}
 
 	return out, usage, nil

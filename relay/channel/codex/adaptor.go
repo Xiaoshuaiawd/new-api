@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +15,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/google/uuid"
 
 	"github.com/gin-gonic/gin"
 )
@@ -96,6 +98,38 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 		request.Instructions = json.RawMessage(`""`)
 	}
 
+	// Codex requires prompt_cache_key to be present. Generate one when missing.
+	if len(request.PromptCacheKey) == 0 {
+		if b, err := common.Marshal(uuid.New().String()); err == nil {
+			request.PromptCacheKey = b
+		} else {
+			return nil, err
+		}
+	}
+
+	// If tools are missing, remove tool_choice/parallel_tool_calls.
+	// If tools exist and these fields are missing, add defaults.
+	if len(request.Tools) == 0 {
+		request.ToolChoice = nil
+		request.ParallelToolCalls = nil
+	} else {
+		if len(request.ToolChoice) == 0 {
+			if b, err := common.Marshal("auto"); err == nil {
+				request.ToolChoice = b
+			} else {
+				return nil, err
+			}
+		}
+		if len(request.ParallelToolCalls) == 0 {
+			request.ParallelToolCalls = json.RawMessage("false")
+		}
+	}
+
+	// Codex upstream only supports streaming responses.
+	if !isCompact {
+		request.Stream = true
+	}
+
 	if isCompact {
 		return request, nil
 	}
@@ -104,6 +138,7 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	// rm max_output_tokens
 	request.MaxOutputTokens = 0
 	request.Temperature = nil
+	request.TopP = nil
 	return request, nil
 }
 
@@ -122,6 +157,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 
 	if info.IsStream {
 		return openai.OaiResponsesStreamHandler(c, info, resp)
+	}
+	if resp != nil && isResponsesStream(resp) {
+		return responsesStreamToNonStreamHandler(c, info, resp)
 	}
 	return openai.OaiResponsesHandler(c, info, resp)
 }
@@ -182,11 +220,35 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	// Clients may omit it or include parameters like `application/json; charset=utf-8`,
 	// which can be rejected by the upstream. Force the exact media type.
 	req.Set("Content-Type", "application/json")
-	if info.IsStream {
+	if info.RelayMode == relayconstant.RelayModeResponses {
+		req.Set("Accept", "text/event-stream")
+	} else if info.IsStream {
 		req.Set("Accept", "text/event-stream")
 	} else if req.Get("Accept") == "" {
 		req.Set("Accept", "application/json")
 	}
 
 	return nil
+}
+
+func isResponsesStream(resp *http.Response) bool {
+	if resp == nil || resp.Body == nil {
+		return false
+	}
+	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
+	if strings.HasPrefix(contentType, "text/event-stream") {
+		return true
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	peek, err := reader.Peek(64)
+	if err == nil || err == io.EOF {
+		trimmed := strings.TrimLeft(string(peek), " \r\n\t")
+		if strings.HasPrefix(trimmed, "event:") || strings.HasPrefix(trimmed, "data:") {
+			resp.Body = io.NopCloser(reader)
+			return true
+		}
+	}
+	resp.Body = io.NopCloser(reader)
+	return false
 }
