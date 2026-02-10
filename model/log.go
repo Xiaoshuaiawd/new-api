@@ -41,6 +41,7 @@ type Log struct {
 	TokenId          int    `json:"token_id" gorm:"default:0;index:idx_logs_token_id"`
 	Group            string `json:"group" gorm:"index:idx_logs_group"`
 	Ip               string `json:"ip" gorm:"index:idx_logs_ip;default:''"`
+	RequestId        string `json:"request_id" gorm:"index"`
 	Other            string `json:"other"`
 	// 价格显示字段 (不存储到数据库，仅用于API返回)
 	InputPriceDisplay   string `json:"input_price_display" gorm:"-"`
@@ -197,144 +198,7 @@ func calculatePriceFields(log *Log) {
 	log.OutputAmountDisplay = fmt.Sprintf("%.6f", outputAmount)
 }
 
-// PricingModelData 定义模型价格数据结构
-type PricingModelData struct {
-	ModelName       string  `json:"model_name"`
-	ModelRatio      float64 `json:"model_ratio"`
-	CompletionRatio float64 `json:"completion_ratio"`
-}
-
-// PricingData 定义完整的pricing数据结构
-type PricingData struct {
-	Data       []PricingModelData `json:"data"`
-	GroupRatio map[string]float64 `json:"group_ratio"`
-}
-
-// 全局缓存变量
-var (
-	pricingCache      *PricingData
-	pricingCacheMutex sync.RWMutex
-	pricingCacheTime  time.Time
-)
-
-// getPricingData 获取pricing数据，带缓存机制
-func getPricingData() (*PricingData, error) {
-	pricingCacheMutex.RLock()
-	// 检查缓存是否有效（5分钟内）
-	if pricingCache != nil && time.Since(pricingCacheTime) < 5*time.Minute {
-		defer pricingCacheMutex.RUnlock()
-		return pricingCache, nil
-	}
-	pricingCacheMutex.RUnlock()
-
-	// 需要更新缓存
-	pricingCacheMutex.Lock()
-	defer pricingCacheMutex.Unlock()
-
-	// 双重检查，防止并发更新
-	if pricingCache != nil && time.Since(pricingCacheTime) < 5*time.Minute {
-		return pricingCache, nil
-	}
-
-	// 获取pricing数据 - 调用model.GetPricing()获取实际的定价数据
-	pricings := GetPricing()
-	var pricingModels []PricingModelData
-
-	// 转换为我们需要的格式
-	for _, pricing := range pricings {
-		pricingModels = append(pricingModels, PricingModelData{
-			ModelName:       pricing.ModelName,
-			ModelRatio:      pricing.ModelRatio,
-			CompletionRatio: pricing.CompletionRatio,
-		})
-	}
-
-	groupRatio := ratio_setting.GetGroupRatioCopy()
-
-	pricingData := &PricingData{
-		Data:       pricingModels,
-		GroupRatio: groupRatio,
-	}
-
-	pricingCache = pricingData
-	pricingCacheTime = time.Now()
-
-	return pricingCache, nil
-}
-
-// findModelRatio 从pricing数据中查找指定模型的倍率信息
-func findModelRatio(pricingData *PricingData, modelName string) (modelRatio float64, completionRatio float64, found bool) {
-	for _, model := range pricingData.Data {
-		if model.ModelName == modelName {
-			return model.ModelRatio, model.CompletionRatio, true
-		}
-	}
-	return 0, 0, false
-}
-
-// calculatePriceFields 计算并设置价格显示字段
-func calculatePriceFields(log *Log) {
-	// 默认倍率
-	var modelRatio float64 = 1.0
-	var completionRatio float64 = 2.0
-	var groupRatio float64 = 1.0
-
-	// 直接从 /api/pricing 获取倍率信息
-	if pricingData, err := getPricingData(); err == nil {
-		// 查找模型倍率
-		if mr, cr, found := findModelRatio(pricingData, log.ModelName); found {
-			modelRatio = mr
-			completionRatio = cr
-		}
-
-		// 获取分组倍率
-		if gr, ok := pricingData.GroupRatio[log.Group]; ok {
-			groupRatio = gr
-		}
-	}
-
-	// 如果从 pricing 获取失败，回退到系统配置
-	if modelRatio == 1.0 {
-		if mr, success, _ := ratio_setting.GetModelRatio(log.ModelName); success {
-			modelRatio = mr
-		}
-	}
-	if completionRatio == 2.0 {
-		if cr := ratio_setting.GetCompletionRatio(log.ModelName); cr > 0 {
-			completionRatio = cr
-		}
-	}
-	if groupRatio == 1.0 {
-		if gr := ratio_setting.GetGroupRatio(log.Group); gr > 0 {
-			groupRatio = gr
-		}
-	}
-
-	// 正确的计算公式：
-	// 输入价格 = 输入倍率(model_ratio) × 2
-	// 输出价格 = 输入价格 × 输出倍率(completion_ratio)
-	// 例如：model_ratio=1.5, completion_ratio=5
-	// 输入价格 = 1.5 × 2 = 3.0 → "$3.000 / 1M"
-	// 输出价格 = 3.0 × 5 = 15.0 → "$15.000 / 1M"
-	inputRatioPrice := modelRatio * 2.0
-	outputRatioPrice := inputRatioPrice * completionRatio
-
-	// 计算输入金额和输出金额
-	promptTokens := float64(log.PromptTokens)
-	completionTokens := float64(log.CompletionTokens)
-
-	// 应用分组倍率到金额计算
-	inputAmount := (promptTokens / 1000000) * inputRatioPrice * groupRatio
-	outputAmount := (completionTokens / 1000000) * outputRatioPrice * groupRatio
-
-	// 格式化显示字符串 - 价格和金额都只返回数值，前端负责格式化显示
-	log.InputPriceDisplay = fmt.Sprintf("%.0f", inputRatioPrice)
-	log.OutputPriceDisplay = fmt.Sprintf("%.0f", outputRatioPrice)
-	log.InputAmountDisplay = fmt.Sprintf("%.6f", inputAmount)
-	log.OutputAmountDisplay = fmt.Sprintf("%.6f", outputAmount)
-}
-
-func formatUserLogs(logs []*Log, startIdx int) {
+func formatUserLogs(logs []*Log) {
 	for i := range logs {
 		logs[i].ChannelName = ""
 		var otherMap map[string]interface{}
@@ -879,7 +743,7 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 		return nil, 0, errors.New("查询日志失败")
 	}
 
-	formatUserLogs(logs, startIdx)
+	formatUserLogs(logs)
 	return logs, total, err
 }
 
@@ -889,7 +753,7 @@ type Stat struct {
 	Tpm   int `json:"tpm"`
 }
 
-func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat) {
+func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int, group string) (stat Stat, err error) {
 	filterType := LogTypeConsume
 	if logType != LogTypeUnknown {
 		filterType = logType
@@ -928,7 +792,9 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	var quotaResult struct {
 		Quota int
 	}
-	quotaQuery.Select("COALESCE(sum(quota),0) as quota").Scan(&quotaResult)
+	if err = quotaQuery.Select("COALESCE(sum(quota),0) as quota").Scan(&quotaResult).Error; err != nil {
+		return stat, err
+	}
 
 	cutoff := time.Now().Add(-60 * time.Second).Unix()
 	rpmTpmQuery := applyFilters(LOG_DB.Table("logs"))
@@ -937,7 +803,9 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 		Rpm int
 		Tpm int
 	}
-	rpmTpmQuery.Select("count(*) as rpm, COALESCE(sum(prompt_tokens) + sum(completion_tokens),0) as tpm").Scan(&rpmTpmResult)
+	if err = rpmTpmQuery.Select("count(*) as rpm, COALESCE(sum(prompt_tokens) + sum(completion_tokens),0) as tpm").Scan(&rpmTpmResult).Error; err != nil {
+		return stat, err
+	}
 
 	stat.Quota = quotaResult.Quota
 	stat.Rpm = rpmTpmResult.Rpm
