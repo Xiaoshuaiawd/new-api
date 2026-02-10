@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -196,7 +197,144 @@ func calculatePriceFields(log *Log) {
 	log.OutputAmountDisplay = fmt.Sprintf("%.6f", outputAmount)
 }
 
-func formatUserLogs(logs []*Log) {
+// PricingModelData 定义模型价格数据结构
+type PricingModelData struct {
+	ModelName       string  `json:"model_name"`
+	ModelRatio      float64 `json:"model_ratio"`
+	CompletionRatio float64 `json:"completion_ratio"`
+}
+
+// PricingData 定义完整的pricing数据结构
+type PricingData struct {
+	Data       []PricingModelData `json:"data"`
+	GroupRatio map[string]float64 `json:"group_ratio"`
+}
+
+// 全局缓存变量
+var (
+	pricingCache      *PricingData
+	pricingCacheMutex sync.RWMutex
+	pricingCacheTime  time.Time
+)
+
+// getPricingData 获取pricing数据，带缓存机制
+func getPricingData() (*PricingData, error) {
+	pricingCacheMutex.RLock()
+	// 检查缓存是否有效（5分钟内）
+	if pricingCache != nil && time.Since(pricingCacheTime) < 5*time.Minute {
+		defer pricingCacheMutex.RUnlock()
+		return pricingCache, nil
+	}
+	pricingCacheMutex.RUnlock()
+
+	// 需要更新缓存
+	pricingCacheMutex.Lock()
+	defer pricingCacheMutex.Unlock()
+
+	// 双重检查，防止并发更新
+	if pricingCache != nil && time.Since(pricingCacheTime) < 5*time.Minute {
+		return pricingCache, nil
+	}
+
+	// 获取pricing数据 - 调用model.GetPricing()获取实际的定价数据
+	pricings := GetPricing()
+	var pricingModels []PricingModelData
+
+	// 转换为我们需要的格式
+	for _, pricing := range pricings {
+		pricingModels = append(pricingModels, PricingModelData{
+			ModelName:       pricing.ModelName,
+			ModelRatio:      pricing.ModelRatio,
+			CompletionRatio: pricing.CompletionRatio,
+		})
+	}
+
+	groupRatio := ratio_setting.GetGroupRatioCopy()
+
+	pricingData := &PricingData{
+		Data:       pricingModels,
+		GroupRatio: groupRatio,
+	}
+
+	pricingCache = pricingData
+	pricingCacheTime = time.Now()
+
+	return pricingCache, nil
+}
+
+// findModelRatio 从pricing数据中查找指定模型的倍率信息
+func findModelRatio(pricingData *PricingData, modelName string) (modelRatio float64, completionRatio float64, found bool) {
+	for _, model := range pricingData.Data {
+		if model.ModelName == modelName {
+			return model.ModelRatio, model.CompletionRatio, true
+		}
+	}
+	return 0, 0, false
+}
+
+// calculatePriceFields 计算并设置价格显示字段
+func calculatePriceFields(log *Log) {
+	// 默认倍率
+	var modelRatio float64 = 1.0
+	var completionRatio float64 = 2.0
+	var groupRatio float64 = 1.0
+
+	// 直接从 /api/pricing 获取倍率信息
+	if pricingData, err := getPricingData(); err == nil {
+		// 查找模型倍率
+		if mr, cr, found := findModelRatio(pricingData, log.ModelName); found {
+			modelRatio = mr
+			completionRatio = cr
+		}
+
+		// 获取分组倍率
+		if gr, ok := pricingData.GroupRatio[log.Group]; ok {
+			groupRatio = gr
+		}
+	}
+
+	// 如果从 pricing 获取失败，回退到系统配置
+	if modelRatio == 1.0 {
+		if mr, success, _ := ratio_setting.GetModelRatio(log.ModelName); success {
+			modelRatio = mr
+		}
+	}
+	if completionRatio == 2.0 {
+		if cr := ratio_setting.GetCompletionRatio(log.ModelName); cr > 0 {
+			completionRatio = cr
+		}
+	}
+	if groupRatio == 1.0 {
+		if gr := ratio_setting.GetGroupRatio(log.Group); gr > 0 {
+			groupRatio = gr
+		}
+	}
+
+	// 正确的计算公式：
+	// 输入价格 = 输入倍率(model_ratio) × 2
+	// 输出价格 = 输入价格 × 输出倍率(completion_ratio)
+	// 例如：model_ratio=1.5, completion_ratio=5
+	// 输入价格 = 1.5 × 2 = 3.0 → "$3.000 / 1M"
+	// 输出价格 = 3.0 × 5 = 15.0 → "$15.000 / 1M"
+	inputRatioPrice := modelRatio * 2.0
+	outputRatioPrice := inputRatioPrice * completionRatio
+
+	// 计算输入金额和输出金额
+	promptTokens := float64(log.PromptTokens)
+	completionTokens := float64(log.CompletionTokens)
+
+	// 应用分组倍率到金额计算
+	inputAmount := (promptTokens / 1000000) * inputRatioPrice * groupRatio
+	outputAmount := (completionTokens / 1000000) * outputRatioPrice * groupRatio
+
+	// 格式化显示字符串 - 价格和金额都只返回数值，前端负责格式化显示
+	log.InputPriceDisplay = fmt.Sprintf("%.0f", inputRatioPrice)
+	log.OutputPriceDisplay = fmt.Sprintf("%.0f", outputRatioPrice)
+	log.InputAmountDisplay = fmt.Sprintf("%.6f", inputAmount)
+	log.OutputAmountDisplay = fmt.Sprintf("%.6f", outputAmount)
+}
+
+func formatUserLogs(logs []*Log, startIdx int) {
 	for i := range logs {
 		logs[i].ChannelName = ""
 		var otherMap map[string]interface{}
@@ -204,7 +342,7 @@ func formatUserLogs(logs []*Log) {
 		if otherMap != nil {
 			// Remove admin-only debug fields.
 			delete(otherMap, "admin_info")
-			delete(otherMap, "request_conversion")
+			delete(otherMap, "reject_reason")
 		}
 		logs[i].Other = common.MapToJsonStr(otherMap)
 		logs[i].Id = logs[i].Id % 1024
@@ -522,6 +660,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	isStream bool, group string, other map[string]interface{}) {
 	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, content))
 	username := c.GetString("username")
+	requestId := c.GetString(common.RequestIdKey)
 	otherStr := common.MapToJsonStr(other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -552,7 +691,8 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 			}
 			return ""
 		}(),
-		Other: otherStr,
+		RequestId: requestId,
+		Other:     otherStr,
 	}
 	err := LOG_DB.Create(log).Error
 	if err != nil {
@@ -581,6 +721,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 	logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
 	username := c.GetString("username")
+	requestId := c.GetString(common.RequestIdKey)
 	otherStr := common.MapToJsonStr(params.Other)
 	// 判断是否需要记录 IP
 	needRecordIp := false
@@ -611,7 +752,8 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 			}
 			return ""
 		}(),
-		Other: otherStr,
+		RequestId: requestId,
+		Other:     otherStr,
 	}
 	err := LOG_DB.Create(log).Error
 	if err != nil {
@@ -624,7 +766,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	}
 }
 
-func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string) (logs []*Log, total int64, err error) {
+func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, startIdx int, num int, channel int, group string, requestId string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	if logType == LogTypeUnknown {
 		tx = LOG_DB
@@ -640,6 +782,9 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	}
 	if tokenName != "" {
 		tx = tx.Where("logs.token_name = ?", tokenName)
+	}
+	if requestId != "" {
+		tx = tx.Where("logs.request_id = ?", requestId)
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("logs.created_at >= ?", startTimestamp)
@@ -689,7 +834,9 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	return logs, total, err
 }
 
-func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string) (logs []*Log, total int64, err error) {
+const logSearchCountLimit = 10000
+
+func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int64, modelName string, tokenName string, startIdx int, num int, group string, requestId string) (logs []*Log, total int64, err error) {
 	var tx *gorm.DB
 	hasTypeFilter := logType != LogTypeUnknown
 	if logType == LogTypeUnknown {
@@ -699,10 +846,17 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	}
 
 	if modelName != "" {
-		tx = tx.Where("logs.model_name like ?", modelName)
+		modelNamePattern, err := sanitizeLikePattern(modelName)
+		if err != nil {
+			return nil, 0, err
+		}
+		tx = tx.Where("logs.model_name LIKE ? ESCAPE '!'", modelNamePattern)
 	}
 	if tokenName != "" {
 		tx = tx.Where("logs.token_name = ?", tokenName)
+	}
+	if requestId != "" {
+		tx = tx.Where("logs.request_id = ?", requestId)
 	}
 	if startTimestamp != 0 {
 		tx = tx.Where("logs.created_at >= ?", startTimestamp)
@@ -716,26 +870,17 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	tx = applyLogRangeIndexHints(tx, startTimestamp, endTimestamp, hasTypeFilter)
 	err = tx.Model(&Log{}).Count(&total).Error
 	if err != nil {
-		return nil, 0, err
+		common.SysError("failed to count user logs: " + err.Error())
+		return nil, 0, errors.New("查询日志失败")
 	}
 	err = tx.Order("logs.created_at desc, logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
 	if err != nil {
-		return nil, 0, err
+		common.SysError("failed to search user logs: " + err.Error())
+		return nil, 0, errors.New("查询日志失败")
 	}
 
-	formatUserLogs(logs)
+	formatUserLogs(logs, startIdx)
 	return logs, total, err
-}
-
-func SearchAllLogs(keyword string) (logs []*Log, err error) {
-	err = LOG_DB.Where("type = ? or content LIKE ?", keyword, keyword+"%").Order("id desc").Limit(common.MaxRecentItems).Find(&logs).Error
-	return logs, err
-}
-
-func SearchUserLogs(userId int, keyword string) (logs []*Log, err error) {
-	err = LOG_DB.Where("user_id = ? and type = ?", userId, keyword).Order("id desc").Limit(common.MaxRecentItems).Find(&logs).Error
-	formatUserLogs(logs)
-	return logs, err
 }
 
 type Stat struct {
@@ -798,7 +943,7 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	stat.Rpm = rpmTpmResult.Rpm
 	stat.Tpm = rpmTpmResult.Tpm
 
-	return stat
+	return stat, nil
 }
 
 func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string) (token int) {
