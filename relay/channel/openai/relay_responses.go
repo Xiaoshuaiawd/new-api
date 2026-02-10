@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -54,6 +55,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 	}
 	if info == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
+		saveResponsesToMES(c, info, &responsesResponse)
 		return &usage, nil
 	}
 	// 解析 Tools 用量
@@ -65,6 +67,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 		buildToolinfo.CallCount++
 	}
+	saveResponsesToMES(c, info, &responsesResponse)
 	return &usage, nil
 }
 
@@ -78,6 +81,12 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
+	responseId := helper.GetResponseID(c)
+	createdAt := time.Now().Unix()
+	model := ""
+	if info != nil {
+		model = info.UpstreamModelName
+	}
 
 	helper.StreamScannerHandler(c, resp, info, func(data string) bool {
 
@@ -88,6 +97,15 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			switch streamResponse.Type {
 			case "response.completed":
 				if streamResponse.Response != nil {
+					if streamResponse.Response.ID != "" {
+						responseId = streamResponse.Response.ID
+					}
+					if streamResponse.Response.CreatedAt != 0 {
+						createdAt = int64(streamResponse.Response.CreatedAt)
+					}
+					if streamResponse.Response.Model != "" {
+						model = streamResponse.Response.Model
+					}
 					if streamResponse.Response.Usage != nil {
 						if streamResponse.Response.Usage.InputTokens != 0 {
 							usage.PromptTokens = streamResponse.Response.Usage.InputTokens
@@ -146,5 +164,36 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 
+	if model == "" && info != nil {
+		model = info.UpstreamModelName
+	}
+	streamResp := helper.BuildStreamTextResponse(responseTextBuilder.String(), usage, responseId, createdAt, model)
+	helper.SaveMESWithTextResponseAsync(c, info, streamResp)
+
 	return usage, nil
+}
+
+func saveResponsesToMES(c *gin.Context, info *relaycommon.RelayInfo, responsesResponse *dto.OpenAIResponsesResponse) {
+	if info == nil || responsesResponse == nil {
+		return
+	}
+
+	responseId := responsesResponse.ID
+	if responseId == "" {
+		responseId = helper.GetResponseID(c)
+	}
+
+	chatResp, _, err := service.ResponsesResponseToChatCompletionsResponse(responsesResponse, responseId)
+	if err != nil || chatResp == nil || len(chatResp.Choices) == 0 {
+		helper.SaveMESWithRawResponseAsync(c, info, responsesResponse)
+		return
+	}
+
+	msg := chatResp.Choices[0].Message
+	if msg.StringContent() == "" && len(msg.ToolCalls) == 0 {
+		helper.SaveMESWithRawResponseAsync(c, info, responsesResponse)
+		return
+	}
+
+	helper.SaveMESWithTextResponseAsync(c, info, chatResp)
 }

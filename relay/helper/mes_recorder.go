@@ -47,6 +47,51 @@ func ConvertOpenAIMessagesToMES(messages []dto.Message) []map[string]interface{}
 	return mesMessages
 }
 
+// ConvertOpenAIResponsesToMES converts an OpenAI Responses request into MES-friendly messages.
+func ConvertOpenAIResponsesToMES(request *dto.OpenAIResponsesRequest) []map[string]interface{} {
+	if request == nil {
+		return nil
+	}
+
+	var mesMessages []map[string]interface{}
+
+	instructions := rawJSONToString(request.Instructions)
+	if strings.TrimSpace(instructions) != "" {
+		mesMessages = append(mesMessages, map[string]interface{}{
+			"role":    "system",
+			"content": instructions,
+		})
+	}
+
+	if request.Input == nil {
+		return mesMessages
+	}
+
+	switch common.GetJsonType(request.Input) {
+	case "string":
+		var inputText string
+		_ = common.Unmarshal(request.Input, &inputText)
+		mesMessages = append(mesMessages, map[string]interface{}{
+			"role":    "user",
+			"content": inputText,
+		})
+	case "array":
+		var items []any
+		if err := common.Unmarshal(request.Input, &items); err == nil {
+			for _, item := range items {
+				appendResponsesInputMessage(item, &mesMessages)
+			}
+		}
+	default:
+		var item any
+		if err := common.Unmarshal(request.Input, &item); err == nil {
+			appendResponsesInputMessage(item, &mesMessages)
+		}
+	}
+
+	return mesMessages
+}
+
 // ConvertClaudeMessagesToMES converts Claude request messages (including system prompt) to MES format.
 func ConvertClaudeMessagesToMES(request *dto.ClaudeRequest) []map[string]interface{} {
 	if request == nil {
@@ -79,6 +124,86 @@ func ConvertClaudeMessagesToMES(request *dto.ClaudeRequest) []map[string]interfa
 	}
 
 	return messages
+}
+
+func appendResponsesInputMessage(item any, mesMessages *[]map[string]interface{}) {
+	switch v := item.(type) {
+	case string:
+		*mesMessages = append(*mesMessages, map[string]interface{}{
+			"role":    "user",
+			"content": v,
+		})
+	case []any:
+		for _, sub := range v {
+			appendResponsesInputMessage(sub, mesMessages)
+		}
+	case map[string]any:
+		role := strings.TrimSpace(common.Interface2String(v["role"]))
+		if role == "" {
+			role = "user"
+		}
+
+		content := stringifyResponsesContent(v["content"])
+		if content == "" {
+			if text, ok := v["text"].(string); ok {
+				content = text
+			}
+		}
+
+		*mesMessages = append(*mesMessages, map[string]interface{}{
+			"role":    role,
+			"content": content,
+		})
+	}
+}
+
+func stringifyResponsesContent(content any) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []any:
+		var sb strings.Builder
+		for _, part := range v {
+			partMap, ok := part.(map[string]any)
+			if !ok {
+				continue
+			}
+			partType := strings.TrimSpace(common.Interface2String(partMap["type"]))
+			switch partType {
+			case "input_text", "text", "output_text":
+				if text, ok := partMap["text"].(string); ok {
+					sb.WriteString(text)
+				}
+			}
+		}
+		return sb.String()
+	case map[string]any:
+		if text, ok := v["text"].(string); ok {
+			return text
+		}
+		if raw, err := common.Marshal(v); err == nil {
+			return string(raw)
+		}
+	case []byte:
+		return rawJSONToString(v)
+	}
+	return ""
+}
+
+func rawJSONToString(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	rawStr := strings.TrimSpace(string(raw))
+	if rawStr == "" || rawStr == "null" {
+		return ""
+	}
+	if common.GetJsonType(raw) == "string" {
+		var out string
+		_ = common.Unmarshal(raw, &out)
+		return out
+	}
+	return rawStr
 }
 
 func extractClaudeContent(system any) string {
@@ -261,6 +386,17 @@ func GetMESMessagesFromContext(c *gin.Context, info *relaycommon.RelayInfo) ([]m
 			return ConvertOpenAIMessagesToMES(reqPtr.Messages), nil
 		}
 		return nil, fmt.Errorf("failed to parse OpenAI request")
+	case *dto.OpenAIResponsesRequest:
+		var req dto.OpenAIResponsesRequest
+		if body != nil {
+			if err := common.Unmarshal(body, &req); err == nil {
+				return ConvertOpenAIResponsesToMES(&req), nil
+			}
+		}
+		if reqPtr, ok := info.Request.(*dto.OpenAIResponsesRequest); ok {
+			return ConvertOpenAIResponsesToMES(reqPtr), nil
+		}
+		return nil, fmt.Errorf("failed to parse OpenAI responses request")
 	case *dto.ClaudeRequest:
 		var req dto.ClaudeRequest
 		if body != nil {
