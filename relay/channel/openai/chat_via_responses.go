@@ -79,12 +79,22 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		chatResp.Usage = *usage
 	}
 
-	chatBody, err := common.Marshal(chatResp)
+	var responseBody []byte
+	switch info.RelayFormat {
+	case types.RelayFormatClaude:
+		claudeResp := service.ResponseOpenAI2Claude(chatResp, info)
+		responseBody, err = common.Marshal(claudeResp)
+	case types.RelayFormatGemini:
+		geminiResp := service.ResponseOpenAI2Gemini(chatResp, info)
+		responseBody, err = common.Marshal(geminiResp)
+	default:
+		responseBody, err = common.Marshal(chatResp)
+	}
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 	}
 
-	service.IOCopyBytesGracefully(c, resp, chatBody)
+	service.IOCopyBytesGracefully(c, resp, responseBody)
 	return usage, nil
 }
 
@@ -232,7 +242,37 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	toolCallArgsByID := make(map[string]string)
 	toolCallNameSent := make(map[string]bool)
 	toolCallCanonicalIDByItemID := make(map[string]string)
+	hasSentReasoningSummary := false
+	needsReasoningSummarySeparator := false
 	//reasoningSummaryTextByKey := make(map[string]string)
+
+	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
+		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
+	}
+
+	sendChatChunk := func(chunk *dto.ChatCompletionsStreamResponse) bool {
+		if chunk == nil {
+			return true
+		}
+		if info.RelayFormat == types.RelayFormatOpenAI {
+			if err := helper.ObjectData(c, chunk); err != nil {
+				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				return false
+			}
+			return true
+		}
+
+		chunkData, err := common.Marshal(chunk)
+		if err != nil {
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
+			return false
+		}
+		if err := HandleStreamFormat(c, info, string(chunkData), false, false); err != nil {
+			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			return false
+		}
+		return true
+	}
 
 	sendStartIfNeeded := func(obfuscation string) bool {
 		if sentStart {
@@ -248,8 +288,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		if len(start.Choices) > 0 {
 			start.Choices[0].Delta.Refusal = json.RawMessage("null")
 		}
-		if err := helper.ObjectData(c, start); err != nil {
-			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		if !sendChatChunk(start) {
 			return false
 		}
 		sentStart = true
@@ -290,6 +329,17 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		if delta == "" {
 			return true
 		}
+		if needsReasoningSummarySeparator {
+			if strings.HasPrefix(delta, "\n\n") {
+				needsReasoningSummarySeparator = false
+			} else if strings.HasPrefix(delta, "\n") {
+				delta = "\n" + delta
+				needsReasoningSummarySeparator = false
+			} else {
+				delta = "\n\n" + delta
+				needsReasoningSummarySeparator = false
+			}
+		}
 		if !sendStartIfNeeded(obfuscation) {
 			return false
 		}
@@ -311,10 +361,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				},
 			},
 		}
-		if err := helper.ObjectData(c, chunk); err != nil {
-			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		if !sendChatChunk(chunk) {
 			return false
 		}
+		hasSentReasoningSummary = true
 		return true
 	}
 
@@ -371,8 +421,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				},
 			},
 		}
-		if err := helper.ObjectData(c, chunk); err != nil {
-			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		if !sendChatChunk(chunk) {
 			return false
 		}
 		sawToolCall = true
@@ -428,6 +477,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			}
 
 		case "response.reasoning_summary_text.done":
+			if hasSentReasoningSummary {
+				needsReasoningSummarySeparator = true
+			}
 
 		//case "response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
 		//	key := responsesStreamIndexKey(strings.TrimSpace(streamResp.ItemID), streamResp.SummaryIndex)
@@ -474,8 +526,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 						},
 					},
 				}
-				if err := helper.ObjectData(c, chunk); err != nil {
-					streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				if !sendChatChunk(chunk) {
 					return false
 				}
 			}
@@ -573,6 +624,9 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				return false
 			}
 			if !sentStop {
+				if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil {
+					info.ClaudeConvertInfo.Usage = usage
+				}
 				finishReason := "stop"
 				if sawToolCall && outputText.Len() == 0 {
 					finishReason = "tool_calls"
@@ -584,8 +638,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				if lastObfuscation != "" {
 					stop.Obfuscation = lastObfuscation
 				}
-				if err := helper.ObjectData(c, stop); err != nil {
-					streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				if !sendChatChunk(stop) {
 					return false
 				}
 				sentStop = true
@@ -616,21 +669,14 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	}
 
 	if !sentStart {
-		start := helper.GenerateStartEmptyResponse(responseId, createAt, model, nil)
-		if serviceTier != "" {
-			start.ServiceTier = serviceTier
-		}
-		if lastObfuscation != "" {
-			start.Obfuscation = lastObfuscation
-		}
-		if len(start.Choices) > 0 {
-			start.Choices[0].Delta.Refusal = json.RawMessage("null")
-		}
-		if err := helper.ObjectData(c, start); err != nil {
-			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		if !sendStartIfNeeded(lastObfuscation) {
+			return nil, streamErr
 		}
 	}
 	if !sentStop {
+		if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil {
+			info.ClaudeConvertInfo.Usage = usage
+		}
 		finishReason := "stop"
 		if sawToolCall && outputText.Len() == 0 {
 			finishReason = "tool_calls"
@@ -642,11 +688,11 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		if lastObfuscation != "" {
 			stop.Obfuscation = lastObfuscation
 		}
-		if err := helper.ObjectData(c, stop); err != nil {
-			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		if !sendChatChunk(stop) {
+			return nil, streamErr
 		}
 	}
-	if info.ShouldIncludeUsage && usage != nil {
+	if info.RelayFormat == types.RelayFormatOpenAI && info.ShouldIncludeUsage && usage != nil {
 		finalUsage := helper.GenerateFinalUsageResponse(responseId, createAt, model, *usage)
 		if serviceTier != "" {
 			finalUsage.ServiceTier = serviceTier
@@ -659,6 +705,8 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 	}
 
-	helper.Done(c)
+	if info.RelayFormat == types.RelayFormatOpenAI {
+		helper.Done(c)
+	}
 	return usage, nil
 }
