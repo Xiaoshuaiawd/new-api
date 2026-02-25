@@ -210,7 +210,10 @@ func responsesStreamToChatNonStreamHandler(c *gin.Context, info *relaycommon.Rel
 		return nil, types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 	}
 
-	service.IOCopyBytesGracefully(c, resp, chatBody)
+	c.Writer.Header().Set("Content-Type", "application/json")
+	c.Writer.WriteHeader(resp.StatusCode)
+	_, _ = c.Writer.Write(chatBody)
+	c.Writer.Flush()
 	return usage, nil
 }
 

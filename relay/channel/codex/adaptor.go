@@ -23,6 +23,87 @@ import (
 type Adaptor struct {
 }
 
+func codexTextTypeByRole(role string) string {
+	if strings.EqualFold(strings.TrimSpace(role), "assistant") {
+		return "output_text"
+	}
+	return "input_text"
+}
+
+func normalizeCodexInput(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return json.RawMessage("[]"), nil
+	}
+
+	var inputAny any
+	if err := common.Unmarshal(raw, &inputAny); err != nil {
+		return nil, err
+	}
+
+	var inputs []any
+	if arr, ok := inputAny.([]any); ok {
+		inputs = arr
+	} else {
+		inputs = []any{inputAny}
+	}
+
+	for i, input := range inputs {
+		item, ok := input.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		role := strings.ToLower(strings.TrimSpace(common.Interface2String(item["role"])))
+		if role == "" {
+			role = "user"
+			item["role"] = role
+		}
+
+		content := item["content"]
+		switch v := content.(type) {
+		case nil:
+			item["content"] = []any{}
+		case string:
+			item["content"] = []any{
+				map[string]any{
+					"type": codexTextTypeByRole(role),
+					"text": v,
+				},
+			}
+		case []any:
+			if role == "assistant" {
+				for idx, partAny := range v {
+					partMap, ok := partAny.(map[string]any)
+					if !ok {
+						continue
+					}
+					partType := strings.TrimSpace(common.Interface2String(partMap["type"]))
+					switch partType {
+					case "", "text", "input_text", "output_text":
+						partMap["type"] = "output_text"
+						if _, exists := partMap["text"]; !exists {
+							if alt, ok := partMap["output_text"]; ok {
+								partMap["text"] = alt
+							}
+						}
+						v[idx] = partMap
+					}
+				}
+			}
+			item["content"] = v
+		default:
+			item["content"] = []any{v}
+		}
+		inputs[i] = item
+	}
+
+	inputRaw, err := common.Marshal(inputs)
+	if err != nil {
+		return nil, err
+	}
+	return inputRaw, nil
+}
+
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
 	return nil, errors.New("codex channel: endpoint not supported")
 }
@@ -56,6 +137,16 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
 	isCompact := info != nil && info.RelayMode == relayconstant.RelayModeResponsesCompact
+
+	// Codex backend rejects the legacy `user` field.
+	request.User = ""
+
+	// Codex backend expects `input` to be a list and assistant text parts to use output_text.
+	inputRaw, err := normalizeCodexInput(request.Input)
+	if err != nil {
+		return nil, err
+	}
+	request.Input = inputRaw
 
 	if info != nil && info.ChannelSetting.SystemPrompt != "" {
 		systemPrompt := info.ChannelSetting.SystemPrompt

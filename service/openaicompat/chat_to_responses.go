@@ -34,6 +34,48 @@ func normalizeChatImageURLToString(v any) any {
 	}
 }
 
+func normalizeChatRole(role string) string {
+	return strings.ToLower(strings.TrimSpace(role))
+}
+
+func responsesTextTypeByRole(role string) string {
+	if role == "assistant" {
+		return "output_text"
+	}
+	return "input_text"
+}
+
+func buildTextContentPart(role string, text string) map[string]any {
+	return map[string]any{
+		"type": responsesTextTypeByRole(role),
+		"text": text,
+	}
+}
+
+func buildRefusalContentPart(refusal any) map[string]any {
+	part := map[string]any{
+		"type": "refusal",
+	}
+	if refusal != nil {
+		part["refusal"] = refusal
+	}
+	return part
+}
+
+func parseRefusalValue(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var refusalValue any
+	switch common.GetJsonType(raw) {
+	case "string", "number", "object", "array", "bool":
+		if err := common.Unmarshal(raw, &refusalValue); err == nil {
+			return refusalValue
+		}
+	}
+	return strings.TrimSpace(string(raw))
+}
+
 func convertChatResponseFormatToResponsesText(reqFormat *dto.ResponseFormat) json.RawMessage {
 	if reqFormat == nil || strings.TrimSpace(reqFormat.Type) == "" {
 		return nil
@@ -87,7 +129,7 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 	inputItems := make([]map[string]any, 0, len(req.Messages))
 
 	for _, msg := range req.Messages {
-		role := strings.TrimSpace(msg.Role)
+		role := normalizeChatRole(msg.Role)
 		if role == "" {
 			continue
 		}
@@ -110,8 +152,10 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 
 			if callID == "" {
 				inputItems = append(inputItems, map[string]any{
-					"role":    "user",
-					"content": fmt.Sprintf("[tool_output_missing_call_id] %v", output),
+					"role": "user",
+					"content": []map[string]any{
+						buildTextContentPart("user", fmt.Sprintf("[tool_output_missing_call_id] %v", output)),
+					},
 				})
 				continue
 			}
@@ -154,9 +198,14 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 		item := map[string]any{
 			"role": role,
 		}
+		contentParts := make([]map[string]any, 0, 4)
 
 		if msg.Content == nil {
-			item["content"] = ""
+			if role == "assistant" && len(msg.Refusal) > 0 {
+				contentParts = append(contentParts, buildRefusalContentPart(parseRefusalValue(msg.Refusal)))
+			}
+			// keep assistant/user content as a list for Codex backend compatibility
+			item["content"] = contentParts
 			inputItems = append(inputItems, item)
 
 			if role == "assistant" {
@@ -183,7 +232,11 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 		}
 
 		if msg.IsStringContent() {
-			item["content"] = msg.StringContent()
+			contentParts = append(contentParts, buildTextContentPart(role, msg.StringContent()))
+			if role == "assistant" && len(msg.Refusal) > 0 {
+				contentParts = append(contentParts, buildRefusalContentPart(parseRefusalValue(msg.Refusal)))
+			}
+			item["content"] = contentParts
 			inputItems = append(inputItems, item)
 
 			if role == "assistant" {
@@ -210,19 +263,18 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 		}
 
 		parts := msg.ParseContent()
-		contentParts := make([]map[string]any, 0, len(parts))
+		contentParts = make([]map[string]any, 0, len(parts))
 		for _, part := range parts {
 			switch part.Type {
-			case dto.ContentTypeText:
-				textType := "input_text"
-				if role == "assistant" {
-					textType = "output_text"
+			case dto.ContentTypeText, "input_text", "output_text":
+				contentParts = append(contentParts, buildTextContentPart(role, part.Text))
+			case "refusal":
+				refusalValue := any(nil)
+				if strings.TrimSpace(part.Text) != "" {
+					refusalValue = part.Text
 				}
-				contentParts = append(contentParts, map[string]any{
-					"type": textType,
-					"text": part.Text,
-				})
-			case dto.ContentTypeImageURL:
+				contentParts = append(contentParts, buildRefusalContentPart(refusalValue))
+			case dto.ContentTypeImageURL, "input_image":
 				contentParts = append(contentParts, map[string]any{
 					"type":      "input_image",
 					"image_url": normalizeChatImageURLToString(part.ImageUrl),
@@ -232,21 +284,28 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 					"type":        "input_audio",
 					"input_audio": part.InputAudio,
 				})
-			case dto.ContentTypeFile:
+			case dto.ContentTypeFile, "input_file":
 				contentParts = append(contentParts, map[string]any{
 					"type": "input_file",
 					"file": part.File,
 				})
-			case dto.ContentTypeVideoUrl:
+			case dto.ContentTypeVideoUrl, "input_video":
 				contentParts = append(contentParts, map[string]any{
 					"type":      "input_video",
 					"video_url": part.VideoUrl,
 				})
 			default:
-				contentParts = append(contentParts, map[string]any{
+				partMap := map[string]any{
 					"type": part.Type,
-				})
+				}
+				if part.Text != "" {
+					partMap["text"] = part.Text
+				}
+				contentParts = append(contentParts, partMap)
 			}
+		}
+		if role == "assistant" && len(msg.Refusal) > 0 {
+			contentParts = append(contentParts, buildRefusalContentPart(parseRefusalValue(msg.Refusal)))
 		}
 		item["content"] = contentParts
 		inputItems = append(inputItems, item)

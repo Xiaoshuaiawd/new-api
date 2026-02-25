@@ -92,6 +92,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	if err := common.Unmarshal(chatJSON, &overriddenChatReq); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid, types.ErrOptionWithSkipRetry())
 	}
+	clientWantsStream := overriddenChatReq.Stream
 
 	responsesReq, err := service.ChatCompletionsRequestToResponsesRequest(&overriddenChatReq)
 	if err != nil {
@@ -137,14 +138,15 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 
 	httpResp = resp.(*http.Response)
-	info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+	upstreamIsStream := strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 	if httpResp.StatusCode != http.StatusOK {
 		newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 		return nil, newApiErr
 	}
 
-	if info.IsStream {
+	if clientWantsStream && upstreamIsStream {
+		info.IsStream = true
 		usage, newApiErr := openaichannel.OaiResponsesToChatStreamHandler(c, info, httpResp)
 		if newApiErr != nil {
 			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
@@ -153,6 +155,7 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		return usage, nil
 	}
 
+	info.IsStream = false
 	usage, newApiErr := openaichannel.OaiResponsesToChatHandler(c, info, httpResp)
 	if newApiErr != nil {
 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
