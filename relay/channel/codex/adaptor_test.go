@@ -89,3 +89,88 @@ func TestConvertOpenAIResponsesRequest_DoesNotInjectRoleForTypedNonMessageInput(
 		t.Fatalf("expected first item type function_call_output, got %#v", inputItems[0]["type"])
 	}
 }
+
+func TestConvertOpenAIResponsesRequest_ConvertsStringInputToInputItem(t *testing.T) {
+	adaptor := &Adaptor{}
+	request := dto.OpenAIResponsesRequest{
+		Model: "gpt-5-codex",
+		Input: json.RawMessage(`"hello"`),
+	}
+
+	convertedAny, err := adaptor.ConvertOpenAIResponsesRequest(nil, nil, request)
+	if err != nil {
+		t.Fatalf("ConvertOpenAIResponsesRequest returned error: %v", err)
+	}
+
+	converted, ok := convertedAny.(dto.OpenAIResponsesRequest)
+	if !ok {
+		t.Fatalf("expected dto.OpenAIResponsesRequest, got %T", convertedAny)
+	}
+
+	var inputItems []map[string]any
+	if err := common.Unmarshal(converted.Input, &inputItems); err != nil {
+		t.Fatalf("failed to decode normalized input: %v", err)
+	}
+	if len(inputItems) != 1 {
+		t.Fatalf("expected 1 normalized input item, got %d", len(inputItems))
+	}
+	if inputItems[0]["role"] != "user" {
+		t.Fatalf("expected role user, got %#v", inputItems[0]["role"])
+	}
+	contentParts, ok := inputItems[0]["content"].([]any)
+	if !ok || len(contentParts) != 1 {
+		t.Fatalf("expected single content part list, got %#v", inputItems[0]["content"])
+	}
+	part, ok := contentParts[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected part map, got %#v", contentParts[0])
+	}
+	if part["type"] != "input_text" || part["text"] != "hello" {
+		t.Fatalf("expected input_text hello part, got %#v", part)
+	}
+}
+
+func TestConvertOpenAIResponsesRequest_FlattensNestedInputFilePart(t *testing.T) {
+	adaptor := &Adaptor{}
+	request := dto.OpenAIResponsesRequest{
+		Model: "gpt-5-codex",
+		Input: json.RawMessage(`[
+			{"role":"user","content":[{"type":"input_file","file":{"file_id":"file-abc"}}]}
+		]`),
+	}
+
+	convertedAny, err := adaptor.ConvertOpenAIResponsesRequest(nil, nil, request)
+	if err != nil {
+		t.Fatalf("ConvertOpenAIResponsesRequest returned error: %v", err)
+	}
+
+	converted, ok := convertedAny.(dto.OpenAIResponsesRequest)
+	if !ok {
+		t.Fatalf("expected dto.OpenAIResponsesRequest, got %T", convertedAny)
+	}
+
+	var inputItems []map[string]any
+	if err := common.Unmarshal(converted.Input, &inputItems); err != nil {
+		t.Fatalf("failed to decode normalized input: %v", err)
+	}
+	if len(inputItems) != 1 {
+		t.Fatalf("expected 1 normalized input item, got %d", len(inputItems))
+	}
+	contentParts, ok := inputItems[0]["content"].([]any)
+	if !ok || len(contentParts) != 1 {
+		t.Fatalf("expected single content part list, got %#v", inputItems[0]["content"])
+	}
+	part, ok := contentParts[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected part map, got %#v", contentParts[0])
+	}
+	if part["type"] != "input_file" {
+		t.Fatalf("expected input_file part, got %#v", part["type"])
+	}
+	if part["file_id"] != "file-abc" {
+		t.Fatalf("expected file_id=file-abc, got %#v", part["file_id"])
+	}
+	if _, exists := part["file"]; exists {
+		t.Fatalf("unexpected nested file field in part: %#v", part)
+	}
+}

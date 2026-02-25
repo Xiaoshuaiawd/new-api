@@ -62,6 +62,61 @@ func buildRefusalContentPart(refusal any) map[string]any {
 	return part
 }
 
+func buildInputFileContentPart(file any) map[string]any {
+	part := map[string]any{
+		"type": "input_file",
+	}
+
+	setFileField := func(key string, value string) {
+		if strings.TrimSpace(value) != "" {
+			part[key] = strings.TrimSpace(value)
+		}
+	}
+
+	switch vv := file.(type) {
+	case *dto.MessageFile:
+		if vv != nil {
+			setFileField("file_id", vv.FileId)
+			setFileField("file_data", vv.FileData)
+			setFileField("filename", vv.FileName)
+		}
+	case dto.MessageFile:
+		setFileField("file_id", vv.FileId)
+		setFileField("file_data", vv.FileData)
+		setFileField("filename", vv.FileName)
+	case map[string]any:
+		setFileField("file_id", common.Interface2String(vv["file_id"]))
+		setFileField("file_data", common.Interface2String(vv["file_data"]))
+		setFileField("filename", common.Interface2String(vv["filename"]))
+		setFileField("filename", common.Interface2String(vv["file_name"]))
+		setFileField("file_url", common.Interface2String(vv["file_url"]))
+		setFileField("file_url", common.Interface2String(vv["url"]))
+	case string:
+		s := strings.TrimSpace(vv)
+		if strings.HasPrefix(s, "file-") {
+			setFileField("file_id", s)
+		} else {
+			setFileField("file_url", s)
+		}
+	default:
+		if file != nil {
+			if b, err := common.Marshal(file); err == nil {
+				var fileMap map[string]any
+				if common.Unmarshal(b, &fileMap) == nil && len(fileMap) > 0 {
+					setFileField("file_id", common.Interface2String(fileMap["file_id"]))
+					setFileField("file_data", common.Interface2String(fileMap["file_data"]))
+					setFileField("filename", common.Interface2String(fileMap["filename"]))
+					setFileField("filename", common.Interface2String(fileMap["file_name"]))
+					setFileField("file_url", common.Interface2String(fileMap["file_url"]))
+					setFileField("file_url", common.Interface2String(fileMap["url"]))
+				}
+			}
+		}
+	}
+
+	return part
+}
+
 func parseRefusalValue(raw json.RawMessage) any {
 	if len(raw) == 0 {
 		return nil
@@ -285,10 +340,7 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 					"input_audio": part.InputAudio,
 				})
 			case dto.ContentTypeFile, "input_file":
-				contentParts = append(contentParts, map[string]any{
-					"type": "input_file",
-					"file": part.File,
-				})
+				contentParts = append(contentParts, buildInputFileContentPart(part.File))
 			case dto.ContentTypeVideoUrl, "input_video":
 				contentParts = append(contentParts, map[string]any{
 					"type":      "input_video",

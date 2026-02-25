@@ -59,3 +59,52 @@ func TestChatCompletionsRequestToResponsesRequest_TextContentUsesListParts(t *te
 		t.Fatalf("expected assistant part type output_text, got: %#v", assistantPart["type"])
 	}
 }
+
+func TestChatCompletionsRequestToResponsesRequest_FileContentUsesInputFileFields(t *testing.T) {
+	req := &dto.GeneralOpenAIRequest{
+		Model: "gpt-5-codex",
+		Messages: []dto.Message{
+			{
+				Role: "user",
+				Content: []any{
+					map[string]any{
+						"type": "file",
+						"file": map[string]any{
+							"file_id": "file-123",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	out, err := ChatCompletionsRequestToResponsesRequest(req)
+	if err != nil {
+		t.Fatalf("ChatCompletionsRequestToResponsesRequest returned error: %v", err)
+	}
+
+	var inputItems []map[string]any
+	if err := common.Unmarshal(out.Input, &inputItems); err != nil {
+		t.Fatalf("failed to decode input: %v", err)
+	}
+	if len(inputItems) != 1 {
+		t.Fatalf("expected 1 input item, got %d", len(inputItems))
+	}
+	parts, ok := inputItems[0]["content"].([]any)
+	if !ok || len(parts) != 1 {
+		t.Fatalf("expected single content part, got %#v", inputItems[0]["content"])
+	}
+	part, ok := parts[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected part map, got %#v", parts[0])
+	}
+	if part["type"] != "input_file" {
+		t.Fatalf("expected part type input_file, got %#v", part["type"])
+	}
+	if part["file_id"] != "file-123" {
+		t.Fatalf("expected file_id=file-123, got %#v", part["file_id"])
+	}
+	if _, exists := part["file"]; exists {
+		t.Fatalf("unexpected nested file field in part: %#v", part)
+	}
+}

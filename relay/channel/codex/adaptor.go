@@ -30,6 +30,88 @@ func codexTextTypeByRole(role string) string {
 	return "input_text"
 }
 
+func normalizeCodexInputFilePart(part map[string]any) {
+	if part == nil {
+		return
+	}
+	partType := strings.ToLower(strings.TrimSpace(common.Interface2String(part["type"])))
+	if partType == "file" {
+		part["type"] = "input_file"
+		partType = "input_file"
+	}
+	if partType != "input_file" {
+		return
+	}
+
+	fileAny, hasFile := part["file"]
+	if !hasFile {
+		return
+	}
+
+	setField := func(key string, val string) {
+		if strings.TrimSpace(val) != "" {
+			part[key] = strings.TrimSpace(val)
+		}
+	}
+
+	switch fv := fileAny.(type) {
+	case map[string]any:
+		setField("file_id", common.Interface2String(fv["file_id"]))
+		setField("file_data", common.Interface2String(fv["file_data"]))
+		setField("filename", common.Interface2String(fv["filename"]))
+		setField("filename", common.Interface2String(fv["file_name"]))
+		setField("file_url", common.Interface2String(fv["file_url"]))
+		setField("file_url", common.Interface2String(fv["url"]))
+	case string:
+		s := strings.TrimSpace(fv)
+		if strings.HasPrefix(s, "file-") {
+			setField("file_id", s)
+		} else {
+			setField("file_url", s)
+		}
+	default:
+		if b, err := common.Marshal(fileAny); err == nil {
+			var fileMap map[string]any
+			if common.Unmarshal(b, &fileMap) == nil {
+				setField("file_id", common.Interface2String(fileMap["file_id"]))
+				setField("file_data", common.Interface2String(fileMap["file_data"]))
+				setField("filename", common.Interface2String(fileMap["filename"]))
+				setField("filename", common.Interface2String(fileMap["file_name"]))
+				setField("file_url", common.Interface2String(fileMap["file_url"]))
+				setField("file_url", common.Interface2String(fileMap["url"]))
+			}
+		}
+	}
+
+	delete(part, "file")
+}
+
+func normalizeCodexTextPartType(part map[string]any, role string) {
+	partType := strings.TrimSpace(common.Interface2String(part["type"]))
+	switch partType {
+	case "", "text", "input_text", "output_text":
+		targetType := codexTextTypeByRole(role)
+		part["type"] = targetType
+		if _, exists := part["text"]; exists {
+			return
+		}
+		if targetType == "output_text" {
+			if alt, ok := part["output_text"]; ok {
+				part["text"] = alt
+				return
+			}
+		} else {
+			if alt, ok := part["input_text"]; ok {
+				part["text"] = alt
+				return
+			}
+		}
+		if alt, ok := part["text_value"]; ok {
+			part["text"] = alt
+		}
+	}
+}
+
 func normalizeCodexInput(raw json.RawMessage) (json.RawMessage, error) {
 	if len(raw) == 0 {
 		return json.RawMessage("[]"), nil
@@ -48,8 +130,31 @@ func normalizeCodexInput(raw json.RawMessage) (json.RawMessage, error) {
 	}
 
 	for i, input := range inputs {
+		if input == nil {
+			inputs[i] = map[string]any{
+				"role":    "user",
+				"content": []any{},
+			}
+			continue
+		}
+
 		item, ok := input.(map[string]any)
 		if !ok {
+			text := common.Interface2String(input)
+			if text == "" {
+				if b, err := common.Marshal(input); err == nil {
+					text = string(b)
+				}
+			}
+			inputs[i] = map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{
+						"type": "input_text",
+						"text": text,
+					},
+				},
+			}
 			continue
 		}
 
@@ -79,24 +184,14 @@ func normalizeCodexInput(raw json.RawMessage) (json.RawMessage, error) {
 				},
 			}
 		case []any:
-			if role == "assistant" {
-				for idx, partAny := range v {
-					partMap, ok := partAny.(map[string]any)
-					if !ok {
-						continue
-					}
-					partType := strings.TrimSpace(common.Interface2String(partMap["type"]))
-					switch partType {
-					case "", "text", "input_text", "output_text":
-						partMap["type"] = "output_text"
-						if _, exists := partMap["text"]; !exists {
-							if alt, ok := partMap["output_text"]; ok {
-								partMap["text"] = alt
-							}
-						}
-						v[idx] = partMap
-					}
+			for idx, partAny := range v {
+				partMap, ok := partAny.(map[string]any)
+				if !ok {
+					continue
 				}
+				normalizeCodexInputFilePart(partMap)
+				normalizeCodexTextPartType(partMap, role)
+				v[idx] = partMap
 			}
 			item["content"] = v
 		default:

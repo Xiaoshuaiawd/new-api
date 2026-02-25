@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -40,6 +41,24 @@ func stringDeltaFromPrefix(prev string, next string) string {
 		return next[len(prev):]
 	}
 	return next
+}
+
+func mergeResponsesStreamOutput(outputByIndex map[int]dto.ResponsesOutput, outputNoIndex []dto.ResponsesOutput) []dto.ResponsesOutput {
+	if len(outputByIndex) == 0 {
+		return append([]dto.ResponsesOutput{}, outputNoIndex...)
+	}
+
+	indices := make([]int, 0, len(outputByIndex))
+	for idx := range outputByIndex {
+		indices = append(indices, idx)
+	}
+	sort.Ints(indices)
+
+	outputs := make([]dto.ResponsesOutput, 0, len(outputByIndex)+len(outputNoIndex))
+	for _, idx := range indices {
+		outputs = append(outputs, outputByIndex[idx])
+	}
+	return append(outputs, outputNoIndex...)
 }
 
 func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -129,6 +148,14 @@ func responsesStreamToChatNonStreamHandler(c *gin.Context, info *relaycommon.Rel
 		usage                = &dto.Usage{}
 		completedResponse    *dto.OpenAIResponsesResponse
 		completedResponseRaw string
+		outputByIndex        = make(map[int]dto.ResponsesOutput)
+		outputNoIndex        = make([]dto.ResponsesOutput, 0)
+		outputText           strings.Builder
+		lastMessageID        string
+		lastMessageRole      string
+		model                = info.UpstreamModelName
+		createdAt            = int(time.Now().Unix())
+		serviceTier          string
 	)
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -165,11 +192,64 @@ func responsesStreamToChatNonStreamHandler(c *gin.Context, info *relaycommon.Rel
 			continue
 		}
 
-		if streamResp.Type == "response.completed" && streamResp.Response != nil {
-			completedResponse = streamResp.Response
-			if raw := gjson.Get(data, "response"); raw.Exists() && raw.Type == gjson.JSON {
-				completedResponseRaw = raw.Raw
+		switch streamResp.Type {
+		case "response.created", "response.in_progress":
+			if streamResp.Response != nil {
+				if completedResponse == nil {
+					completedResponse = streamResp.Response
+				}
+				if streamResp.Response.Model != "" {
+					model = streamResp.Response.Model
+				}
+				if streamResp.Response.CreatedAt != 0 {
+					createdAt = streamResp.Response.CreatedAt
+				}
+				if streamResp.Response.ServiceTier != "" {
+					serviceTier = streamResp.Response.ServiceTier
+				}
 			}
+		case "response.completed":
+			if streamResp.Response != nil {
+				completedResponse = streamResp.Response
+				if raw := gjson.Get(data, "response"); raw.Exists() && raw.Type == gjson.JSON {
+					completedResponseRaw = raw.Raw
+				}
+				if streamResp.Response.Model != "" {
+					model = streamResp.Response.Model
+				}
+				if streamResp.Response.CreatedAt != 0 {
+					createdAt = streamResp.Response.CreatedAt
+				}
+				if streamResp.Response.ServiceTier != "" {
+					serviceTier = streamResp.Response.ServiceTier
+				}
+			}
+		case "response.output_text.delta":
+			outputText.WriteString(streamResp.Delta)
+		case "response.output_item.added", "response.output_item.done":
+			if streamResp.Item == nil {
+				break
+			}
+			if streamResp.Item.Type == "message" {
+				if streamResp.Item.ID != "" {
+					lastMessageID = streamResp.Item.ID
+				}
+				if streamResp.Item.Role != "" {
+					lastMessageRole = streamResp.Item.Role
+				}
+			}
+			if streamResp.OutputIndex != nil {
+				outputByIndex[*streamResp.OutputIndex] = *streamResp.Item
+			} else {
+				outputNoIndex = append(outputNoIndex, *streamResp.Item)
+			}
+		case "response.error", "response.failed":
+			if streamResp.Response != nil {
+				if oaiError := streamResp.Response.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+					return nil, types.WithOpenAIError(*oaiError, http.StatusInternalServerError)
+				}
+			}
+			return nil, types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 		}
 	}
 
@@ -177,13 +257,63 @@ func responsesStreamToChatNonStreamHandler(c *gin.Context, info *relaycommon.Rel
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
-	if completedResponse == nil && completedResponseRaw == "" {
-		return nil, types.NewOpenAIError(fmt.Errorf("responses stream missing completed event"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
-	}
-
 	if completedResponse == nil && completedResponseRaw != "" {
 		if err := common.UnmarshalJsonStr(completedResponseRaw, &completedResponse); err != nil {
 			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+	}
+
+	mergedOutput := mergeResponsesStreamOutput(outputByIndex, outputNoIndex)
+	if len(mergedOutput) == 0 && outputText.Len() > 0 {
+		role := "assistant"
+		if lastMessageRole != "" {
+			role = lastMessageRole
+		}
+		msgID := lastMessageID
+		if msgID == "" {
+			msgID = "msg_" + common.GetUUID()
+		}
+		mergedOutput = []dto.ResponsesOutput{
+			{
+				Type: "message",
+				ID:   msgID,
+				Role: role,
+				Content: []dto.ResponsesOutputContent{
+					{
+						Type:        "output_text",
+						Text:        outputText.String(),
+						Annotations: []interface{}{},
+					},
+				},
+			},
+		}
+	}
+
+	if completedResponse == nil {
+		if len(mergedOutput) == 0 {
+			return nil, types.NewOpenAIError(fmt.Errorf("responses stream missing completed event"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+		}
+		completedResponse = &dto.OpenAIResponsesResponse{
+			ID:          "resp_" + common.GetUUID(),
+			Object:      "response",
+			CreatedAt:   createdAt,
+			Status:      "completed",
+			Model:       model,
+			ServiceTier: serviceTier,
+			Output:      mergedOutput,
+		}
+	} else {
+		if completedResponse.Model == "" {
+			completedResponse.Model = model
+		}
+		if completedResponse.CreatedAt == 0 {
+			completedResponse.CreatedAt = createdAt
+		}
+		if completedResponse.ServiceTier == "" && serviceTier != "" {
+			completedResponse.ServiceTier = serviceTier
+		}
+		if len(completedResponse.Output) == 0 && len(mergedOutput) > 0 {
+			completedResponse.Output = mergedOutput
 		}
 	}
 
