@@ -53,3 +53,39 @@ func TestConvertOpenAIResponsesRequest_NormalizesUserAndInput(t *testing.T) {
 		t.Fatalf("expected assistant text type output_text, got %#v", part["type"])
 	}
 }
+
+func TestConvertOpenAIResponsesRequest_DoesNotInjectRoleForTypedNonMessageInput(t *testing.T) {
+	adaptor := &Adaptor{}
+	request := dto.OpenAIResponsesRequest{
+		Model: "gpt-5-codex",
+		Input: json.RawMessage(`[
+			{"type":"function_call_output","call_id":"call_1","output":"done"},
+			{"role":"assistant","content":"hello"}
+		]`),
+	}
+
+	convertedAny, err := adaptor.ConvertOpenAIResponsesRequest(nil, nil, request)
+	if err != nil {
+		t.Fatalf("ConvertOpenAIResponsesRequest returned error: %v", err)
+	}
+
+	converted, ok := convertedAny.(dto.OpenAIResponsesRequest)
+	if !ok {
+		t.Fatalf("expected dto.OpenAIResponsesRequest, got %T", convertedAny)
+	}
+
+	var inputItems []map[string]any
+	if err := common.Unmarshal(converted.Input, &inputItems); err != nil {
+		t.Fatalf("failed to decode normalized input: %v", err)
+	}
+	if len(inputItems) != 2 {
+		t.Fatalf("expected 2 input items, got %d", len(inputItems))
+	}
+
+	if _, exists := inputItems[0]["role"]; exists {
+		t.Fatalf("expected typed non-message item to keep no role, got: %#v", inputItems[0])
+	}
+	if inputItems[0]["type"] != "function_call_output" {
+		t.Fatalf("expected first item type function_call_output, got %#v", inputItems[0]["type"])
+	}
+}

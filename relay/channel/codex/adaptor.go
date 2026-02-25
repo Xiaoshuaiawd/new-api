@@ -53,6 +53,14 @@ func normalizeCodexInput(raw json.RawMessage) (json.RawMessage, error) {
 			continue
 		}
 
+		itemType := strings.ToLower(strings.TrimSpace(common.Interface2String(item["type"])))
+		// Only message-like inputs should carry role/content.
+		// For typed non-message inputs (e.g. function_call_output), keep payload as-is.
+		if itemType != "" && itemType != "message" {
+			inputs[i] = item
+			continue
+		}
+
 		role := strings.ToLower(strings.TrimSpace(common.Interface2String(item["role"])))
 		if role == "" {
 			role = "user"
