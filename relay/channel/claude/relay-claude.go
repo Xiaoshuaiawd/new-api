@@ -563,9 +563,9 @@ func ResponseClaude2OpenAI(reqMode int, claudeResponse *dto.ClaudeResponse) *dto
 		},
 		FinishReason: stopReasonClaude2OpenAI(claudeResponse.StopReason),
 	}
-	choice.SetStringContent(responseText)
+	choice.Message.SetStringContent(responseText)
 	if len(responseThinking) > 0 {
-		choice.ReasoningContent = responseThinking
+		choice.Message.ReasoningContent = responseThinking
 	}
 	if len(tools) > 0 {
 		choice.Message.SetToolCalls(tools)
