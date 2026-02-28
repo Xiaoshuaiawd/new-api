@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,102 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+type chatCompletionsNonStreamResponse struct {
+	ID                string                             `json:"id"`
+	Object            string                             `json:"object"`
+	Created           int64                              `json:"created"`
+	Model             string                             `json:"model"`
+	Choices           []chatCompletionsNonStreamChoice   `json:"choices"`
+	Usage             chatCompletionsNonStreamUsage      `json:"usage"`
+	ServiceTier       string                             `json:"service_tier"`
+	SystemFingerprint *string                            `json:"system_fingerprint"`
+}
+
+type chatCompletionsNonStreamChoice struct {
+	Index        int                             `json:"index"`
+	Message      chatCompletionsNonStreamMessage `json:"message"`
+	FinishReason string                          `json:"finish_reason"`
+}
+
+type chatCompletionsNonStreamMessage struct {
+	Role        string                             `json:"role"`
+	Content     string                             `json:"content"`
+	Refusal     any                                `json:"refusal"`
+	Annotations []any                              `json:"annotations"`
+	ToolCalls   []chatCompletionsNonStreamToolCall `json:"tool_calls,omitempty"`
+}
+
+type chatCompletionsNonStreamToolCall struct {
+	ID       string                               `json:"id,omitempty"`
+	Type     string                               `json:"type"`
+	Function chatCompletionsNonStreamToolFunction `json:"function"`
+}
+
+type chatCompletionsNonStreamToolFunction struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments"`
+}
+
+type chatCompletionsNonStreamUsage struct {
+	PromptTokens            int                                             `json:"prompt_tokens"`
+	CompletionTokens        int                                             `json:"completion_tokens"`
+	TotalTokens             int                                             `json:"total_tokens"`
+	PromptTokensDetails     chatCompletionsNonStreamPromptTokensDetails     `json:"prompt_tokens_details"`
+	CompletionTokensDetails chatCompletionsNonStreamCompletionTokensDetails `json:"completion_tokens_details"`
+}
+
+type chatCompletionsNonStreamPromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+	AudioTokens  int `json:"audio_tokens"`
+}
+
+type chatCompletionsNonStreamCompletionTokensDetails struct {
+	ReasoningTokens          int `json:"reasoning_tokens"`
+	AudioTokens              int `json:"audio_tokens"`
+	AcceptedPredictionTokens int `json:"accepted_prediction_tokens"`
+	RejectedPredictionTokens int `json:"rejected_prediction_tokens"`
+}
+
+func normalizeChatCompletionCreated(created any) int64 {
+	switch v := created.(type) {
+	case int:
+		return int64(v)
+	case int8:
+		return int64(v)
+	case int16:
+		return int64(v)
+	case int32:
+		return int64(v)
+	case int64:
+		return v
+	case uint:
+		return int64(v)
+	case uint8:
+		return int64(v)
+	case uint16:
+		return int64(v)
+	case uint32:
+		return int64(v)
+	case uint64:
+		if v > uint64(^uint64(0)>>1) {
+			return int64(^uint64(0) >> 1)
+		}
+		return int64(v)
+	case float32:
+		return int64(v)
+	case float64:
+		return int64(v)
+	case string:
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err == nil {
+			return n
+		}
+		return 0
+	default:
+		return 0
+	}
+}
 
 func responsesStreamIndexKey(itemID string, idx *int) string {
 	if itemID == "" {
@@ -95,46 +192,89 @@ func marshalOpenAIChatCompletionsNonStreamResponse(chatResp *dto.OpenAITextRespo
 	if chatResp == nil {
 		return nil, fmt.Errorf("chat response is nil")
 	}
-	raw, err := common.Marshal(chatResp)
-	if err != nil {
-		return nil, err
+	out := chatCompletionsNonStreamResponse{
+		ID:                chatResp.Id,
+		Object:            chatResp.Object,
+		Created:           normalizeChatCompletionCreated(chatResp.Created),
+		Model:             chatResp.Model,
+		Choices:           make([]chatCompletionsNonStreamChoice, 0, len(chatResp.Choices)),
+		ServiceTier:       "default",
+		SystemFingerprint: nil,
+		Usage: chatCompletionsNonStreamUsage{
+			PromptTokens:     chatResp.Usage.PromptTokens,
+			CompletionTokens: chatResp.Usage.CompletionTokens,
+			TotalTokens:      chatResp.Usage.TotalTokens,
+			PromptTokensDetails: chatCompletionsNonStreamPromptTokensDetails{
+				CachedTokens: chatResp.Usage.PromptTokensDetails.CachedTokens,
+				AudioTokens:  chatResp.Usage.PromptTokensDetails.AudioTokens,
+			},
+			CompletionTokensDetails: chatCompletionsNonStreamCompletionTokensDetails{
+				ReasoningTokens:          chatResp.Usage.CompletionTokenDetails.ReasoningTokens,
+				AudioTokens:              chatResp.Usage.CompletionTokenDetails.AudioTokens,
+				AcceptedPredictionTokens: 0,
+				RejectedPredictionTokens: 0,
+			},
+		},
 	}
-	var payload map[string]any
-	if err = common.Unmarshal(raw, &payload); err != nil {
-		return nil, err
+
+	if out.Object == "" {
+		out.Object = "chat.completion"
 	}
-	if _, ok := payload["service_tier"]; !ok {
-		payload["service_tier"] = "default"
+	if out.Created == 0 {
+		out.Created = time.Now().Unix()
 	}
-	if _, ok := payload["system_fingerprint"]; !ok {
-		payload["system_fingerprint"] = nil
-	}
-	if choicesAny, ok := payload["choices"].([]any); ok {
-		for i := range choicesAny {
-			choiceMap, ok := choicesAny[i].(map[string]any)
-			if !ok {
-				continue
-			}
-			msgAny, ok := choiceMap["message"]
-			if !ok {
-				continue
-			}
-			msgMap, ok := msgAny.(map[string]any)
-			if !ok {
-				continue
-			}
-			if _, has := msgMap["refusal"]; !has {
-				msgMap["refusal"] = nil
-			}
-			if _, has := msgMap["annotations"]; !has {
-				msgMap["annotations"] = make([]any, 0)
-			}
-			choiceMap["message"] = msgMap
-			choicesAny[i] = choiceMap
+
+	for i := range chatResp.Choices {
+		choice := chatResp.Choices[i]
+		msg := choice.Message
+		normalizedMessage := chatCompletionsNonStreamMessage{
+			Role:        msg.Role,
+			Content:     msg.StringContent(),
+			Refusal:     nil,
+			Annotations: make([]any, 0),
 		}
-		payload["choices"] = choicesAny
+		toolCalls := msg.ParseToolCalls()
+		if len(toolCalls) > 0 {
+			normalizedToolCalls := make([]chatCompletionsNonStreamToolCall, 0, len(toolCalls))
+			for _, tc := range toolCalls {
+				if tc.Type == "" {
+					tc.Type = "function"
+				}
+				normalizedToolCalls = append(normalizedToolCalls, chatCompletionsNonStreamToolCall{
+					ID:   tc.ID,
+					Type: tc.Type,
+					Function: chatCompletionsNonStreamToolFunction{
+						Name:      tc.Function.Name,
+						Arguments: tc.Function.Arguments,
+					},
+				})
+			}
+			normalizedMessage.ToolCalls = normalizedToolCalls
+			normalizedMessage.Content = ""
+		}
+		out.Choices = append(out.Choices, chatCompletionsNonStreamChoice{
+			Index:        choice.Index,
+			Message:      normalizedMessage,
+			FinishReason: choice.FinishReason,
+		})
 	}
-	return common.Marshal(payload)
+
+	if len(out.Choices) == 0 {
+		out.Choices = []chatCompletionsNonStreamChoice{
+			{
+				Index: 0,
+				Message: chatCompletionsNonStreamMessage{
+					Role:        "assistant",
+					Content:     "",
+					Refusal:     nil,
+					Annotations: make([]any, 0),
+				},
+				FinishReason: "stop",
+			},
+		}
+	}
+
+	return common.Marshal(out)
 }
 
 func mergeUsageFromResponses(dst *dto.Usage, src *dto.Usage) {
