@@ -97,6 +97,13 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	if err != nil {
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
+	clientWantsStream := info.IsStream
+	forceUpstreamStreamForNonStream := info.ChannelType == constant.ChannelTypeCodex && !clientWantsStream
+	if forceUpstreamStreamForNonStream {
+		// Codex upstream currently rejects non-stream responses on /responses.
+		// Force upstream stream and aggregate it back to one non-stream response.
+		responsesReq.Stream = true
+	}
 	info.AppendRequestConversion(types.RelayFormatOpenAIResponses)
 
 	savedRelayMode := info.RelayMode
@@ -142,6 +149,17 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 		service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 		return nil, newApiErr
+	}
+
+	if forceUpstreamStreamForNonStream {
+		// Keep log/accounting semantics consistent with client request mode.
+		info.IsStream = false
+		usage, newApiErr := openaichannel.OaiResponsesStreamToChatHandler(c, info, httpResp)
+		if newApiErr != nil {
+			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
+			return nil, newApiErr
+		}
+		return usage, nil
 	}
 
 	if info.IsStream {
