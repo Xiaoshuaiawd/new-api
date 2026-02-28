@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	appconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	openaichannel "github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -59,6 +60,14 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	if err != nil {
 		return types.NewError(fmt.Errorf("failed to copy request to GeneralOpenAIRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
+	forceUpstreamStreamForNonStream := info.ChannelType == appconstant.ChannelTypeCodex &&
+		info.RelayMode == relayconstant.RelayModeResponses &&
+		!info.IsStream
+	if forceUpstreamStreamForNonStream {
+		// Codex upstream currently may reject non-stream /responses.
+		// Force upstream streaming and aggregate to one non-stream JSON response.
+		request.Stream = true
+	}
 
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
@@ -71,7 +80,8 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	}
 	adaptor.Init(info)
 	var requestBody io.Reader
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+	passThroughBodyEnabled := model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled
+	if passThroughBodyEnabled && !forceUpstreamStreamForNonStream {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			return types.NewError(err, types.ErrorCodeReadRequestBodyFailed, types.ErrOptionWithSkipRetry())
@@ -127,14 +137,23 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		}
 	}
 
-	usage, newAPIError := adaptor.DoResponse(c, httpResp, info)
-	if newAPIError != nil {
-		// reset status code 重置状态码
-		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
-		return newAPIError
+	var usageDto *dto.Usage
+	if forceUpstreamStreamForNonStream {
+		usage, newAPIError := openaichannel.OaiResponsesStreamToNonStreamHandler(c, info, httpResp)
+		if newAPIError != nil {
+			service.ResetStatusCode(newAPIError, statusCodeMappingStr)
+			return newAPIError
+		}
+		usageDto = usage
+	} else {
+		usage, newAPIError := adaptor.DoResponse(c, httpResp, info)
+		if newAPIError != nil {
+			// reset status code 重置状态码
+			service.ResetStatusCode(newAPIError, statusCodeMappingStr)
+			return newAPIError
+		}
+		usageDto = usage.(*dto.Usage)
 	}
-
-	usageDto := usage.(*dto.Usage)
 	if info.RelayMode == relayconstant.RelayModeResponsesCompact {
 		originModelName := info.OriginModelName
 		originPriceData := info.PriceData

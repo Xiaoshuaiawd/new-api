@@ -1,6 +1,8 @@
 package openai
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +18,55 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+type responsesStreamEventRaw struct {
+	Type     string          `json:"type"`
+	Response json.RawMessage `json:"response,omitempty"`
+}
+
+func setUsageFromResponses(usage *dto.Usage, responsesResponse *dto.OpenAIResponsesResponse) {
+	if usage == nil || responsesResponse == nil || responsesResponse.Usage == nil {
+		return
+	}
+	if responsesResponse.Usage.InputTokens != 0 {
+		usage.PromptTokens = responsesResponse.Usage.InputTokens
+	}
+	if responsesResponse.Usage.OutputTokens != 0 {
+		usage.CompletionTokens = responsesResponse.Usage.OutputTokens
+	}
+	if responsesResponse.Usage.TotalTokens != 0 {
+		usage.TotalTokens = responsesResponse.Usage.TotalTokens
+	}
+	if responsesResponse.Usage.InputTokensDetails != nil {
+		usage.PromptTokensDetails.CachedTokens = responsesResponse.Usage.InputTokensDetails.CachedTokens
+	}
+}
+
+func countBuiltInToolsFromResponsesObject(c *gin.Context, info *relaycommon.RelayInfo, responsesResponse *dto.OpenAIResponsesResponse) {
+	if c == nil || info == nil || responsesResponse == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
+		return
+	}
+	for _, tool := range responsesResponse.Tools {
+		buildToolinfo, ok := info.ResponsesUsageInfo.BuiltInTools[common.Interface2String(tool["type"])]
+		if !ok || buildToolinfo == nil {
+			logger.LogError(c, fmt.Sprintf("BuiltInTools not found for tool type: %v", tool["type"]))
+			continue
+		}
+		buildToolinfo.CallCount++
+	}
+}
+
+func countBuiltInToolFromStreamItem(info *relaycommon.RelayInfo, item *dto.ResponsesOutput) {
+	if info == nil || item == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
+		return
+	}
+	switch item.Type {
+	case dto.BuildInCallWebSearchCall:
+		if webSearchTool, exists := info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearchPreview]; exists && webSearchTool != nil {
+			webSearchTool.CallCount++
+		}
+	}
+}
 
 func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
@@ -45,27 +96,119 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 
 	// compute usage
 	usage := dto.Usage{}
-	if responsesResponse.Usage != nil {
-		usage.PromptTokens = responsesResponse.Usage.InputTokens
-		usage.CompletionTokens = responsesResponse.Usage.OutputTokens
-		usage.TotalTokens = responsesResponse.Usage.TotalTokens
-		if responsesResponse.Usage.InputTokensDetails != nil {
-			usage.PromptTokensDetails.CachedTokens = responsesResponse.Usage.InputTokensDetails.CachedTokens
-		}
+	setUsageFromResponses(&usage, &responsesResponse)
+	countBuiltInToolsFromResponsesObject(c, info, &responsesResponse)
+	return &usage, nil
+}
+
+func OaiResponsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	if resp == nil || resp.Body == nil {
+		logger.LogError(c, "invalid response or response body")
+		return nil, types.NewError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse)
 	}
-	if info == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
-		return &usage, nil
-	}
-	// 解析 Tools 用量
-	for _, tool := range responsesResponse.Tools {
-		buildToolinfo, ok := info.ResponsesUsageInfo.BuiltInTools[common.Interface2String(tool["type"])]
-		if !ok || buildToolinfo == nil {
-			logger.LogError(c, fmt.Sprintf("BuiltInTools not found for tool type: %v", tool["type"]))
+
+	defer service.CloseResponseBodyGracefully(resp)
+
+	usage := &dto.Usage{}
+	var responseTextBuilder strings.Builder
+	var completedResponseRaw []byte
+	var streamErr *types.NewAPIError
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64<<10), 64<<20)
+	scanner.Split(bufio.ScanLines)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
 			continue
 		}
-		buildToolinfo.CallCount++
+		if strings.HasPrefix(line, "[DONE]") {
+			break
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || strings.HasPrefix(data, "[DONE]") {
+			if strings.HasPrefix(data, "[DONE]") {
+				break
+			}
+			continue
+		}
+
+		info.SetFirstResponseTime()
+		info.ReceivedResponseCount++
+
+		var rawEvent responsesStreamEventRaw
+		if err := common.UnmarshalJsonStr(data, &rawEvent); err != nil {
+			logger.LogError(c, "failed to unmarshal responses stream raw event: "+err.Error())
+			continue
+		}
+
+		var streamResponse dto.ResponsesStreamResponse
+		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
+			logger.LogError(c, "failed to unmarshal responses stream response event: "+err.Error())
+			continue
+		}
+
+		switch streamResponse.Type {
+		case "response.output_text.delta":
+			responseTextBuilder.WriteString(streamResponse.Delta)
+		case "response.completed":
+			if len(rawEvent.Response) > 0 {
+				completedResponseRaw = append(completedResponseRaw[:0], rawEvent.Response...)
+			}
+			if streamResponse.Response != nil {
+				setUsageFromResponses(usage, streamResponse.Response)
+				countBuiltInToolsFromResponsesObject(c, info, streamResponse.Response)
+				if streamResponse.Response.HasImageGenerationCall() {
+					c.Set("image_generation_call", true)
+					c.Set("image_generation_call_quality", streamResponse.Response.GetQuality())
+					c.Set("image_generation_call_size", streamResponse.Response.GetSize())
+				}
+			}
+		case "response.error", "response.failed":
+			if streamResponse.Response != nil {
+				if oaiError := streamResponse.Response.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+					streamErr = types.WithOpenAIError(*oaiError, http.StatusInternalServerError)
+					break
+				}
+			}
+			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResponse.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+		}
+
+		if streamErr != nil {
+			break
+		}
 	}
-	return &usage, nil
+
+	if scanErr := scanner.Err(); scanErr != nil && streamErr == nil {
+		streamErr = types.NewOpenAIError(scanErr, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+	if streamErr != nil {
+		return nil, streamErr
+	}
+	if len(completedResponseRaw) == 0 {
+		return nil, types.NewOpenAIError(fmt.Errorf("responses stream missing response.completed"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	c.Data(http.StatusOK, "application/json", completedResponseRaw)
+
+	if usage.CompletionTokens == 0 {
+		tempStr := responseTextBuilder.String()
+		if len(tempStr) > 0 {
+			usage.CompletionTokens = service.CountTextToken(tempStr, info.UpstreamModelName)
+		}
+	}
+	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
+		usage.PromptTokens = info.GetEstimatePromptTokens()
+	}
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	return usage, nil
 }
 
 func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -88,20 +231,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			switch streamResponse.Type {
 			case "response.completed":
 				if streamResponse.Response != nil {
-					if streamResponse.Response.Usage != nil {
-						if streamResponse.Response.Usage.InputTokens != 0 {
-							usage.PromptTokens = streamResponse.Response.Usage.InputTokens
-						}
-						if streamResponse.Response.Usage.OutputTokens != 0 {
-							usage.CompletionTokens = streamResponse.Response.Usage.OutputTokens
-						}
-						if streamResponse.Response.Usage.TotalTokens != 0 {
-							usage.TotalTokens = streamResponse.Response.Usage.TotalTokens
-						}
-						if streamResponse.Response.Usage.InputTokensDetails != nil {
-							usage.PromptTokensDetails.CachedTokens = streamResponse.Response.Usage.InputTokensDetails.CachedTokens
-						}
-					}
+					setUsageFromResponses(usage, streamResponse.Response)
 					if streamResponse.Response.HasImageGenerationCall() {
 						c.Set("image_generation_call", true)
 						c.Set("image_generation_call_quality", streamResponse.Response.GetQuality())
@@ -112,17 +242,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 				// 处理输出文本
 				responseTextBuilder.WriteString(streamResponse.Delta)
 			case dto.ResponsesOutputTypeItemDone:
-				// 函数调用处理
-				if streamResponse.Item != nil {
-					switch streamResponse.Item.Type {
-					case dto.BuildInCallWebSearchCall:
-						if info != nil && info.ResponsesUsageInfo != nil && info.ResponsesUsageInfo.BuiltInTools != nil {
-							if webSearchTool, exists := info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearchPreview]; exists && webSearchTool != nil {
-								webSearchTool.CallCount++
-							}
-						}
-					}
-				}
+				countBuiltInToolFromStreamItem(info, streamResponse.Item)
 			}
 		} else {
 			logger.LogError(c, "failed to unmarshal stream response: "+err.Error())
