@@ -50,6 +50,8 @@ const (
 	RelayModeRealtime
 
 	RelayModeGemini
+
+	RelayModeResponsesCompact
 )
 
 func Path2RelayMode(path string) int {
@@ -73,6 +75,8 @@ func Path2RelayMode(path string) int {
 		relayMode = RelayModeImagesEdits
 	} else if strings.HasPrefix(path, "/v1/edits") {
 		relayMode = RelayModeEdits
+	} else if strings.HasPrefix(path, "/v1/responses/compact") {
+		relayMode = RelayModeResponsesCompact
 	} else if strings.HasPrefix(path, "/v1/responses") {
 		relayMode = RelayModeResponses
 	} else if strings.HasPrefix(path, "/v1/audio/speech") {

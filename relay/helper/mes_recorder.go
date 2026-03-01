@@ -369,16 +369,16 @@ func GetMESMessagesFromContext(c *gin.Context, info *relaycommon.RelayInfo) ([]m
 		return nil, fmt.Errorf("request not available for MES")
 	}
 
-	body, err := common.GetRequestBody(c)
-	if err != nil {
-		body = nil
+	var bodyBytes []byte
+	if bs, bsErr := common.GetBodyStorage(c); bsErr == nil && bs != nil {
+		bodyBytes, _ = bs.Bytes()
 	}
 
 	switch info.Request.(type) {
 	case *dto.GeneralOpenAIRequest:
 		var req dto.GeneralOpenAIRequest
-		if body != nil {
-			if err := common.Unmarshal(body, &req); err == nil {
+		if bodyBytes != nil {
+			if err := common.Unmarshal(bodyBytes, &req); err == nil {
 				return ConvertOpenAIMessagesToMES(req.Messages), nil
 			}
 		}
@@ -388,8 +388,8 @@ func GetMESMessagesFromContext(c *gin.Context, info *relaycommon.RelayInfo) ([]m
 		return nil, fmt.Errorf("failed to parse OpenAI request")
 	case *dto.OpenAIResponsesRequest:
 		var req dto.OpenAIResponsesRequest
-		if body != nil {
-			if err := common.Unmarshal(body, &req); err == nil {
+		if bodyBytes != nil {
+			if err := common.Unmarshal(bodyBytes, &req); err == nil {
 				return ConvertOpenAIResponsesToMES(&req), nil
 			}
 		}
@@ -399,8 +399,8 @@ func GetMESMessagesFromContext(c *gin.Context, info *relaycommon.RelayInfo) ([]m
 		return nil, fmt.Errorf("failed to parse OpenAI responses request")
 	case *dto.ClaudeRequest:
 		var req dto.ClaudeRequest
-		if body != nil {
-			if err := common.Unmarshal(body, &req); err == nil {
+		if bodyBytes != nil {
+			if err := common.Unmarshal(bodyBytes, &req); err == nil {
 				return ConvertClaudeMessagesToMES(&req), nil
 			}
 		}
@@ -410,8 +410,8 @@ func GetMESMessagesFromContext(c *gin.Context, info *relaycommon.RelayInfo) ([]m
 		return nil, fmt.Errorf("failed to parse Claude request")
 	case *dto.GeminiChatRequest:
 		var req dto.GeminiChatRequest
-		if body != nil {
-			if err := common.Unmarshal(body, &req); err == nil {
+		if bodyBytes != nil {
+			if err := common.Unmarshal(bodyBytes, &req); err == nil {
 				return ConvertGeminiMessagesToMES(&req), nil
 			}
 		}
@@ -421,8 +421,8 @@ func GetMESMessagesFromContext(c *gin.Context, info *relaycommon.RelayInfo) ([]m
 		return nil, fmt.Errorf("failed to parse Gemini request")
 	case *dto.ImageRequest:
 		var req dto.ImageRequest
-		if body != nil {
-			if err := common.Unmarshal(body, &req); err == nil {
+		if bodyBytes != nil {
+			if err := common.Unmarshal(bodyBytes, &req); err == nil {
 				return ConvertImageRequestToMES(&req), nil
 			}
 		}
