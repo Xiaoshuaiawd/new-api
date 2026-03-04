@@ -289,6 +289,9 @@ func migrateDB() error {
 			return err
 		}
 	}
+	if err := ensureAbilityRouteIndexes(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -357,7 +360,46 @@ func migrateDBFast() error {
 			return err
 		}
 	}
+	if err := ensureAbilityRouteIndexes(); err != nil {
+		return err
+	}
 	common.SysLog("database migrated")
+	return nil
+}
+
+func ensureAbilityRouteIndexes() error {
+	if common.UsingPostgreSQL {
+		// PostgreSQL partial index for the hot routing path (enabled abilities only).
+		// This avoids scanning disabled rows when the abilities table is large.
+		statements := []string{
+			`CREATE INDEX IF NOT EXISTS idx_abilities_route_enabled_pg ON abilities ("group", model, priority DESC, weight DESC, channel_id) WHERE enabled = true`,
+		}
+		for _, sql := range statements {
+			if err := DB.Exec(sql).Error; err != nil {
+				return err
+			}
+		}
+	} else if common.UsingMySQL {
+		// MySQL does not support partial indexes, so create a regular composite index.
+		// Use IF NOT EXISTS to avoid errors on repeated migrations (MySQL 8.0.29+).
+		// For older MySQL, the error is safely ignored.
+		sql := "CREATE INDEX idx_abilities_route ON abilities (`group`, model, enabled, priority, weight, channel_id)"
+		if err := DB.Exec(sql).Error; err != nil {
+			// Ignore "Duplicate key name" error — index already exists
+			if !strings.Contains(err.Error(), "Duplicate") {
+				return err
+			}
+		}
+	} else if common.UsingSQLite {
+		statements := []string{
+			`CREATE INDEX IF NOT EXISTS idx_abilities_route ON abilities ("group", model, enabled, priority, weight, channel_id)`,
+		}
+		for _, sql := range statements {
+			if err := DB.Exec(sql).Error; err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
