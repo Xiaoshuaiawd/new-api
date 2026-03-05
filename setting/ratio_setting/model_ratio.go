@@ -8,6 +8,15 @@ import (
 	"github.com/QuantumNous/new-api/types"
 )
 
+var gpt5ReasoningEffortSuffixes = []string{
+	"-xhigh",
+	"-high",
+	"-medium",
+	"-low",
+	"-minimal",
+	"-none",
+}
+
 // from songquanpeng/one-api
 const (
 	USD2RMB = 7.3 // 暂定 1 USD = 7.3 RMB
@@ -658,6 +667,14 @@ func GetCompletionRatioCopy() map[string]float64 {
 
 // 转换模型名，减少渠道必须配置各种带参数模型
 func FormatMatchingModelName(name string) string {
+	if strings.HasPrefix(name, "gpt-5") {
+		for _, suffix := range gpt5ReasoningEffortSuffixes {
+			if strings.HasSuffix(name, suffix) {
+				name = strings.TrimSuffix(name, suffix)
+				break
+			}
+		}
+	}
 
 	if strings.HasPrefix(name, "gemini-2.5-flash-lite") {
 		name = handleThinkingBudgetModel(name, "gemini-2.5-flash-lite", "gemini-2.5-flash-lite-thinking-*")
