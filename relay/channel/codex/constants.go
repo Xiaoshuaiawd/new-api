@@ -11,9 +11,21 @@ var baseModelList = []string{
 	"gpt-5.2", "gpt-5.2-codex", "gpt-5.3-codex",
 }
 
-var ModelList = withCompactModelSuffix(baseModelList)
+var ModelList = withCompactModelSuffix(withReasoningEffortModelSuffix(baseModelList))
 
 const ChannelName = "codex"
+
+func withReasoningEffortModelSuffix(models []string) []string {
+	efforts := []string{"low", "medium", "high", "xhigh"}
+	out := make([]string, 0, len(models)*(len(efforts)+1))
+	out = append(out, models...)
+	for _, effort := range efforts {
+		out = append(out, lo.Map(models, func(model string, _ int) string {
+			return model + "-" + effort
+		})...)
+	}
+	return lo.Uniq(out)
+}
 
 func withCompactModelSuffix(models []string) []string {
 	out := make([]string, 0, len(models)*2)

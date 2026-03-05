@@ -21,6 +21,17 @@ import (
 type Adaptor struct {
 }
 
+func parseCodexReasoningEffortFromModelSuffix(model string) (string, string) {
+	// Keep Codex effort suffixes aligned with requested compatibility behavior.
+	for _, effort := range []string{"xhigh", "high", "medium", "low"} {
+		suffix := "-" + effort
+		if strings.HasSuffix(model, suffix) {
+			return effort, strings.TrimSuffix(model, suffix)
+		}
+	}
+	return "", model
+}
+
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
 	return nil, errors.New("codex channel: endpoint not supported")
 }
@@ -54,6 +65,20 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
 	isCompact := info != nil && info.RelayMode == relayconstant.RelayModeResponsesCompact
+
+	// Support model suffix effort presets, e.g. gpt-5.2-codex-xhigh.
+	// When suffix is present, convert it into Responses API reasoning object.
+	effort, originModel := parseCodexReasoningEffortFromModelSuffix(request.Model)
+	if effort != "" {
+		request.Model = originModel
+		request.Reasoning = &dto.Reasoning{
+			Effort:  effort,
+			Summary: "auto",
+		}
+	}
+	if info != nil && request.Reasoning != nil && request.Reasoning.Effort != "" {
+		info.ReasoningEffort = request.Reasoning.Effort
+	}
 
 	if info != nil && info.ChannelSetting.SystemPrompt != "" {
 		systemPrompt := info.ChannelSetting.SystemPrompt
