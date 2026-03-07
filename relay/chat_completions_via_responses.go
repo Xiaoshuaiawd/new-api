@@ -101,7 +101,8 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	if forceUpstreamStreamForNonStream {
 		// Codex upstream currently rejects non-stream responses on /responses.
 		// Force upstream stream and aggregate it back to one non-stream response.
-		responsesReq.Stream = true
+		t := true
+		responsesReq.Stream = &t
 	}
 	info.AppendRequestConversion(types.RelayFormatOpenAIResponses)
 

@@ -167,8 +167,8 @@ func ThinkingAdaptor(geminiRequest *dto.GeminiChatRequest, info *relaycommon.Rel
 				geminiRequest.GenerationConfig.ThinkingConfig = &dto.GeminiThinkingConfig{
 					IncludeThoughts: true,
 				}
-				if geminiRequest.GenerationConfig.MaxOutputTokens > 0 {
-					budgetTokens := model_setting.GetGeminiSettings().ThinkingAdapterBudgetTokensPercentage * float64(geminiRequest.GenerationConfig.MaxOutputTokens)
+				if geminiRequest.GenerationConfig.MaxOutputTokens != nil && *geminiRequest.GenerationConfig.MaxOutputTokens > 0 {
+					budgetTokens := model_setting.GetGeminiSettings().ThinkingAdapterBudgetTokensPercentage * float64(*geminiRequest.GenerationConfig.MaxOutputTokens)
 					clampedBudget := clampThinkingBudget(modelName, int(budgetTokens))
 					geminiRequest.GenerationConfig.ThinkingConfig.ThinkingBudget = common.GetPointer(clampedBudget)
 				} else {
@@ -200,11 +200,26 @@ func CovertOpenAI2Gemini(c *gin.Context, textRequest dto.GeneralOpenAIRequest, i
 	geminiRequest := dto.GeminiChatRequest{
 		Contents: make([]dto.GeminiChatContent, 0, len(textRequest.Messages)),
 		GenerationConfig: dto.GeminiChatGenerationConfig{
-			Temperature:     textRequest.Temperature,
-			TopP:            textRequest.TopP,
-			MaxOutputTokens: textRequest.GetMaxTokens(),
-			Seed:            int64(textRequest.Seed),
+			Temperature: textRequest.Temperature,
 		},
+	}
+
+	// 安全处理 Stop 字段
+	if textRequest.Stop != nil {
+		switch v := textRequest.Stop.(type) {
+		case string:
+			geminiRequest.GenerationConfig.StopSequences = []string{v}
+		case []string:
+			geminiRequest.GenerationConfig.StopSequences = v
+		case []interface{}:
+			stopSequences := make([]string, 0, len(v))
+			for _, stop := range v {
+				if str, ok := stop.(string); ok {
+					stopSequences = append(stopSequences, str)
+				}
+			}
+			geminiRequest.GenerationConfig.StopSequences = stopSequences
+		}
 	}
 
 	// 安全处理 Stop 字段

@@ -66,7 +66,8 @@ func ResponsesHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	if forceUpstreamStreamForNonStream {
 		// Codex upstream currently may reject non-stream /responses.
 		// Force upstream streaming and aggregate to one non-stream JSON response.
-		request.Stream = true
+		t := true
+		request.Stream = &t
 	}
 
 	err = helper.ModelMappedHelper(c, info, request)
