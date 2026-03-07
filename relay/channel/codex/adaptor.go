@@ -95,12 +95,12 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	if len(request.Instructions) == 0 {
 		request.Instructions = json.RawMessage(`""`)
 	}
-	// codex: store must be false
-	request.Store = json.RawMessage("false")
 
 	if isCompact {
 		return request, nil
 	}
+	// codex: store must be false
+	request.Store = json.RawMessage("false")
 	// rm max_output_tokens
 	request.MaxOutputTokens = nil
 	request.Temperature = nil
