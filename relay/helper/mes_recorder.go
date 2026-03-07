@@ -272,8 +272,8 @@ func ConvertImageRequestToMES(request *dto.ImageRequest) []map[string]interface{
 	if request.Quality != "" {
 		content["quality"] = request.Quality
 	}
-	if request.N > 0 {
-		content["n"] = request.N
+	if request.N != nil {
+		content["n"] = *request.N
 	}
 
 	return []map[string]interface{}{
