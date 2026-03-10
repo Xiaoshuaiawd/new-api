@@ -273,7 +273,13 @@ func sendResponsesStreamData(c *gin.Context, info *relaycommon.RelayInfo, stream
 }
 
 func mappedResponseModel(info *relaycommon.RelayInfo) (string, bool) {
-	if info == nil || !info.IsModelMapped || info.UpstreamModelName == "" {
+	if info == nil || !info.IsModelMapped {
+		return "", false
+	}
+	if info.OriginModelName != "" {
+		return info.OriginModelName, true
+	}
+	if info.UpstreamModelName == "" {
 		return "", false
 	}
 	return info.UpstreamModelName, true
