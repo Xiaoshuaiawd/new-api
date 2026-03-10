@@ -84,6 +84,18 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
+	if mappedModel, ok := mappedResponseModel(info); ok {
+		responsesResponse.Model = mappedModel
+		var bodyMap map[string]interface{}
+		if err := common.Unmarshal(responseBody, &bodyMap); err == nil {
+			bodyMap["model"] = mappedModel
+			if jsonBytes, err := common.Marshal(bodyMap); err == nil {
+				responseBody = jsonBytes
+			}
+		} else if jsonBytes, err := common.Marshal(responsesResponse); err == nil {
+			responseBody = jsonBytes
+		}
+	}
 
 	if responsesResponse.HasImageGenerationCall() {
 		c.Set("image_generation_call", true)
@@ -193,6 +205,23 @@ func OaiResponsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.Rela
 	if len(completedResponseRaw) == 0 {
 		return nil, types.NewOpenAIError(fmt.Errorf("responses stream missing response.completed"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
+	if mappedModel, ok := mappedResponseModel(info); ok {
+		var bodyMap map[string]interface{}
+		if err := common.Unmarshal(completedResponseRaw, &bodyMap); err == nil {
+			bodyMap["model"] = mappedModel
+			if jsonBytes, err := common.Marshal(bodyMap); err == nil {
+				completedResponseRaw = jsonBytes
+			}
+		} else {
+			var respObj dto.OpenAIResponsesResponse
+			if err := common.Unmarshal(completedResponseRaw, &respObj); err == nil {
+				respObj.Model = mappedModel
+				if jsonBytes, err := common.Marshal(respObj); err == nil {
+					completedResponseRaw = jsonBytes
+				}
+			}
+		}
+	}
 
 	c.Data(http.StatusOK, "application/json", completedResponseRaw)
 
@@ -227,7 +256,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		// 检查当前数据是否包含 completed 状态和 usage 信息
 		var streamResponse dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err == nil {
-			sendResponsesStreamData(c, streamResponse, data)
+			sendResponsesStreamData(c, info, streamResponse, data)
 			switch streamResponse.Type {
 			case "response.completed":
 				if streamResponse.Response != nil {

@@ -49,6 +49,7 @@ export default function GeneralSettings(props) {
     'general_setting.quota_display_type': 'USD',
     'general_setting.custom_currency_symbol': '¤',
     'general_setting.custom_currency_exchange_rate': '',
+    'general_setting.log_model_mapping_enabled': true,
     QuotaPerUnit: '',
     RetryTimes: '',
     USDExchangeRate: '',
@@ -285,6 +286,18 @@ export default function GeneralSettings(props) {
                   checkedText='｜'
                   uncheckedText='〇'
                   onChange={handleFieldChange('SelfUseModeEnabled')}
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'general_setting.log_model_mapping_enabled'}
+                  label={t('日志显示模型映射')}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  onChange={handleFieldChange(
+                    'general_setting.log_model_mapping_enabled',
+                  )}
                 />
               </Col>
             </Row>
