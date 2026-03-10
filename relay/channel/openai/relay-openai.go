@@ -28,12 +28,17 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 	}
 
 	if !forceFormat && !thinkToContent {
-		return helper.StringData(c, data)
+		if _, ok := mappedResponseModel(info); !ok {
+			return helper.StringData(c, data)
+		}
 	}
 
 	var lastStreamResponse dto.ChatCompletionsStreamResponse
 	if err := common.UnmarshalJsonStr(data, &lastStreamResponse); err != nil {
 		return err
+	}
+	if mappedModel, ok := mappedResponseModel(info); ok {
+		lastStreamResponse.Model = mappedModel
 	}
 
 	if !thinkToContent {
@@ -169,6 +174,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		&containStreamUsage, info, &shouldSendLastResp); err != nil {
 		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
 	}
+	if mappedModel, ok := mappedResponseModel(info); ok {
+		model = mappedModel
+	}
 
 	if info.RelayFormat == types.RelayFormatOpenAI {
 		if shouldSendLastResp {
@@ -224,6 +232,10 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
+	mappedModel, hasMappedModel := mappedResponseModel(info)
+	if hasMappedModel {
+		simpleResponse.Model = mappedModel
+	}
 
 	if oaiError := simpleResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
@@ -269,6 +281,9 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 				return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 			}
 			bodyMap["usage"] = simpleResponse.Usage
+			if hasMappedModel {
+				bodyMap["model"] = mappedModel
+			}
 			responseBody, _ = common.Marshal(bodyMap)
 		}
 		if forceFormat {
@@ -277,6 +292,15 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 			}
 		} else {
+			if hasMappedModel && !usageModified {
+				var bodyMap map[string]interface{}
+				if mapErr := common.Unmarshal(responseBody, &bodyMap); mapErr == nil {
+					bodyMap["model"] = mappedModel
+					responseBody, _ = common.Marshal(bodyMap)
+				} else {
+					responseBody, _ = common.Marshal(simpleResponse)
+				}
+			}
 			break
 		}
 	case types.RelayFormatClaude:

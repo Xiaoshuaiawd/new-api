@@ -38,6 +38,9 @@ func handleClaudeFormat(c *gin.Context, data string, info *relaycommon.RelayInfo
 	if err := common.Unmarshal(common.StringToByteSlice(data), &streamResponse); err != nil {
 		return err
 	}
+	if mappedModel, ok := mappedResponseModel(info); ok {
+		streamResponse.Model = mappedModel
+	}
 
 	if streamResponse.Usage != nil {
 		info.ClaudeConvertInfo.Usage = streamResponse.Usage
@@ -54,6 +57,9 @@ func handleGeminiFormat(c *gin.Context, data string, info *relaycommon.RelayInfo
 	if err := common.Unmarshal(common.StringToByteSlice(data), &streamResponse); err != nil {
 		logger.LogError(c, "failed to unmarshal stream response: "+err.Error())
 		return err
+	}
+	if mappedModel, ok := mappedResponseModel(info); ok {
+		streamResponse.Model = mappedModel
 	}
 
 	geminiResponse := service.StreamResponseOpenAI2Gemini(&streamResponse, info)
@@ -253,9 +259,22 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 	}
 }
 
-func sendResponsesStreamData(c *gin.Context, streamResponse dto.ResponsesStreamResponse, data string) {
+func sendResponsesStreamData(c *gin.Context, info *relaycommon.RelayInfo, streamResponse dto.ResponsesStreamResponse, data string) {
 	if data == "" {
 		return
 	}
+	if mappedModel, ok := mappedResponseModel(info); ok && streamResponse.Response != nil {
+		streamResponse.Response.Model = mappedModel
+		if jsonBytes, err := common.Marshal(streamResponse); err == nil {
+			data = string(jsonBytes)
+		}
+	}
 	helper.ResponseChunkData(c, streamResponse, data)
+}
+
+func mappedResponseModel(info *relaycommon.RelayInfo) (string, bool) {
+	if info == nil || !info.IsModelMapped || info.UpstreamModelName == "" {
+		return "", false
+	}
+	return info.UpstreamModelName, true
 }

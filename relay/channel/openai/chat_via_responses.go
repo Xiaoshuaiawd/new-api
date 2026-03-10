@@ -21,14 +21,14 @@ import (
 )
 
 type chatCompletionsNonStreamResponse struct {
-	ID                string                             `json:"id"`
-	Object            string                             `json:"object"`
-	Created           int64                              `json:"created"`
-	Model             string                             `json:"model"`
-	Choices           []chatCompletionsNonStreamChoice   `json:"choices"`
-	Usage             chatCompletionsNonStreamUsage      `json:"usage"`
-	ServiceTier       string                             `json:"service_tier"`
-	SystemFingerprint *string                            `json:"system_fingerprint"`
+	ID                string                           `json:"id"`
+	Object            string                           `json:"object"`
+	Created           int64                            `json:"created"`
+	Model             string                           `json:"model"`
+	Choices           []chatCompletionsNonStreamChoice `json:"choices"`
+	Usage             chatCompletionsNonStreamUsage    `json:"usage"`
+	ServiceTier       string                           `json:"service_tier"`
+	SystemFingerprint *string                          `json:"system_fingerprint"`
 }
 
 type chatCompletionsNonStreamChoice struct {
@@ -161,6 +161,9 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	chatResp, usage, err := service.ResponsesResponseToChatCompletionsResponse(&responsesResp, chatId)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+	if mappedModel, ok := mappedResponseModel(info); ok {
+		chatResp.Model = mappedModel
 	}
 
 	if usage == nil || usage.TotalTokens == 0 {
@@ -314,6 +317,10 @@ func OaiResponsesStreamToChatHandler(c *gin.Context, info *relaycommon.RelayInfo
 	responseID := helper.GetResponseID(c)
 	createAt := time.Now().Unix()
 	model := info.UpstreamModelName
+	mappedModel, hasMappedModel := mappedResponseModel(info)
+	if hasMappedModel {
+		model = mappedModel
+	}
 
 	usage := &dto.Usage{}
 	var outputText strings.Builder
@@ -372,7 +379,7 @@ func OaiResponsesStreamToChatHandler(c *gin.Context, info *relaycommon.RelayInfo
 		switch streamResp.Type {
 		case "response.created":
 			if streamResp.Response != nil {
-				if streamResp.Response.Model != "" {
+				if !hasMappedModel && streamResp.Response.Model != "" {
 					model = streamResp.Response.Model
 				}
 				if streamResp.Response.CreatedAt != 0 {
@@ -436,7 +443,7 @@ func OaiResponsesStreamToChatHandler(c *gin.Context, info *relaycommon.RelayInfo
 		case "response.completed":
 			if streamResp.Response != nil {
 				completedResponse = streamResp.Response
-				if streamResp.Response.Model != "" {
+				if !hasMappedModel && streamResp.Response.Model != "" {
 					model = streamResp.Response.Model
 				}
 				if streamResp.Response.CreatedAt != 0 {
@@ -476,6 +483,9 @@ func OaiResponsesStreamToChatHandler(c *gin.Context, info *relaycommon.RelayInfo
 			Model:     model,
 			Usage:     usage,
 		}
+	}
+	if hasMappedModel {
+		responsesResp.Model = model
 	}
 	if responsesResp.Model == "" {
 		responsesResp.Model = model
@@ -568,6 +578,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	responseId := helper.GetResponseID(c)
 	createAt := time.Now().Unix()
 	model := info.UpstreamModelName
+	mappedModel, hasMappedModel := mappedResponseModel(info)
+	if hasMappedModel {
+		model = mappedModel
+	}
 
 	var (
 		usage       = &dto.Usage{}
@@ -778,7 +792,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		switch streamResp.Type {
 		case "response.created":
 			if streamResp.Response != nil {
-				if streamResp.Response.Model != "" {
+				if !hasMappedModel && streamResp.Response.Model != "" {
 					model = streamResp.Response.Model
 				}
 				if streamResp.Response.CreatedAt != 0 {
@@ -903,7 +917,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 		case "response.completed":
 			if streamResp.Response != nil {
-				if streamResp.Response.Model != "" {
+				if !hasMappedModel && streamResp.Response.Model != "" {
 					model = streamResp.Response.Model
 				}
 				if streamResp.Response.CreatedAt != 0 {
