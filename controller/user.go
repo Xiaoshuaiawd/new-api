@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/QuantumNous/new-api/constant"
 
@@ -322,6 +323,10 @@ type TransferAffQuotaRequest struct {
 }
 
 func TransferAffQuota(c *gin.Context) {
+	if operation_setting.SubscriptionOnlyModeEnabled {
+		common.ApiErrorMsg(c, "当前为订阅模式，余额划转已关闭")
+		return
+	}
 	id := c.GetInt("id")
 	user, err := model.GetUserById(id, true)
 	if err != nil {
@@ -1014,6 +1019,36 @@ func TopUp(c *gin.Context) {
 	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	// subscription-only mode: only subscription redemption codes are accepted
+	if operation_setting.SubscriptionOnlyModeEnabled {
+		sub, plan, subErr := model.RedeemSubscription(req.Key, id)
+		if subErr != nil {
+			if errors.Is(subErr, model.ErrRedemptionQuotaOnly) {
+				common.ApiErrorMsg(c, "当前仅支持订阅兑换，请使用订阅兑换码")
+				return
+			}
+			if errors.Is(subErr, gorm.ErrRecordNotFound) {
+				common.ApiErrorI18n(c, i18n.MsgRedemptionPlanNotExists)
+				return
+			}
+			if errors.Is(subErr, model.ErrRedeemFailed) {
+				common.ApiErrorI18n(c, i18n.MsgRedeemFailed)
+				return
+			}
+			common.ApiError(c, subErr)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "",
+			"data": gin.H{
+				"type":         "subscription",
+				"subscription": sub,
+				"plan":         plan,
+			},
+		})
 		return
 	}
 	quota, err := model.Redeem(req.Key, id)

@@ -22,7 +22,19 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// return true if request should short-circuit in subscription-only mode
+func subscriptionOnlyGuard(c *gin.Context) bool {
+	if operation_setting.SubscriptionOnlyModeEnabled {
+		common.ApiErrorMsg(c, "当前仅支持订阅，请前往订阅页面购买或兑换订阅套餐")
+		return true
+	}
+	return false
+}
+
 func GetTopUpInfo(c *gin.Context) {
+	if subscriptionOnlyGuard(c) {
+		return
+	}
 	// 获取支付方式
 	payMethods := operation_setting.PayMethods
 
@@ -126,6 +138,9 @@ func getMinTopup() int64 {
 }
 
 func RequestEpay(c *gin.Context) {
+	if subscriptionOnlyGuard(c) {
+		return
+	}
 	var req EpayRequest
 	err := c.ShouldBindJSON(&req)
 	if err != nil {
@@ -313,6 +328,9 @@ func EpayNotify(c *gin.Context) {
 }
 
 func RequestAmount(c *gin.Context) {
+	if subscriptionOnlyGuard(c) {
+		return
+	}
 	var req AmountRequest
 	err := c.ShouldBindJSON(&req)
 	if err != nil {

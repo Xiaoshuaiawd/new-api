@@ -66,6 +66,9 @@ type CreemAdaptor struct {
 }
 
 func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
+	if subscriptionOnlyGuard(c) {
+		return
+	}
 	if req.PaymentMethod != PaymentMethodCreem {
 		c.JSON(200, gin.H{"message": "error", "data": "不支持的支付渠道"})
 		return
@@ -143,6 +146,9 @@ func (*CreemAdaptor) RequestPay(c *gin.Context, req *CreemPayRequest) {
 }
 
 func RequestCreemPay(c *gin.Context) {
+	if subscriptionOnlyGuard(c) {
+		return
+	}
 	var req CreemPayRequest
 
 	// 读取body内容用于打印，同时保留原始数据供后续使用

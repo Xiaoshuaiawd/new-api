@@ -94,6 +94,7 @@ const RechargeCard = ({
   activeSubscriptions = [],
   allSubscriptions = [],
   reloadSubscriptionSelf,
+  subscriptionOnlyModeEnabled = false,
 }) => {
   const onlineFormApiRef = useRef(null);
   const redeemFormApiRef = useRef(null);
@@ -101,7 +102,8 @@ const RechargeCard = ({
   const showAmountSkeleton = useMinimumLoadingTime(amountLoading);
   const [activeTab, setActiveTab] = useState('topup');
   const shouldShowSubscription =
-    !subscriptionLoading && subscriptionPlans.length > 0;
+    subscriptionOnlyModeEnabled ||
+    (!subscriptionLoading && subscriptionPlans.length > 0);
 
   useEffect(() => {
     if (initialTabSetRef.current) return;
@@ -577,6 +579,57 @@ const RechargeCard = ({
       </Card>
     </Space>
   );
+
+  // 订阅专用模式：只渲染订阅卡片
+  if (subscriptionOnlyModeEnabled) {
+    return (
+      <Card className='!rounded-2xl shadow-sm border-0'>
+        <div className='flex items-center justify-between mb-4'>
+          <div className='flex items-center'>
+            <Avatar size='small' color='blue' className='mr-3 shadow-md'>
+              <Sparkles size={16} />
+            </Avatar>
+            <div>
+              <Typography.Text className='text-lg font-medium'>
+                {t('订阅套餐')}
+              </Typography.Text>
+              <div className='text-xs'>{t('当前仅支持订阅模式')}</div>
+            </div>
+          </div>
+          <Button
+            icon={<Receipt size={16} />}
+            theme='solid'
+            onClick={onOpenHistory}
+          >
+            {t('账单')}
+          </Button>
+        </div>
+        <div className='py-2'>
+          <SubscriptionPlansCard
+            t={t}
+            loading={subscriptionLoading}
+            plans={subscriptionPlans}
+            payMethods={payMethods}
+            enableOnlineTopUp={false}
+            enableStripeTopUp={enableStripeTopUp}
+            enableCreemTopUp={enableCreemTopUp}
+            billingPreference={billingPreference}
+            onChangeBillingPreference={onChangeBillingPreference}
+            activeSubscriptions={activeSubscriptions}
+            allSubscriptions={allSubscriptions}
+            reloadSubscriptionSelf={reloadSubscriptionSelf}
+            redemptionCode={redemptionCode}
+            setRedemptionCode={setRedemptionCode}
+            onRedeem={topUp}
+            redeeming={isSubmitting}
+            topUpLink={topUpLink}
+            openTopUpLink={openTopUpLink}
+            withCard={false}
+          />
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card className='!rounded-2xl shadow-sm border-0'>

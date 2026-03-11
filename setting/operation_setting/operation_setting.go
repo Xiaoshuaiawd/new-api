@@ -5,6 +5,12 @@ import "strings"
 var DemoSiteEnabled = false
 var SelfUseModeEnabled = false
 
+// SubscriptionOnlyModeEnabled toggles wallet-based balance features off and enforces subscription-first UX.
+var SubscriptionOnlyModeEnabled = false
+
+// SubscriptionOnlyModeEnabled toggles wallet/balance features off and forces subscription-only billing UX
+var SubscriptionOnlyModeEnabled = false
+
 var AutomaticDisableKeywords = []string{
 	"Your credit balance is too low",
 	"This organization has been disabled.",

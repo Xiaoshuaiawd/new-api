@@ -43,6 +43,8 @@ const TopUp = () => {
   const { t } = useTranslation();
   const [userState, userDispatch] = useContext(UserContext);
   const [statusState] = useContext(StatusContext);
+  const subscriptionOnlyModeEnabled =
+    statusState?.status?.subscription_only_mode_enabled;
 
   const [redemptionCode, setRedemptionCode] = useState('');
   const [amount, setAmount] = useState(0.0);
@@ -162,6 +164,7 @@ const TopUp = () => {
   };
 
   const preTopUp = async (payment) => {
+    if (subscriptionOnlyModeEnabled) return;
     if (payment === 'stripe') {
       if (!enableStripeTopUp) {
         showError(t('管理员未开启Stripe充值！'));
@@ -394,6 +397,10 @@ const TopUp = () => {
 
   // 获取充值配置信息
   const getTopupInfo = async () => {
+    if (subscriptionOnlyModeEnabled) {
+      setStatusLoading(false);
+      return;
+    }
     try {
       const res = await API.get('/api/user/topup/info');
       const { message, data, success } = res.data;
@@ -557,7 +564,11 @@ const TopUp = () => {
 
   // 在 statusState 可用时获取充值信息
   useEffect(() => {
-    getTopupInfo().then();
+    if (!subscriptionOnlyModeEnabled) {
+      getTopupInfo().then();
+    } else {
+      setStatusLoading(false);
+    }
     getSubscriptionPlans().then();
     getSubscriptionSelf().then();
   }, []);
@@ -579,6 +590,7 @@ const TopUp = () => {
   };
 
   const getAmount = async (value) => {
+    if (subscriptionOnlyModeEnabled) return;
     if (value === undefined) {
       value = topUpCount;
     }
@@ -605,6 +617,7 @@ const TopUp = () => {
   };
 
   const getStripeAmount = async (value) => {
+    if (subscriptionOnlyModeEnabled) return;
     if (value === undefined) {
       value = topUpCount;
     }
@@ -787,6 +800,7 @@ const TopUp = () => {
           activeSubscriptions={activeSubscriptions}
           allSubscriptions={allSubscriptions}
           reloadSubscriptionSelf={getSubscriptionSelf}
+          subscriptionOnlyModeEnabled={subscriptionOnlyModeEnabled}
         />
         <InvitationCard
           t={t}

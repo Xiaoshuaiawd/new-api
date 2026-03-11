@@ -56,6 +56,7 @@ export default function GeneralSettings(props) {
     DefaultCollapseSidebar: false,
     DemoSiteEnabled: false,
     SelfUseModeEnabled: false,
+    SubscriptionOnlyModeEnabled: false,
     'token_setting.max_user_tokens': 1000,
   });
   const refForm = useRef();
@@ -285,6 +286,17 @@ export default function GeneralSettings(props) {
                   checkedText='｜'
                   uncheckedText='〇'
                   onChange={handleFieldChange('SelfUseModeEnabled')}
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'SubscriptionOnlyModeEnabled'}
+                  label={t('订阅专用模式')}
+                  extraText={t('关闭钱包充值、签到等余额相关功能，仅保留订阅')}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  onChange={handleFieldChange('SubscriptionOnlyModeEnabled')}
                 />
               </Col>
             </Row>

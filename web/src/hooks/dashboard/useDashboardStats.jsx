@@ -41,9 +41,65 @@ export const useDashboardStats = (
   performanceMetrics,
   navigate,
   t,
+  subscriptionOnlyModeEnabled,
+  subscriptionInfo,
 ) => {
-  const groupedStatsData = useMemo(
-    () => [
+  const groupedStatsData = useMemo(() => {
+    if (subscriptionOnlyModeEnabled) {
+      const activeSubs = subscriptionInfo?.active || [];
+      const currentSub = activeSubs.find((s) => s?.subscription)?.subscription;
+      const total = currentSub?.amount_total || 0;
+      const used = currentSub?.amount_used || 0;
+      const remaining =
+        total > 0 ? Math.max(total - used, 0) : Number.POSITIVE_INFINITY;
+      const nextReset = currentSub?.next_reset_time || 0;
+      const endTime = currentSub?.end_time || 0;
+      const formatTime = (ts) => {
+        if (!ts) return t('不重置');
+        const d = new Date(ts * 1000);
+        return d.toLocaleString();
+      };
+      return [
+        {
+          title: createSectionTitle(Wallet, t('订阅数据')),
+          color: 'bg-blue-50',
+          items: [
+            {
+              title: t('订阅剩余额度'),
+              value:
+                remaining === Number.POSITIVE_INFINITY
+                  ? t('无限')
+                  : renderQuota(remaining),
+              icon: <IconMoneyExchangeStroked />,
+              avatarColor: 'blue',
+              trendData: [],
+              trendColor: '#3b82f6',
+              onClick: () => navigate('/topup'),
+            },
+            {
+              title: t('下次刷新时间'),
+              value: formatTime(nextReset),
+              icon: <IconStopwatchStroked />,
+              avatarColor: 'indigo',
+              trendData: [],
+              trendColor: '#6366f1',
+              onClick: () => navigate('/topup'),
+            },
+            {
+              title: t('订阅到期时间'),
+              value: endTime ? formatTime(endTime) : t('无到期时间'),
+              icon: <IconHistogram />,
+              avatarColor: 'purple',
+              trendData: [],
+              trendColor: '#8b5cf6',
+              onClick: () => navigate('/topup'),
+            },
+          ],
+        },
+      ];
+    }
+
+    return [
       {
         title: createSectionTitle(Wallet, t('账户数据')),
         color: 'bg-blue-50',
@@ -133,19 +189,21 @@ export const useDashboardStats = (
         ],
       },
     ],
-    [
-      userState?.user?.quota,
-      userState?.user?.used_quota,
-      userState?.user?.request_count,
-      times,
-      consumeQuota,
-      consumeTokens,
-      trendData,
-      performanceMetrics,
-      navigate,
-      t,
-    ],
-  );
+    ];
+  }, [
+    subscriptionOnlyModeEnabled,
+    subscriptionInfo,
+    userState?.user?.quota,
+    userState?.user?.used_quota,
+    userState?.user?.request_count,
+    times,
+    consumeQuota,
+    consumeTokens,
+    trendData,
+    performanceMetrics,
+    navigate,
+    t,
+  ]);
 
   return {
     groupedStatsData,

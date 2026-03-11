@@ -2462,6 +2462,8 @@
     "自定义错误响应": "",
     "自定义镜像": "Custom Image",
     "自用模式": "Self-use mode",
+    "订阅专用模式": "Subscription-only mode",
+    "关闭钱包充值、签到等余额相关功能，仅保留订阅": "Disable wallet top-up, check-in and other balance features; keep subscriptions only.",
     "自适应列表": "Adaptive list",
     "至": "until",
     "节省": "Save",
@@ -3299,6 +3301,13 @@
     "5m缓存创建：{{tokens}} / 1M * 模型倍率 {{modelRatio}} * 5m缓存创建倍率 {{cacheCreationRatio5m}} * {{ratioType}} {{ratio}} = {{amount}}": "5m cache creation: {{tokens}} / 1M * model ratio {{modelRatio}} * 5m cache creation ratio {{cacheCreationRatio5m}} * {{ratioType}} {{ratio}} = {{amount}}",
     "1h缓存创建：{{tokens}} / 1M * 模型倍率 {{modelRatio}} * 1h缓存创建倍率 {{cacheCreationRatio1h}} * {{ratioType}} {{ratio}} = {{amount}}": "1h cache creation: {{tokens}} / 1M * model ratio {{modelRatio}} * 1h cache creation ratio {{cacheCreationRatio1h}} * {{ratioType}} {{ratio}} = {{amount}}",
     "输出：{{tokens}} / 1M * 模型倍率 {{modelRatio}} * 输出倍率 {{completionRatio}} * {{ratioType}} {{ratio}} = {{amount}}": "Output: {{tokens}} / 1M * model ratio {{modelRatio}} * output ratio {{completionRatio}} * {{ratioType}} {{ratio}} = {{amount}}",
+    "订阅数据": "Subscription Data",
+    "订阅剩余额度": "Remaining Subscription Quota",
+    "下次刷新时间": "Next Reset Time",
+    "订阅到期时间": "Subscription Expiration",
+    "无到期时间": "No expiration",
+    "当前仅支持订阅模式": "Subscription-only mode is enabled",
+    "无限": "Unlimited",
     "空": "Empty"
   }
 }

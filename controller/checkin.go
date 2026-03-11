@@ -14,6 +14,10 @@ import (
 
 // GetCheckinStatus 获取用户签到状态和历史记录
 func GetCheckinStatus(c *gin.Context) {
+	if operation_setting.SubscriptionOnlyModeEnabled {
+		common.ApiErrorMsg(c, "当前仅支持订阅模式，签到奖励已关闭")
+		return
+	}
 	setting := operation_setting.GetCheckinSetting()
 	if !setting.Enabled {
 		common.ApiErrorMsg(c, "签到功能未启用")
@@ -45,6 +49,10 @@ func GetCheckinStatus(c *gin.Context) {
 
 // DoCheckin 执行用户签到
 func DoCheckin(c *gin.Context) {
+	if operation_setting.SubscriptionOnlyModeEnabled {
+		common.ApiErrorMsg(c, "当前仅支持订阅模式，签到奖励已关闭")
+		return
+	}
 	setting := operation_setting.GetCheckinSetting()
 	if !setting.Enabled {
 		common.ApiErrorMsg(c, "签到功能未启用")

@@ -84,16 +84,31 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
   // ========== 常量 ==========
   const now = new Date();
   const isAdminUser = isAdmin();
+  const subscriptionOnlyModeEnabled =
+    statusState?.status?.subscription_only_mode_enabled ?? false;
 
   // ========== Panel enable flags ==========
-  const apiInfoEnabled = statusState?.status?.api_info_enabled ?? true;
-  const announcementsEnabled =
-    statusState?.status?.announcements_enabled ?? true;
-  const faqEnabled = statusState?.status?.faq_enabled ?? true;
-  const uptimeEnabled = statusState?.status?.uptime_kuma_enabled ?? true;
+  const apiInfoEnabled = subscriptionOnlyModeEnabled
+    ? false
+    : statusState?.status?.api_info_enabled ?? true;
+  const announcementsEnabled = subscriptionOnlyModeEnabled
+    ? false
+    : statusState?.status?.announcements_enabled ?? true;
+  const faqEnabled = subscriptionOnlyModeEnabled
+    ? false
+    : statusState?.status?.faq_enabled ?? true;
+  const uptimeEnabled = subscriptionOnlyModeEnabled
+    ? false
+    : statusState?.status?.uptime_kuma_enabled ?? true;
 
   const hasApiInfoPanel = apiInfoEnabled;
   const hasInfoPanels = announcementsEnabled || faqEnabled || uptimeEnabled;
+
+  // ========== 订阅数据 ==========
+  const [subscriptionInfo, setSubscriptionInfo] = useState({
+    active: [],
+    all: [],
+  });
 
   // ========== Memoized Values ==========
   const timeOptions = useMemo(
@@ -157,6 +172,9 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
 
   // ========== API 调用函数 ==========
   const loadQuotaData = useCallback(async () => {
+    if (subscriptionOnlyModeEnabled) {
+      return [];
+    }
     setLoading(true);
     try {
       let url = '';
@@ -191,9 +209,16 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     } finally {
       setLoading(false);
     }
-  }, [inputs, dataExportDefaultTime, isAdminUser, now]);
+  }, [
+    inputs,
+    dataExportDefaultTime,
+    isAdminUser,
+    now,
+    subscriptionOnlyModeEnabled,
+  ]);
 
   const loadUptimeData = useCallback(async () => {
+    if (subscriptionOnlyModeEnabled) return;
     setUptimeLoading(true);
     try {
       const res = await API.get('/api/uptime/status');
@@ -211,7 +236,22 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     } finally {
       setUptimeLoading(false);
     }
-  }, [activeUptimeTab]);
+  }, [activeUptimeTab, subscriptionOnlyModeEnabled]);
+
+  const loadSubscriptionSelf = useCallback(async () => {
+    if (!subscriptionOnlyModeEnabled) return;
+    try {
+      const res = await API.get('/api/subscription/self');
+      if (res.data?.success) {
+        setSubscriptionInfo({
+          active: res.data.data?.subscriptions || [],
+          all: res.data.data?.all_subscriptions || [],
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, [subscriptionOnlyModeEnabled]);
 
   const getUserData = useCallback(async () => {
     let res = await API.get(`/api/user/self`);
@@ -226,8 +266,9 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
   const refresh = useCallback(async () => {
     const data = await loadQuotaData();
     await loadUptimeData();
+    await loadSubscriptionSelf();
     return data;
-  }, [loadQuotaData, loadUptimeData]);
+  }, [loadQuotaData, loadUptimeData, loadSubscriptionSelf]);
 
   const handleSearchConfirm = useCallback(
     async (updateChartDataCallback) => {
@@ -254,6 +295,12 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
       initialized.current = true;
     }
   }, [getUserData]);
+
+  useEffect(() => {
+    if (subscriptionOnlyModeEnabled) {
+      loadSubscriptionSelf();
+    }
+  }, [subscriptionOnlyModeEnabled, loadSubscriptionSelf]);
 
   return {
     // 基础状态
@@ -305,6 +352,8 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     announcementsEnabled,
     faqEnabled,
     uptimeEnabled,
+    subscriptionOnlyModeEnabled,
+    subscriptionInfo,
 
     // 函数
     handleInputChange,
@@ -315,6 +364,7 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     getUserData,
     refresh,
     handleSearchConfirm,
+    loadSubscriptionSelf,
 
     // 导航和翻译
     navigate,
