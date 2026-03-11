@@ -188,7 +188,6 @@ export const useDashboardStats = (
           },
         ],
       },
-    ],
     ];
   }, [
     subscriptionOnlyModeEnabled,
