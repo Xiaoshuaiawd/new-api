@@ -80,6 +80,8 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 		info.ReasoningEffort = request.Reasoning.Effort
 	}
 
+	request.Text = nil
+
 	if info != nil && info.ChannelSetting.SystemPrompt != "" {
 		systemPrompt := info.ChannelSetting.SystemPrompt
 

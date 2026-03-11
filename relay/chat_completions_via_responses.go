@@ -96,6 +96,9 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 	if err != nil {
 		return nil, types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
+	if info.ChannelType == constant.ChannelTypeCodex {
+		responsesReq.Text = nil
+	}
 	clientWantsStream := info.IsStream
 	forceUpstreamStreamForNonStream := info.ChannelType == constant.ChannelTypeCodex && !clientWantsStream
 	if forceUpstreamStreamForNonStream {
