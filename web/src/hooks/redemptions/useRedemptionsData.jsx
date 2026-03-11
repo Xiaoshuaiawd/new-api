@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { API, showError, showSuccess, copy } from '../../helpers';
 import { ITEMS_PER_PAGE } from '../../constants';
 import {
@@ -39,6 +39,7 @@ export const useRedemptionsData = () => {
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
   const [tokenCount, setTokenCount] = useState(0);
   const [selectedKeys, setSelectedKeys] = useState([]);
+  const [subscriptionPlans, setSubscriptionPlans] = useState([]);
 
   // Edit state
   const [editingRedemption, setEditingRedemption] = useState({
@@ -69,6 +70,33 @@ export const useRedemptionsData = () => {
   const setRedemptionFormat = (redemptions) => {
     setRedemptions(redemptions);
   };
+
+  const loadSubscriptionPlans = async () => {
+    try {
+      const res = await API.get('/api/subscription/admin/plans');
+      const { success, message, data } = res.data;
+      if (success) {
+        setSubscriptionPlans(data || []);
+      } else if (message) {
+        showError(message);
+      }
+    } catch (error) {
+      if (error?.message) {
+        showError(error.message);
+      }
+    }
+  };
+
+  const subscriptionPlanMap = useMemo(() => {
+    const map = new Map();
+    (subscriptionPlans || []).forEach((item) => {
+      const plan = item?.plan || item;
+      if (plan?.id) {
+        map.set(plan.id, plan.title || String(plan.id));
+      }
+    });
+    return map;
+  }, [subscriptionPlans]);
 
   // Load redemption list
   const loadRedemptions = async (page = 1, pageSize) => {
@@ -303,6 +331,10 @@ export const useRedemptionsData = () => {
       });
   }, [pageSize]);
 
+  useEffect(() => {
+    loadSubscriptionPlans().then();
+  }, []);
+
   return {
     // Data state
     redemptions,
@@ -312,6 +344,8 @@ export const useRedemptionsData = () => {
     pageSize,
     tokenCount,
     selectedKeys,
+    subscriptionPlans,
+    subscriptionPlanMap,
 
     // Edit state
     editingRedemption,

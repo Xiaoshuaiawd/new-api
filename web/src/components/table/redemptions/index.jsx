@@ -57,6 +57,10 @@ const RedemptionsPage = () => {
     compactMode,
     setCompactMode,
 
+    // Subscription data
+    subscriptionPlans,
+    subscriptionPlanMap,
+
     // Translation
     t,
   } = redemptionsData;
@@ -66,6 +70,8 @@ const RedemptionsPage = () => {
       <EditRedemptionModal
         refresh={refresh}
         editingRedemption={editingRedemption}
+        subscriptionPlans={subscriptionPlans}
+        subscriptionPlanMap={subscriptionPlanMap}
         visiable={showEdit}
         handleClose={closeEdit}
       />
@@ -113,7 +119,10 @@ const RedemptionsPage = () => {
         })}
         t={redemptionsData.t}
       >
-        <RedemptionsTable {...redemptionsData} />
+        <RedemptionsTable
+          {...redemptionsData}
+          subscriptionPlanMap={subscriptionPlanMap}
+        />
       </CardPro>
     </>
   );

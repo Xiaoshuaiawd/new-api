@@ -49,6 +49,9 @@ redemption.expired: "该兑换码已过期"
 redemption.failed: "兑换失败，请稍后重试"
 redemption.not_provided: "未提供兑换码"
 redemption.expire_time_invalid: "过期时间不能早于当前时间"
+redemption.subscription_only: "该兑换码为订阅套餐兑换码"
+redemption.quota_only: "该兑换码不是订阅套餐兑换码"
+redemption.plan_not_exists: "订阅套餐不存在"
 
 # User messages
 user.password_login_disabled: "管理员关闭了密码登录"

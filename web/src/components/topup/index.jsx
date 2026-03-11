@@ -117,6 +117,18 @@ const TopUp = () => {
       });
       const { success, message, data } = res.data;
       if (success) {
+        if (data && typeof data === 'object' && data.type === 'subscription') {
+          const planTitle = data.plan?.title || t('订阅套餐');
+          showSuccess(t('订阅兑换成功！'));
+          Modal.success({
+            title: t('订阅兑换成功！'),
+            content: t('成功兑换订阅套餐：') + planTitle,
+            centered: true,
+          });
+          setRedemptionCode('');
+          await getSubscriptionSelf();
+          return;
+        }
         showSuccess(t('兑换成功！'));
         Modal.success({
           title: t('兑换成功！'),

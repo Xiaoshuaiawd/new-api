@@ -27,10 +27,11 @@ import {
   Select,
   Divider,
   Tooltip,
+  Form,
 } from '@douyinfe/semi-ui';
 import { Crown, CalendarClock, Package } from 'lucide-react';
 import { SiStripe } from 'react-icons/si';
-import { IconCreditCard } from '@douyinfe/semi-icons';
+import { IconCreditCard, IconGift } from '@douyinfe/semi-icons';
 import { renderQuota } from '../../../helpers';
 import { getCurrencyConfig } from '../../../helpers/render';
 import {
@@ -56,6 +57,12 @@ const SubscriptionPurchaseModal = ({
   onPayStripe,
   onPayCreem,
   onPayEpay,
+  redemptionCode = '',
+  setRedemptionCode,
+  onRedeem,
+  redeeming = false,
+  topUpLink = '',
+  openTopUpLink,
 }) => {
   const plan = selectedPlan?.plan;
   const totalAmount = Number(plan?.total_amount || 0);
@@ -243,12 +250,51 @@ const SubscriptionPurchaseModal = ({
               )}
             </div>
           ) : (
-            <Banner
-              type='info'
-              description={t('管理员未开启在线支付功能，请联系管理员配置。')}
-              className='!rounded-xl'
-              closeIcon={null}
-            />
+            <Card className='!rounded-xl !border-0 bg-slate-50 dark:bg-slate-800'>
+              <div className='space-y-2'>
+                <Text strong className='text-slate-700 dark:text-slate-200'>
+                  {t('兑换码充值')}
+                </Text>
+                <Form>
+                  <Form.Input
+                    field='redemptionCode'
+                    noLabel={true}
+                    placeholder={t('请输入兑换码')}
+                    value={redemptionCode}
+                    onChange={(value) => setRedemptionCode?.(value)}
+                    prefix={<IconGift />}
+                    suffix={
+                      <div className='flex items-center gap-2'>
+                        <Button
+                          type='primary'
+                          theme='solid'
+                          onClick={onRedeem}
+                          loading={redeeming}
+                          disabled={!onRedeem}
+                        >
+                          {t('兑换订阅')}
+                        </Button>
+                      </div>
+                    }
+                    showClear
+                    style={{ width: '100%' }}
+                  />
+                </Form>
+                {topUpLink && (
+                  <Text type='tertiary'>
+                    {t('在找兑换码？')}
+                    <Text
+                      type='secondary'
+                      underline
+                      className='cursor-pointer'
+                      onClick={openTopUpLink}
+                    >
+                      {t('购买兑换码')}
+                    </Text>
+                  </Text>
+                )}
+              </div>
+            </Card>
           )}
         </div>
       ) : null}

@@ -57,11 +57,24 @@ const EditRedemptionModal = (props) => {
   const [loading, setLoading] = useState(isEdit);
   const isMobile = useIsMobile();
   const formApiRef = useRef(null);
+  const subscriptionPlans = props.subscriptionPlans || [];
+  const subscriptionPlanMap = props.subscriptionPlanMap || new Map();
+  const subscriptionPlanOptions = subscriptionPlans
+    .map((item) => {
+      const plan = item?.plan || item;
+      if (!plan?.id) return null;
+      return {
+        value: plan.id,
+        label: plan.title || String(plan.id),
+      };
+    })
+    .filter(Boolean);
 
   const getInitValues = () => ({
     name: '',
     quota: 100000,
     count: 1,
+    plan_id: 0,
     expired_time: null,
   });
 
@@ -98,13 +111,22 @@ const EditRedemptionModal = (props) => {
 
   const submit = async (values) => {
     let name = values.name;
-    if (!isEdit && (!name || name === '')) {
-      name = renderQuota(values.quota);
-    }
     setLoading(true);
     let localInputs = { ...values };
     localInputs.count = parseInt(localInputs.count) || 0;
     localInputs.quota = parseInt(localInputs.quota) || 0;
+    localInputs.plan_id = parseInt(localInputs.plan_id) || 0;
+    if (!isEdit && (!name || name === '')) {
+      if (localInputs.plan_id > 0) {
+        const planTitle = subscriptionPlanMap.get(localInputs.plan_id);
+        name = planTitle || t('订阅套餐');
+      } else {
+        name = renderQuota(values.quota);
+      }
+    }
+    if (localInputs.plan_id > 0) {
+      localInputs.quota = 0;
+    }
     localInputs.name = name;
     if (!localInputs.expired_time) {
       localInputs.expired_time = 0;
@@ -251,6 +273,21 @@ const EditRedemptionModal = (props) => {
                         showClear
                       />
                     </Col>
+                    {!isEdit && (
+                      <Col span={24}>
+                        <Form.Select
+                          field='plan_id'
+                          label={t('订阅套餐')}
+                          placeholder={t('请选择订阅套餐')}
+                          optionList={[
+                            { value: 0, label: t('额度兑换码') },
+                            ...subscriptionPlanOptions,
+                          ]}
+                          style={{ width: '100%' }}
+                          showClear
+                        />
+                      </Col>
+                    )}
                     <Col span={24}>
                       <Form.DatePicker
                         field='expired_time'
@@ -292,20 +329,26 @@ const EditRedemptionModal = (props) => {
                         placeholder={t('请输入额度')}
                         style={{ width: '100%' }}
                         type='number'
-                        rules={[
-                          { required: true, message: t('请输入额度') },
-                          {
-                            validator: (rule, v) => {
-                              const num = parseInt(v, 10);
-                              return num > 0
-                                ? Promise.resolve()
-                                : Promise.reject(t('额度必须大于0'));
-                            },
-                          },
-                        ]}
-                        extraText={renderQuotaWithPrompt(
-                          Number(values.quota) || 0,
-                        )}
+                        rules={
+                          Number(values.plan_id) > 0
+                            ? []
+                            : [
+                                { required: true, message: t('请输入额度') },
+                                {
+                                  validator: (rule, v) => {
+                                    const num = parseInt(v, 10);
+                                    return num > 0
+                                      ? Promise.resolve()
+                                      : Promise.reject(t('额度必须大于0'));
+                                  },
+                                },
+                              ]
+                        }
+                        extraText={
+                          Number(values.plan_id) > 0
+                            ? t('订阅兑换码无需填写额度')
+                            : renderQuotaWithPrompt(Number(values.quota) || 0)
+                        }
                         data={[
                           { value: 500000, label: '1$' },
                           { value: 5000000, label: '10$' },
@@ -314,6 +357,7 @@ const EditRedemptionModal = (props) => {
                           { value: 250000000, label: '500$' },
                           { value: 500000000, label: '1000$' },
                         ]}
+                        disabled={Number(values.plan_id) > 0}
                         showClear
                       />
                     </Col>

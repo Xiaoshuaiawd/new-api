@@ -82,6 +82,12 @@ const SubscriptionPlansCard = ({
   activeSubscriptions = [],
   allSubscriptions = [],
   reloadSubscriptionSelf,
+  redemptionCode,
+  setRedemptionCode,
+  onRedeem,
+  redeeming,
+  topUpLink,
+  openTopUpLink,
   withCard = true,
 }) => {
   const [open, setOpen] = useState(false);
@@ -676,6 +682,12 @@ const SubscriptionPlansCard = ({
         onPayStripe={payStripe}
         onPayCreem={payCreem}
         onPayEpay={payEpay}
+        redemptionCode={redemptionCode}
+        setRedemptionCode={setRedemptionCode}
+        onRedeem={onRedeem}
+        redeeming={redeeming}
+        topUpLink={topUpLink}
+        openTopUpLink={openTopUpLink}
       />
     </>
   );

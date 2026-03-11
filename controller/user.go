@@ -22,6 +22,7 @@ import (
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 type LoginRequest struct {
@@ -1019,6 +1020,35 @@ func TopUp(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, model.ErrRedeemFailed) {
 			common.ApiErrorI18n(c, i18n.MsgRedeemFailed)
+			return
+		}
+		if errors.Is(err, model.ErrRedemptionSubscriptionOnly) {
+			sub, plan, subErr := model.RedeemSubscription(req.Key, id)
+			if subErr != nil {
+				if errors.Is(subErr, model.ErrRedemptionQuotaOnly) {
+					common.ApiErrorI18n(c, i18n.MsgRedemptionQuotaOnly)
+					return
+				}
+				if errors.Is(subErr, gorm.ErrRecordNotFound) {
+					common.ApiErrorI18n(c, i18n.MsgRedemptionPlanNotExists)
+					return
+				}
+				if errors.Is(subErr, model.ErrRedeemFailed) {
+					common.ApiErrorI18n(c, i18n.MsgRedeemFailed)
+					return
+				}
+				common.ApiError(c, subErr)
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"message": "",
+				"data": gin.H{
+					"type":         "subscription",
+					"subscription": sub,
+					"plan":         plan,
+				},
+			})
 			return
 		}
 		common.ApiError(c, err)

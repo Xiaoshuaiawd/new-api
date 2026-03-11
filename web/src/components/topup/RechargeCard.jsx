@@ -627,6 +627,12 @@ const RechargeCard = ({
                 activeSubscriptions={activeSubscriptions}
                 allSubscriptions={allSubscriptions}
                 reloadSubscriptionSelf={reloadSubscriptionSelf}
+                redemptionCode={redemptionCode}
+                setRedemptionCode={setRedemptionCode}
+                onRedeem={topUp}
+                redeeming={isSubmitting}
+                topUpLink={topUpLink}
+                openTopUpLink={openTopUpLink}
                 withCard={false}
               />
             </div>

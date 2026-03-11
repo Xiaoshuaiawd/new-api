@@ -81,6 +81,14 @@ func AddRedemption(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
 		return
 	}
+	if redemption.PlanId > 0 {
+		plan, planErr := model.GetSubscriptionPlanById(redemption.PlanId)
+		if planErr != nil || plan == nil {
+			common.ApiErrorI18n(c, i18n.MsgRedemptionPlanNotExists)
+			return
+		}
+		redemption.Quota = 0
+	}
 	var keys []string
 	for i := 0; i < redemption.Count; i++ {
 		key := common.GetUUID()
@@ -90,6 +98,7 @@ func AddRedemption(c *gin.Context) {
 			Key:         key,
 			CreatedTime: common.GetTimestamp(),
 			Quota:       redemption.Quota,
+			PlanId:      redemption.PlanId,
 			ExpiredTime: redemption.ExpiredTime,
 		}
 		err = cleanRedemption.Insert()

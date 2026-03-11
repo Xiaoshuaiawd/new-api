@@ -43,6 +43,7 @@ const RedemptionsTable = (redemptionsData) => {
     setEditingRedemption,
     setShowEdit,
     refresh,
+    subscriptionPlanMap,
     t,
   } = redemptionsData;
 
@@ -68,6 +69,7 @@ const RedemptionsTable = (redemptionsData) => {
       redemptions,
       activePage,
       showDeleteRedemptionModal,
+      subscriptionPlanMap,
     });
   }, [
     t,
