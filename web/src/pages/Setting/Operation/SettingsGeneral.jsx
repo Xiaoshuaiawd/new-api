@@ -156,6 +156,9 @@ export default function GeneralSettings(props) {
       currentInputs['general_setting.custom_currency_exchange_rate'] =
         props.options['general_setting.custom_currency_exchange_rate'];
     }
+    if (currentInputs.SubscriptionOnlyModeEnabled === undefined) {
+      currentInputs.SubscriptionOnlyModeEnabled = false;
+    }
     setInputs(currentInputs);
     setInputsRow(structuredClone(currentInputs));
     refForm.current.setValues(currentInputs);
