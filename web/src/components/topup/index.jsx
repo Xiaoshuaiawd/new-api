@@ -44,7 +44,8 @@ const TopUp = () => {
   const [userState, userDispatch] = useContext(UserContext);
   const [statusState] = useContext(StatusContext);
   const subscriptionOnlyModeEnabled =
-    statusState?.status?.subscription_only_mode_enabled;
+    statusState?.status?.subscription_only_mode_enabled ??
+    localStorage.getItem('subscription_only_mode_enabled') === 'true';
 
   const [redemptionCode, setRedemptionCode] = useState('');
   const [amount, setAmount] = useState(0.0);
@@ -802,14 +803,16 @@ const TopUp = () => {
           reloadSubscriptionSelf={getSubscriptionSelf}
           subscriptionOnlyModeEnabled={subscriptionOnlyModeEnabled}
         />
-        <InvitationCard
-          t={t}
-          userState={userState}
-          renderQuota={renderQuota}
-          setOpenTransfer={setOpenTransfer}
-          affLink={affLink}
-          handleAffLinkClick={handleAffLinkClick}
-        />
+        {!subscriptionOnlyModeEnabled && (
+          <InvitationCard
+            t={t}
+            userState={userState}
+            renderQuota={renderQuota}
+            setOpenTransfer={setOpenTransfer}
+            affLink={affLink}
+            handleAffLinkClick={handleAffLinkClick}
+          />
+        )}
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { Card, Spin } from '@douyinfe/semi-ui';
 import SettingsGeneral from '../../pages/Setting/Operation/SettingsGeneral';
 import SettingsHeaderNavModules from '../../pages/Setting/Operation/SettingsHeaderNavModules';
@@ -27,9 +27,11 @@ import SettingsLog from '../../pages/Setting/Operation/SettingsLog';
 import SettingsMonitoring from '../../pages/Setting/Operation/SettingsMonitoring';
 import SettingsCreditLimit from '../../pages/Setting/Operation/SettingsCreditLimit';
 import SettingsCheckin from '../../pages/Setting/Operation/SettingsCheckin';
-import { API, showError, toBoolean } from '../../helpers';
+import { API, setStatusData, showError, toBoolean } from '../../helpers';
+import { StatusContext } from '../../context/Status';
 
 const OperationSetting = () => {
+  const [, statusDispatch] = useContext(StatusContext);
   let [inputs, setInputs] = useState({
     /* 额度相关 */
     QuotaForNewUser: 0,
@@ -86,6 +88,19 @@ const OperationSetting = () => {
 
   let [loading, setLoading] = useState(false);
 
+  const refreshStatus = async () => {
+    try {
+      const res = await API.get('/api/status');
+      const { success, data } = res.data;
+      if (success) {
+        statusDispatch({ type: 'set', payload: data });
+        setStatusData(data);
+      }
+    } catch (error) {
+      showError('Failed to load status');
+    }
+  };
+
   const getOptions = async () => {
     const res = await API.get('/api/option/');
     const { success, message, data } = res.data;
@@ -108,6 +123,7 @@ const OperationSetting = () => {
     try {
       setLoading(true);
       await getOptions();
+      await refreshStatus();
       // showSuccess('刷新成功');
     } catch (error) {
       showError('刷新失败');
