@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Badge,
   Button,
@@ -89,6 +89,7 @@ const SubscriptionPlansCard = ({
   topUpLink,
   openTopUpLink,
   withCard = true,
+  subscriptionOnlyModeEnabled = false,
 }) => {
   const [open, setOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
@@ -218,6 +219,19 @@ const SubscriptionPlansCard = ({
   const subscriptionPreferenceLabel =
     billingPreference === 'subscription_only' ? t('仅用订阅') : t('优先订阅');
 
+  useEffect(() => {
+    if (
+      subscriptionOnlyModeEnabled &&
+      billingPreference !== 'subscription_only'
+    ) {
+      onChangeBillingPreference?.('subscription_only');
+    }
+  }, [
+    subscriptionOnlyModeEnabled,
+    billingPreference,
+    onChangeBillingPreference,
+  ]);
+
   const planPurchaseCountMap = useMemo(() => {
     const map = new Map();
     (allSubscriptions || []).forEach((sub) => {
@@ -334,29 +348,35 @@ const SubscriptionPlansCard = ({
                 )}
               </div>
               <div className='flex items-center gap-2'>
-                <Select
-                  value={displayBillingPreference}
-                  onChange={onChangeBillingPreference}
-                  size='small'
-                  optionList={[
-                    {
-                      value: 'subscription_first',
-                      label: disableSubscriptionPreference
-                        ? `${t('优先订阅')} (${t('无生效')})`
-                        : t('优先订阅'),
-                      disabled: disableSubscriptionPreference,
-                    },
-                    { value: 'wallet_first', label: t('优先钱包') },
-                    {
-                      value: 'subscription_only',
-                      label: disableSubscriptionPreference
-                        ? `${t('仅用订阅')} (${t('无生效')})`
-                        : t('仅用订阅'),
-                      disabled: disableSubscriptionPreference,
-                    },
-                    { value: 'wallet_only', label: t('仅用钱包') },
-                  ]}
-                />
+                {subscriptionOnlyModeEnabled ? (
+                  <Tag color='white' size='small' shape='circle'>
+                    {t('仅用订阅')}
+                  </Tag>
+                ) : (
+                  <Select
+                    value={displayBillingPreference}
+                    onChange={onChangeBillingPreference}
+                    size='small'
+                    optionList={[
+                      {
+                        value: 'subscription_first',
+                        label: disableSubscriptionPreference
+                          ? `${t('优先订阅')} (${t('无生效')})`
+                          : t('优先订阅'),
+                        disabled: disableSubscriptionPreference,
+                      },
+                      { value: 'wallet_first', label: t('优先钱包') },
+                      {
+                        value: 'subscription_only',
+                        label: disableSubscriptionPreference
+                          ? `${t('仅用订阅')} (${t('无生效')})`
+                          : t('仅用订阅'),
+                        disabled: disableSubscriptionPreference,
+                      },
+                      { value: 'wallet_only', label: t('仅用钱包') },
+                    ]}
+                  />
+                )}
                 <Button
                   size='small'
                   theme='light'
@@ -372,13 +392,15 @@ const SubscriptionPlansCard = ({
                 />
               </div>
             </div>
-            {disableSubscriptionPreference && isSubscriptionPreference && (
-              <Text type='tertiary' size='small'>
-                {t('已保存偏好为')}
-                {subscriptionPreferenceLabel}
-                {t('，当前无生效订阅，将自动使用钱包')}
-              </Text>
-            )}
+            {!subscriptionOnlyModeEnabled &&
+              disableSubscriptionPreference &&
+              isSubscriptionPreference && (
+                <Text type='tertiary' size='small'>
+                  {t('已保存偏好为')}
+                  {subscriptionPreferenceLabel}
+                  {t('，当前无生效订阅，将自动使用钱包')}
+                </Text>
+              )}
 
             {hasAnySubscription ? (
               <>

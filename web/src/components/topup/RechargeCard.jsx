@@ -625,6 +625,7 @@ const RechargeCard = ({
             topUpLink={topUpLink}
             openTopUpLink={openTopUpLink}
             withCard={false}
+            subscriptionOnlyModeEnabled={subscriptionOnlyModeEnabled}
           />
         </div>
       </Card>
@@ -687,6 +688,7 @@ const RechargeCard = ({
                 topUpLink={topUpLink}
                 openTopUpLink={openTopUpLink}
                 withCard={false}
+                subscriptionOnlyModeEnabled={subscriptionOnlyModeEnabled}
               />
             </div>
           </TabPane>

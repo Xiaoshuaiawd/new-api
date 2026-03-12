@@ -758,7 +758,13 @@ const TopUp = () => {
       </Modal>
 
       {/* 主布局区域 */}
-      <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
+      <div
+        className={
+          subscriptionOnlyModeEnabled
+            ? 'grid grid-cols-1 gap-6'
+            : 'grid grid-cols-1 lg:grid-cols-2 gap-6'
+        }
+      >
         <RechargeCard
           t={t}
           enableOnlineTopUp={enableOnlineTopUp}
