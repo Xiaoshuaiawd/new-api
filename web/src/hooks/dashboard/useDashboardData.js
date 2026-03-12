@@ -88,18 +88,10 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     statusState?.status?.subscription_only_mode_enabled ?? false;
 
   // ========== Panel enable flags ==========
-  const apiInfoEnabled = subscriptionOnlyModeEnabled
-    ? false
-    : statusState?.status?.api_info_enabled ?? true;
-  const announcementsEnabled = subscriptionOnlyModeEnabled
-    ? false
-    : statusState?.status?.announcements_enabled ?? true;
-  const faqEnabled = subscriptionOnlyModeEnabled
-    ? false
-    : statusState?.status?.faq_enabled ?? true;
-  const uptimeEnabled = subscriptionOnlyModeEnabled
-    ? false
-    : statusState?.status?.uptime_kuma_enabled ?? true;
+  const apiInfoEnabled = statusState?.status?.api_info_enabled ?? true;
+  const announcementsEnabled = statusState?.status?.announcements_enabled ?? true;
+  const faqEnabled = statusState?.status?.faq_enabled ?? true;
+  const uptimeEnabled = statusState?.status?.uptime_kuma_enabled ?? true;
 
   const hasApiInfoPanel = apiInfoEnabled;
   const hasInfoPanels = announcementsEnabled || faqEnabled || uptimeEnabled;
@@ -172,9 +164,6 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
 
   // ========== API 调用函数 ==========
   const loadQuotaData = useCallback(async () => {
-    if (subscriptionOnlyModeEnabled) {
-      return [];
-    }
     setLoading(true);
     try {
       let url = '';
@@ -209,16 +198,9 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     } finally {
       setLoading(false);
     }
-  }, [
-    inputs,
-    dataExportDefaultTime,
-    isAdminUser,
-    now,
-    subscriptionOnlyModeEnabled,
-  ]);
+  }, [inputs, dataExportDefaultTime, isAdminUser, now]);
 
   const loadUptimeData = useCallback(async () => {
-    if (subscriptionOnlyModeEnabled) return;
     setUptimeLoading(true);
     try {
       const res = await API.get('/api/uptime/status');
@@ -236,7 +218,7 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     } finally {
       setUptimeLoading(false);
     }
-  }, [activeUptimeTab, subscriptionOnlyModeEnabled]);
+  }, [activeUptimeTab]);
 
   const loadSubscriptionSelf = useCallback(async () => {
     if (!subscriptionOnlyModeEnabled) return;
