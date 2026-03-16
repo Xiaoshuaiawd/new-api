@@ -168,11 +168,15 @@ func OaiResponsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.Rela
 		switch streamResponse.Type {
 		case "response.output_text.delta":
 			responseTextBuilder.WriteString(streamResponse.Delta)
-		case "response.completed":
+		case "response.completed", "response.failed":
 			if len(rawEvent.Response) > 0 {
 				completedResponseRaw = append(completedResponseRaw[:0], rawEvent.Response...)
 			}
 			if streamResponse.Response != nil {
+				if oaiError := streamResponse.Response.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+					streamErr = types.WithOpenAIError(*oaiError, http.StatusInternalServerError)
+					break
+				}
 				setUsageFromResponses(usage, streamResponse.Response)
 				countBuiltInToolsFromResponsesObject(c, info, streamResponse.Response)
 				if streamResponse.Response.HasImageGenerationCall() {
@@ -181,7 +185,7 @@ func OaiResponsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.Rela
 					c.Set("image_generation_call_size", streamResponse.Response.GetSize())
 				}
 			}
-		case "response.error", "response.failed":
+		case "response.error":
 			if streamResponse.Response != nil {
 				if oaiError := streamResponse.Response.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 					streamErr = types.WithOpenAIError(*oaiError, http.StatusInternalServerError)
