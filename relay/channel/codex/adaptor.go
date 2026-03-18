@@ -81,7 +81,28 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	}
 
 	request.Text = nil
-
+	// Compatibility: OpenAI /v1/responses accepts string input, while Codex upstream
+	// expects a list. Auto-wrap string input into a single user message item.
+	if !isCompact && len(request.Input) > 0 && common.GetJsonType(request.Input) == "string" {
+		var prompt string
+		if err := common.Unmarshal(request.Input, &prompt); err != nil {
+			return nil, err
+		}
+		promptRaw, err := common.Marshal(prompt)
+		if err != nil {
+			return nil, err
+		}
+		normalizedInput, err := common.Marshal([]dto.Input{
+			{
+				Role:    "user",
+				Content: promptRaw,
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		request.Input = json.RawMessage(normalizedInput)
+	}
 	if info != nil && info.ChannelSetting.SystemPrompt != "" {
 		systemPrompt := info.ChannelSetting.SystemPrompt
 
