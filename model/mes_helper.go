@@ -19,6 +19,13 @@ func NewMESHelper() *MESHelper {
 	return &MESHelper{}
 }
 
+func getContextTokenName(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	return c.GetString("token_name")
+}
+
 // SaveChatCompletion 将完整的聊天对话上下文保存到 MES 数据库
 func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, messages []map[string]interface{},
 	response map[string]interface{}, modelName string, userId int, tokenId int, channelId int) error {
@@ -28,6 +35,7 @@ func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, me
 	}
 
 	ip := c.ClientIP()
+	tokenName := getContextTokenName(c)
 
 	// 构建完整的对话上下文
 	fullConversation := make([]map[string]interface{}, 0, len(messages)+1)
@@ -75,6 +83,7 @@ func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, me
 		Content:          string(contentJSON), // 完整的JSON对话内容
 		ModelName:        modelName,
 		TokenId:          tokenId,
+		TokenName:        tokenName,
 		ChannelId:        channelId,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
@@ -118,6 +127,7 @@ func (h *MESHelper) SaveFullConversation(c *gin.Context, conversationId string, 
 	}
 
 	ip := c.ClientIP()
+	tokenName := getContextTokenName(c)
 
 	// 构建要保存的消息结构
 	conversationContent := map[string]interface{}{
@@ -149,6 +159,7 @@ func (h *MESHelper) SaveFullConversation(c *gin.Context, conversationId string, 
 		Content:          string(contentJSON), // 完整的JSON对话内容
 		ModelName:        modelName,
 		TokenId:          tokenId,
+		TokenName:        tokenName,
 		ChannelId:        channelId,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
@@ -189,6 +200,7 @@ func (h *MESHelper) SaveErrorConversation(c *gin.Context, conversationId string,
 	}
 
 	ip := c.ClientIP()
+	tokenName := getContextTokenName(c)
 
 	// 构建完整的对话上下文（只包含用户消息，因为出错了没有AI响应）
 	conversationContent := map[string]interface{}{
@@ -215,6 +227,7 @@ func (h *MESHelper) SaveErrorConversation(c *gin.Context, conversationId string,
 		Content:        string(contentJSON),  // 完整的JSON对话内容
 		ModelName:      modelName,
 		TokenId:        tokenId,
+		TokenName:      tokenName,
 		ChannelId:      channelId,
 		ErrorCode:      errorCode,
 		ErrorMessage:   errorMessage,

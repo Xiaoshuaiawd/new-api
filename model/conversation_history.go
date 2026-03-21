@@ -22,6 +22,7 @@ type ConversationHistory struct {
 	Content          string `json:"content" gorm:"type:text"`                       // 消息内容
 	ModelName        string `json:"model_name" gorm:"type:varchar(100);index"`      // 使用的AI模型
 	TokenId          int    `json:"token_id" gorm:"index"`                          // 本次对话使用的令牌
+	TokenName        string `json:"token_name" gorm:"type:varchar(100);index"`      // 本次对话使用的令牌名称
 	ChannelId        int    `json:"channel_id" gorm:"index"`                        // 使用的渠道
 	PromptTokens     int    `json:"prompt_tokens" gorm:"default:0"`                 // 提示词令牌数
 	CompletionTokens int    `json:"completion_tokens" gorm:"default:0"`             // 补全令牌数
@@ -44,6 +45,7 @@ type ErrorConversationHistory struct {
 	Content          string `json:"content" gorm:"type:text"`                       // 消息内容
 	ModelName        string `json:"model_name" gorm:"type:varchar(100);index"`      // AI模型
 	TokenId          int    `json:"token_id" gorm:"index"`                          // 令牌ID
+	TokenName        string `json:"token_name" gorm:"type:varchar(100);index"`      // 令牌名称
 	ChannelId        int    `json:"channel_id" gorm:"index"`                        // 渠道ID
 	ErrorCode        int    `json:"error_code" gorm:"index"`                        // 错误代码
 	ErrorMessage     string `json:"error_message" gorm:"type:text"`                 // 错误消息

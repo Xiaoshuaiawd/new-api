@@ -422,9 +422,29 @@ func createMySQLDatabaseIfNeeded(dsn string, dbType string) error {
 // migrateMESDB performs database migration for MES tables
 func migrateMESDB() error {
 	if common.MESDailyPartition {
-		// For daily partitioning, we only create base tables for reference
-		// Actual tables will be created on demand
-		common.SysLog("MES daily partitioning enabled - tables will be created on demand")
+		common.SysLog("MES daily partitioning enabled - migrating existing partition tables")
+
+		partitionMigrations := []struct {
+			prefix string
+			model  interface{}
+		}{
+			{prefix: "conversation_histories_", model: &ConversationHistory{}},
+			{prefix: "error_conversation_histories_", model: &ErrorConversationHistory{}},
+		}
+
+		for _, migration := range partitionMigrations {
+			tables, err := getExistingPartitionTables(migration.prefix)
+			if err != nil {
+				return fmt.Errorf("failed to list MES partition tables for prefix %s: %v", migration.prefix, err)
+			}
+			for _, tableName := range tables {
+				if err := MES_DB.Table(tableName).AutoMigrate(migration.model); err != nil {
+					return fmt.Errorf("failed to migrate MES table %s: %v", tableName, err)
+				}
+			}
+		}
+
+		common.SysLog("MES daily partition migration completed")
 		return nil
 	}
 
