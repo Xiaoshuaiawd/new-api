@@ -330,16 +330,14 @@ func getExistingPartitionTables(prefix string) ([]string, error) {
 	var query string
 	switch common.MesSqlType {
 	case common.DatabaseTypeMySQL:
-		query = "SHOW TABLES LIKE ?"
+		query = "SELECT TABLE_NAME AS name FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE ?"
 		err := MES_DB.Raw(query, prefix+"%").Scan(&rows).Error
 		if err != nil {
 			return nil, err
 		}
 		for _, row := range rows {
-			for _, value := range row {
-				if tableName, ok := value.(string); ok && strings.HasPrefix(tableName, prefix) {
-					tables = append(tables, tableName)
-				}
+			if tableName, ok := row["name"].(string); ok && strings.HasPrefix(tableName, prefix) {
+				tables = append(tables, tableName)
 			}
 		}
 	case common.DatabaseTypePostgreSQL:
