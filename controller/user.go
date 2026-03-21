@@ -1022,7 +1022,7 @@ func TopUp(c *gin.Context) {
 	}
 	// subscription-only mode: only subscription redemption codes are accepted
 	if operation_setting.SubscriptionOnlyModeEnabled {
-		common.ApiErrorMsg(c, "钱包充值已关闭，请前往订阅中心兑换订阅型 Key")
+		common.ApiErrorMsg(c, "钱包充值已关闭，订阅型令牌已与钱包管理解耦")
 		return
 	}
 	quota, err := model.Redeem(req.Key, id)
@@ -1032,7 +1032,7 @@ func TopUp(c *gin.Context) {
 			return
 		}
 		if errors.Is(err, model.ErrRedemptionSubscriptionOnly) {
-			common.ApiErrorMsg(c, "该 Key 为订阅型 Key，请前往订阅中心兑换")
+			common.ApiErrorMsg(c, "该 Key 为订阅型 Key，不支持在钱包管理中兑换")
 			return
 		}
 		common.ApiError(c, err)

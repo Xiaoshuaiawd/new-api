@@ -117,6 +117,20 @@ func (s *SubscriptionFunding) Refund() error {
 	})
 }
 
+// ---------------------------------------------------------------------------
+// TokenFunding — 订阅型令牌自身额度资金来源实现
+// ---------------------------------------------------------------------------
+
+type TokenFunding struct{}
+
+func (t *TokenFunding) Source() string { return BillingSourceToken }
+
+func (t *TokenFunding) PreConsume(_ int) error { return nil }
+
+func (t *TokenFunding) Settle(_ int) error { return nil }
+
+func (t *TokenFunding) Refund() error { return nil }
+
 // refundWithRetry 尝试多次执行退款操作以提高成功率，只能用于基于事务的退款函数！！！！！！
 // try to refund with retries, only for refund functions based on transactions!!!
 func refundWithRetry(fn func() error) error {

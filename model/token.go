@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -28,11 +29,184 @@ type Token struct {
 	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	PlanId             int            `json:"plan_id" gorm:"type:int;default:0;index"`
+	PlanTitle          string         `json:"plan_title" gorm:"type:varchar(128);default:''"`
+	ActivationTime     int64          `json:"activation_time" gorm:"bigint;default:0"`
+	NextResetTime      int64          `json:"next_reset_time" gorm:"type:bigint;default:0;index"`
+	LastResetTime      int64          `json:"last_reset_time" gorm:"type:bigint;default:0"`
+	PlanDurationUnit   string         `json:"plan_duration_unit" gorm:"type:varchar(16);default:''"`
+	PlanDurationValue  int            `json:"plan_duration_value" gorm:"type:int;default:0"`
+	PlanCustomSeconds  int64          `json:"plan_custom_seconds" gorm:"type:bigint;default:0"`
+	PlanAmountTotal    int            `json:"plan_amount_total" gorm:"type:int;default:0"`
+	PlanResetPeriod    string         `json:"plan_reset_period" gorm:"type:varchar(16);default:''"`
+	PlanResetSeconds   int64          `json:"plan_reset_seconds" gorm:"type:bigint;default:0"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
 
 func (token *Token) Clean() {
 	token.Key = ""
+}
+
+func (token *Token) IsSubscriptionToken() bool {
+	return token != nil && token.PlanId > 0
+}
+
+func FillTokenPlanSnapshot(token *Token, plan *SubscriptionPlan) error {
+	if token == nil {
+		return errors.New("token is nil")
+	}
+	if plan == nil || plan.Id <= 0 {
+		return errors.New("invalid plan")
+	}
+	maxQuotaValue := int64(1000000000 * common.QuotaPerUnit)
+	if plan.TotalAmount < 0 {
+		return errors.New("plan total amount cannot be negative")
+	}
+	if plan.TotalAmount > maxQuotaValue {
+		return fmt.Errorf("plan total amount exceeds max token quota: %d", maxQuotaValue)
+	}
+	token.PlanId = plan.Id
+	token.PlanTitle = plan.Title
+	token.PlanDurationUnit = plan.DurationUnit
+	token.PlanDurationValue = plan.DurationValue
+	token.PlanCustomSeconds = plan.CustomSeconds
+	token.PlanAmountTotal = int(plan.TotalAmount)
+	token.PlanResetPeriod = NormalizeResetPeriod(plan.QuotaResetPeriod)
+	token.PlanResetSeconds = plan.QuotaResetCustomSeconds
+	token.ActivationTime = 0
+	token.LastResetTime = 0
+	token.NextResetTime = 0
+	token.ExpiredTime = 0
+	token.UnlimitedQuota = plan.TotalAmount == 0
+	token.RemainQuota = int(plan.TotalAmount)
+	token.UsedQuota = 0
+	return nil
+}
+
+func (token *Token) toPlanSnapshot() *SubscriptionPlan {
+	if token == nil || token.PlanId <= 0 {
+		return nil
+	}
+	return &SubscriptionPlan{
+		Id:                      token.PlanId,
+		Title:                   token.PlanTitle,
+		DurationUnit:            token.PlanDurationUnit,
+		DurationValue:           token.PlanDurationValue,
+		CustomSeconds:           token.PlanCustomSeconds,
+		TotalAmount:             int64(token.PlanAmountTotal),
+		QuotaResetPeriod:        token.PlanResetPeriod,
+		QuotaResetCustomSeconds: token.PlanResetSeconds,
+	}
+}
+
+func activateSubscriptionTokenTx(tx *gorm.DB, token *Token, now int64) error {
+	if tx == nil || token == nil || !token.IsSubscriptionToken() || token.ActivationTime > 0 {
+		return nil
+	}
+	plan := token.toPlanSnapshot()
+	if plan == nil {
+		return errors.New("subscription plan snapshot is missing")
+	}
+	start := time.Unix(now, 0)
+	endUnix, err := calcPlanEndTime(start, plan)
+	if err != nil {
+		return err
+	}
+	nextReset := calcNextResetTime(start, plan, endUnix)
+	lastReset := int64(0)
+	if nextReset > 0 {
+		lastReset = now
+	}
+	token.ActivationTime = now
+	token.ExpiredTime = endUnix
+	token.AccessedTime = now
+	token.LastResetTime = lastReset
+	token.NextResetTime = nextReset
+	return tx.Save(token).Error
+}
+
+func maybeResetSubscriptionTokenTx(tx *gorm.DB, token *Token, now int64) error {
+	if tx == nil || token == nil || !token.IsSubscriptionToken() || token.ActivationTime == 0 {
+		return nil
+	}
+	if token.NextResetTime <= 0 || token.NextResetTime > now {
+		return nil
+	}
+	plan := token.toPlanSnapshot()
+	if plan == nil || NormalizeResetPeriod(plan.QuotaResetPeriod) == SubscriptionResetNever {
+		return nil
+	}
+	baseUnix := token.LastResetTime
+	if baseUnix <= 0 {
+		baseUnix = token.ActivationTime
+	}
+	base := time.Unix(baseUnix, 0)
+	next := calcNextResetTime(base, plan, token.ExpiredTime)
+	advanced := false
+	for next > 0 && next <= now {
+		advanced = true
+		base = time.Unix(next, 0)
+		next = calcNextResetTime(base, plan, token.ExpiredTime)
+	}
+	if !advanced {
+		if token.NextResetTime == 0 && next > 0 {
+			token.LastResetTime = base.Unix()
+			token.NextResetTime = next
+			return tx.Save(token).Error
+		}
+		return nil
+	}
+	token.LastResetTime = base.Unix()
+	token.NextResetTime = next
+	token.UsedQuota = 0
+	if !token.UnlimitedQuota && token.PlanAmountTotal > 0 {
+		token.RemainQuota = token.PlanAmountTotal
+	}
+	if token.Status == common.TokenStatusExhausted {
+		token.Status = common.TokenStatusEnabled
+	}
+	return tx.Save(token).Error
+}
+
+func ensureSubscriptionTokenReady(token *Token) (*Token, error) {
+	if token == nil || !token.IsSubscriptionToken() {
+		return token, nil
+	}
+	now := GetDBTimestamp()
+	if token.ActivationTime > 0 && (token.NextResetTime == 0 || token.NextResetTime > now) {
+		return token, nil
+	}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var locked Token
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("id = ?", token.Id).First(&locked).Error; err != nil {
+			return err
+		}
+		if !locked.IsSubscriptionToken() {
+			*token = locked
+			return nil
+		}
+		if locked.ActivationTime == 0 {
+			if err := activateSubscriptionTokenTx(tx, &locked, now); err != nil {
+				return err
+			}
+		}
+		if err := maybeResetSubscriptionTokenTx(tx, &locked, now); err != nil {
+			return err
+		}
+		*token = locked
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if common.RedisEnabled {
+		gopool.Go(func() {
+			if err := cacheSetToken(*token); err != nil {
+				common.SysLog("failed to refresh subscription token cache: " + err.Error())
+			}
+		})
+	}
+	return token, nil
 }
 
 func (token *Token) GetIpLimits() []string {
@@ -170,6 +344,11 @@ func ValidateUserToken(key string) (token *Token, err error) {
 	}
 	token, err = GetTokenByKey(key, false)
 	if err == nil {
+		token, err = ensureSubscriptionTokenReady(token)
+		if err != nil {
+			common.SysLog("failed to prepare subscription token: " + err.Error())
+			return nil, errors.New("令牌激活失败，请联系管理员")
+		}
 		if token.Status == common.TokenStatusExhausted {
 			keyPrefix := key[:3]
 			keySuffix := key[len(key)-3:]
@@ -382,7 +561,7 @@ func IncreaseTokenQuota(tokenId int, key string, quota int) (err error) {
 func increaseTokenQuota(id int, quota int) (err error) {
 	err = DB.Model(&Token{}).Where("id = ?", id).Updates(
 		map[string]interface{}{
-			"remain_quota":  gorm.Expr("remain_quota + ?", quota),
+			"remain_quota":  gorm.Expr("CASE WHEN unlimited_quota THEN remain_quota ELSE remain_quota + ? END", quota),
 			"used_quota":    gorm.Expr("used_quota - ?", quota),
 			"accessed_time": common.GetTimestamp(),
 		},
@@ -412,7 +591,7 @@ func DecreaseTokenQuota(id int, key string, quota int) (err error) {
 func decreaseTokenQuota(id int, quota int) (err error) {
 	err = DB.Model(&Token{}).Where("id = ?", id).Updates(
 		map[string]interface{}{
-			"remain_quota":  gorm.Expr("remain_quota - ?", quota),
+			"remain_quota":  gorm.Expr("CASE WHEN unlimited_quota THEN remain_quota ELSE remain_quota - ? END", quota),
 			"used_quota":    gorm.Expr("used_quota + ?", quota),
 			"accessed_time": common.GetTimestamp(),
 		},

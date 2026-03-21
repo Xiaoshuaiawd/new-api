@@ -14,6 +14,37 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const maxIssuedSubscriptionTokensPerRequest = 100
+
+type AdminIssueSubscriptionTokensRequest struct {
+	Name               string  `json:"name"`
+	PlanId             int     `json:"plan_id"`
+	Group              string  `json:"group"`
+	CrossGroupRetry    bool    `json:"cross_group_retry"`
+	ModelLimitsEnabled bool    `json:"model_limits_enabled"`
+	ModelLimits        string  `json:"model_limits"`
+	AllowIps           *string `json:"allow_ips"`
+	TokenCount         int     `json:"token_count"`
+}
+
+func buildIssuedTokenName(baseName string, fallback string, key string, useSuffix bool) string {
+	name := strings.TrimSpace(baseName)
+	if name == "" {
+		name = fallback
+	}
+	if name == "" {
+		name = "subscription-token"
+	}
+	if !useSuffix {
+		return name
+	}
+	suffix := key
+	if len(suffix) > 6 {
+		suffix = suffix[:6]
+	}
+	return fmt.Sprintf("%s-%s", name, suffix)
+}
+
 func GetAllTokens(c *gin.Context) {
 	userId := c.GetInt("id")
 	pageInfo := common.GetPageQuery(c)
@@ -148,8 +179,19 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
-	// 非无限额度时，检查额度值是否超出有效范围
-	if !token.UnlimitedQuota {
+	userId := c.GetInt("id")
+	var plan *model.SubscriptionPlan
+	if token.PlanId > 0 {
+		if !model.IsAdmin(userId) {
+			common.ApiErrorMsg(c, "仅管理员可创建订阅型令牌")
+			return
+		}
+		plan, err = model.GetSubscriptionPlanById(token.PlanId)
+		if err != nil || plan == nil {
+			common.ApiErrorMsg(c, "订阅套餐不存在")
+			return
+		}
+	} else if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
 			return
@@ -162,7 +204,7 @@ func AddToken(c *gin.Context) {
 	}
 	// 检查用户令牌数量是否已达上限
 	maxTokens := operation_setting.GetMaxUserTokens()
-	count, err := model.CountUserTokens(c.GetInt("id"))
+	count, err := model.CountUserTokens(userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -181,7 +223,7 @@ func AddToken(c *gin.Context) {
 		return
 	}
 	cleanToken := model.Token{
-		UserId:             c.GetInt("id"),
+		UserId:             userId,
 		Name:               token.Name,
 		Key:                key,
 		CreatedTime:        common.GetTimestamp(),
@@ -195,6 +237,16 @@ func AddToken(c *gin.Context) {
 		Group:              token.Group,
 		CrossGroupRetry:    token.CrossGroupRetry,
 	}
+	if plan != nil {
+		if err := model.FillTokenPlanSnapshot(&cleanToken, plan); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if strings.TrimSpace(cleanToken.Name) == "" {
+			cleanToken.Name = plan.Title
+		}
+		cleanToken.AccessedTime = 0
+	}
 	err = cleanToken.Insert()
 	if err != nil {
 		common.ApiError(c, err)
@@ -205,6 +257,74 @@ func AddToken(c *gin.Context) {
 		"message": "",
 	})
 	return
+}
+
+func AdminIssueSubscriptionTokens(c *gin.Context) {
+	var req AdminIssueSubscriptionTokensRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if req.PlanId <= 0 {
+		common.ApiErrorMsg(c, "订阅套餐不能为空")
+		return
+	}
+	if len(req.Name) > 50 {
+		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
+		return
+	}
+	if req.TokenCount <= 0 {
+		req.TokenCount = 1
+	}
+	if req.TokenCount > maxIssuedSubscriptionTokensPerRequest {
+		common.ApiErrorMsg(c, fmt.Sprintf("单次最多创建 %d 个订阅型令牌", maxIssuedSubscriptionTokensPerRequest))
+		return
+	}
+	plan, err := model.GetSubscriptionPlanById(req.PlanId)
+	if err != nil || plan == nil {
+		common.ApiErrorMsg(c, "订阅套餐不存在")
+		return
+	}
+
+	issuedTokens := make([]gin.H, 0, req.TokenCount)
+	userId := c.GetInt("id")
+	for i := 0; i < req.TokenCount; i++ {
+		key, keyErr := common.GenerateKey()
+		if keyErr != nil {
+			common.ApiErrorI18n(c, i18n.MsgTokenGenerateFailed)
+			return
+		}
+		cleanToken := model.Token{
+			UserId:             userId,
+			Name:               buildIssuedTokenName(req.Name, plan.Title, key, req.TokenCount > 1),
+			Key:                key,
+			CreatedTime:        common.GetTimestamp(),
+			AccessedTime:       0,
+			ModelLimitsEnabled: req.ModelLimitsEnabled && req.ModelLimits != "",
+			ModelLimits:        req.ModelLimits,
+			AllowIps:           req.AllowIps,
+			Group:              req.Group,
+			CrossGroupRetry:    req.CrossGroupRetry,
+		}
+		if err := model.FillTokenPlanSnapshot(&cleanToken, plan); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if err := cleanToken.Insert(); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		issuedTokens = append(issuedTokens, gin.H{
+			"id":      cleanToken.Id,
+			"name":    cleanToken.Name,
+			"key":     "sk-" + cleanToken.Key,
+			"plan_id": cleanToken.PlanId,
+		})
+	}
+	common.ApiSuccess(c, gin.H{
+		"plan":   plan,
+		"tokens": issuedTokens,
+	})
 }
 
 func DeleteToken(c *gin.Context) {
@@ -235,7 +355,7 @@ func UpdateToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
-	if !token.UnlimitedQuota {
+	if !token.UnlimitedQuota && token.PlanId <= 0 {
 		if token.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
 			return
@@ -264,16 +384,18 @@ func UpdateToken(c *gin.Context) {
 	if statusOnly != "" {
 		cleanToken.Status = token.Status
 	} else {
-		// If you add more fields, please also update token.Update()
 		cleanToken.Name = token.Name
-		cleanToken.ExpiredTime = token.ExpiredTime
-		cleanToken.RemainQuota = token.RemainQuota
-		cleanToken.UnlimitedQuota = token.UnlimitedQuota
 		cleanToken.ModelLimitsEnabled = token.ModelLimitsEnabled
 		cleanToken.ModelLimits = token.ModelLimits
 		cleanToken.AllowIps = token.AllowIps
 		cleanToken.Group = token.Group
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
+		if cleanToken.PlanId <= 0 {
+			// If you add more fields, please also update token.Update()
+			cleanToken.ExpiredTime = token.ExpiredTime
+			cleanToken.RemainQuota = token.RemainQuota
+			cleanToken.UnlimitedQuota = token.UnlimitedQuota
+		}
 	}
 	err = cleanToken.Update()
 	if err != nil {

@@ -62,6 +62,14 @@ function renderTimestamp(timestamp) {
 
 // Render status column only (no usage)
 const renderStatus = (text, record, t) => {
+  if (record.plan_id > 0 && record.activation_time === 0 && text === 1) {
+    return (
+      <Tag color='cyan' shape='circle' size='small'>
+        {t('未激活')}
+      </Tag>
+    );
+  }
+
   const enabled = text === 1;
 
   let tagColor = 'black';
@@ -85,6 +93,28 @@ const renderStatus = (text, record, t) => {
       {tagText}
     </Tag>
   );
+};
+
+const renderTokenType = (record, t) => {
+  if (record.plan_id > 0) {
+    return (
+      <Tag color='blue' shape='circle' size='small'>
+        {t('订阅型')}
+      </Tag>
+    );
+  }
+  return (
+    <Tag color='grey' shape='circle' size='small'>
+      {t('普通')}
+    </Tag>
+  );
+};
+
+const renderPlanTitle = (record, t) => {
+  if (record.plan_id <= 0) {
+    return <span>{t('无')}</span>;
+  }
+  return <span>{record.plan_title || `#${record.plan_id}`}</span>;
 };
 
 // Render group column
@@ -447,6 +477,16 @@ export const getTokensColumns = ({
       render: (text, record) => renderStatus(text, record, t),
     },
     {
+      title: t('类型'),
+      key: 'token_type',
+      render: (text, record) => renderTokenType(record, t),
+    },
+    {
+      title: t('套餐'),
+      key: 'plan_title',
+      render: (text, record) => renderPlanTitle(record, t),
+    },
+    {
       title: t('剩余额度/总额度'),
       key: 'quota_usage',
       render: (text, record) => renderQuotaUsage(text, record, t),
@@ -484,11 +524,24 @@ export const getTokensColumns = ({
       title: t('过期时间'),
       dataIndex: 'expired_time',
       render: (text, record, index) => {
+        if (record.plan_id > 0 && record.activation_time === 0) {
+          return <div>{t('首用激活')}</div>;
+        }
         return (
           <div>
             {record.expired_time === -1 ? t('永不过期') : renderTimestamp(text)}
           </div>
         );
+      },
+    },
+    {
+      title: t('激活时间'),
+      dataIndex: 'activation_time',
+      render: (text, record) => {
+        if (record.plan_id <= 0) {
+          return <div>—</div>;
+        }
+        return <div>{text > 0 ? renderTimestamp(text) : t('未激活')}</div>;
       },
     },
     {

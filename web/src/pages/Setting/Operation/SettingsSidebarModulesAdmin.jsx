@@ -50,7 +50,6 @@ const getDefaultSidebarModulesAdmin = () => ({
   },
   personal: {
     enabled: true,
-    subscription_center: true,
     topup: true,
     personal: true,
   },
@@ -193,11 +192,6 @@ export default function SettingsSidebarModulesAdmin(props) {
       title: t('个人中心区域'),
       description: t('用户个人功能'),
       modules: [
-        {
-          key: 'subscription_center',
-          title: t('订阅中心'),
-          description: t('订阅购买与订阅型 Key 兑换'),
-        },
         { key: 'topup', title: t('钱包管理'), description: t('余额充值管理') },
         {
           key: 'personal',

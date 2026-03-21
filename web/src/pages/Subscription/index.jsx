@@ -18,10 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import SubscriptionCenter from '../../components/subscription-center';
+import { Navigate } from 'react-router-dom';
 
 const Subscription = () => {
-  return <SubscriptionCenter />;
+  return <Navigate to='/console/token' replace />;
 };
 
 export default Subscription;

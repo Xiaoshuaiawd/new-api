@@ -257,6 +257,18 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		return nil, types.NewError(fmt.Errorf("relayInfo is nil"), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 
+	token, tokenErr := model.GetTokenByKey(relayInfo.TokenKey, false)
+	if tokenErr == nil && token != nil && token.IsSubscriptionToken() {
+		session := &BillingSession{
+			relayInfo: relayInfo,
+			funding:   &TokenFunding{},
+		}
+		if apiErr := session.preConsume(c, preConsumedQuota); apiErr != nil {
+			return nil, apiErr
+		}
+		return session, nil
+	}
+
 	pref := common.NormalizeBillingPreference(relayInfo.UserSetting.BillingPreference)
 
 	// 钱包路径需要先检查用户额度

@@ -41,7 +41,6 @@ export const DEFAULT_ADMIN_CONFIG = {
   },
   personal: {
     enabled: true,
-    subscription_center: true,
     topup: true,
     personal: true,
   },

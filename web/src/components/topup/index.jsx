@@ -28,12 +28,11 @@ import {
   copy,
   getQuotaPerUnit,
 } from '../../helpers';
-import { Avatar, Button, Card, Modal, Toast, Typography } from '@douyinfe/semi-ui';
+import { Avatar, Card, Modal, Toast, Typography } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
 import { UserContext } from '../../context/User';
 import { StatusContext } from '../../context/Status';
-import { ArrowRight, Sparkles, Wallet } from 'lucide-react';
+import { Sparkles, Wallet } from 'lucide-react';
 
 import RechargeCard from './RechargeCard';
 import InvitationCard from './InvitationCard';
@@ -45,7 +44,6 @@ const { Text } = Typography;
 
 const TopUp = () => {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [userState, userDispatch] = useContext(UserContext);
   const [statusState] = useContext(StatusContext);
   const subscriptionOnlyModeEnabled =
@@ -687,37 +685,28 @@ const TopUp = () => {
 
       {subscriptionOnlyModeEnabled ? (
         <Card className='!rounded-2xl shadow-sm border-0'>
-          <div className='flex items-start justify-between gap-4 flex-col md:flex-row'>
-            <div className='flex items-start gap-3'>
-              <Avatar size='small' color='blue' className='shadow-md mt-1'>
-                <Wallet size={16} />
-              </Avatar>
-              <div>
-                <Text className='text-lg font-medium'>
-                  {t('钱包管理已关闭')}
-                </Text>
-                <div className='text-sm text-gray-500 mt-1'>
-                  {t('当前站点已开启订阅专用模式，钱包充值和额度兑换已与订阅逻辑解耦。')}
-                </div>
-                <div className='text-sm text-gray-500 mt-2'>
-                  {t('如需购买或兑换订阅型 Key，请前往订阅中心完成操作。')}
-                </div>
+          <div className='flex items-start gap-3'>
+            <Avatar size='small' color='blue' className='shadow-md mt-1'>
+              <Wallet size={16} />
+            </Avatar>
+            <div>
+              <Text className='text-lg font-medium'>
+                {t('钱包管理已关闭')}
+              </Text>
+              <div className='text-sm text-gray-500 mt-1'>
+                {t('当前站点已开启订阅专用模式，钱包充值和额度兑换已与订阅逻辑解耦。')}
+              </div>
+              <div className='text-sm text-gray-500 mt-2'>
+                {t('订阅型令牌仅支持由管理员按套餐创建和发放，钱包页面不再提供订阅购买或兑换入口。')}
               </div>
             </div>
-            <Button
-              theme='solid'
-              icon={<ArrowRight size={16} />}
-              onClick={() => navigate('/console/subscription')}
-            >
-              {t('前往订阅中心')}
-            </Button>
           </div>
           <div className='mt-6 rounded-2xl border border-dashed border-blue-200 bg-blue-50/60 p-4 flex items-start gap-3'>
             <Avatar size='small' color='cyan'>
               <Sparkles size={16} />
             </Avatar>
             <div className='text-sm text-gray-600'>
-              {t('订阅型 Key 会在用户实际激活时开始计时，钱包页面不再承载订阅购买与兑换逻辑。')}
+              {t('订阅型令牌会在首次真实调用时开始计时，后续可直接用于 API 调用，也便于自动发卡场景接入。')}
             </div>
           </div>
         </Card>

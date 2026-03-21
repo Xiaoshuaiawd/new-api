@@ -85,6 +85,9 @@ func taskAdjustFunding(task *model.Task, delta int) error {
 	if taskIsSubscription(task) {
 		return model.PostConsumeUserSubscriptionDelta(task.PrivateData.SubscriptionId, int64(delta))
 	}
+	if task.PrivateData.BillingSource == BillingSourceToken {
+		return nil
+	}
 	if delta > 0 {
 		return model.DecreaseUserQuota(task.UserId, delta)
 	}
