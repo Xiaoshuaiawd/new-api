@@ -49,6 +49,51 @@ import {
   useSidebar,
 } from '../../../../hooks/common/useSidebar';
 
+const getDefaultSidebarModulesUser = () => ({
+  chat: {
+    enabled: true,
+    playground: true,
+    chat: true,
+  },
+  console: {
+    enabled: true,
+    detail: true,
+    token: true,
+    log: true,
+    midjourney: true,
+    task: true,
+  },
+  personal: {
+    enabled: true,
+    subscription_center: true,
+    topup: true,
+    personal: true,
+  },
+  admin: {
+    enabled: true,
+    channel: true,
+    models: true,
+    deployment: true,
+    subscription: true,
+    redemption: true,
+    user: true,
+    setting: true,
+  },
+});
+
+const mergeSidebarModulesUser = (savedConfig) => {
+  const defaults = getDefaultSidebarModulesUser();
+  if (!savedConfig || typeof savedConfig !== 'object') return defaults;
+  return {
+    ...defaults,
+    ...savedConfig,
+    chat: { ...defaults.chat, ...(savedConfig.chat || {}) },
+    console: { ...defaults.console, ...(savedConfig.console || {}) },
+    personal: { ...defaults.personal, ...(savedConfig.personal || {}) },
+    admin: { ...defaults.admin, ...(savedConfig.admin || {}) },
+  };
+};
+
 const NotificationSettings = ({
   t,
   notificationSettings,
@@ -63,36 +108,9 @@ const NotificationSettings = ({
   // 左侧边栏设置相关状态
   const [sidebarLoading, setSidebarLoading] = useState(false);
   const [activeTabKey, setActiveTabKey] = useState('notification');
-  const [sidebarModulesUser, setSidebarModulesUser] = useState({
-    chat: {
-      enabled: true,
-      playground: true,
-      chat: true,
-    },
-    console: {
-      enabled: true,
-      detail: true,
-      token: true,
-      log: true,
-      midjourney: true,
-      task: true,
-    },
-    personal: {
-      enabled: true,
-      topup: true,
-      personal: true,
-    },
-    admin: {
-      enabled: true,
-      channel: true,
-      models: true,
-      deployment: true,
-      subscription: true,
-      redemption: true,
-      user: true,
-      setting: true,
-    },
-  });
+  const [sidebarModulesUser, setSidebarModulesUser] = useState(
+    getDefaultSidebarModulesUser(),
+  );
   const [adminConfig, setAdminConfig] = useState(null);
 
   // 使用后端权限验证替代前端角色判断
@@ -155,29 +173,7 @@ const NotificationSettings = ({
   };
 
   const resetSidebarModules = () => {
-    const defaultConfig = {
-      chat: { enabled: true, playground: true, chat: true },
-      console: {
-        enabled: true,
-        detail: true,
-        token: true,
-        log: true,
-        midjourney: true,
-        task: true,
-      },
-      personal: { enabled: true, topup: true, personal: true },
-      admin: {
-        enabled: true,
-        channel: true,
-        models: true,
-        deployment: true,
-        subscription: true,
-        redemption: true,
-        user: true,
-        setting: true,
-      },
-    };
-    setSidebarModulesUser(defaultConfig);
+    setSidebarModulesUser(getDefaultSidebarModulesUser());
   };
 
   // 加载左侧边栏配置
@@ -207,7 +203,7 @@ const NotificationSettings = ({
           } else {
             userConf = userRes.data.data.sidebar_modules;
           }
-          setSidebarModulesUser(userConf);
+          setSidebarModulesUser(mergeSidebarModulesUser(userConf));
         }
       } catch (error) {
         console.error('加载边栏配置失败:', error);
@@ -278,6 +274,11 @@ const NotificationSettings = ({
       title: t('个人中心区域'),
       description: t('用户个人功能'),
       modules: [
+        {
+          key: 'subscription_center',
+          title: t('订阅中心'),
+          description: t('订阅购买与订阅型 Key 兑换'),
+        },
         { key: 'topup', title: t('钱包管理'), description: t('余额充值管理') },
         {
           key: 'personal',

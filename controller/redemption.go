@@ -89,29 +89,22 @@ func AddRedemption(c *gin.Context) {
 		}
 		redemption.Quota = 0
 	}
-	var keys []string
-	for i := 0; i < redemption.Count; i++ {
-		key := common.GetUUID()
-		cleanRedemption := model.Redemption{
-			UserId:      c.GetInt("id"),
-			Name:        redemption.Name,
-			Key:         key,
-			CreatedTime: common.GetTimestamp(),
-			Quota:       redemption.Quota,
-			PlanId:      redemption.PlanId,
-			ExpiredTime: redemption.ExpiredTime,
-		}
-		err = cleanRedemption.Insert()
-		if err != nil {
-			common.SysError("failed to insert redemption: " + err.Error())
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": i18n.T(c, i18n.MsgRedemptionCreateFailed),
-				"data":    keys,
-			})
-			return
-		}
-		keys = append(keys, key)
+	keys, err := model.CreateRedemptions(
+		c.GetInt("id"),
+		redemption.Name,
+		redemption.Quota,
+		redemption.PlanId,
+		redemption.Count,
+		redemption.ExpiredTime,
+	)
+	if err != nil {
+		common.SysError("failed to insert redemption: " + err.Error())
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": i18n.T(c, i18n.MsgRedemptionCreateFailed),
+			"data":    keys,
+		})
+		return
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

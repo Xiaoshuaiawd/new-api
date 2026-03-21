@@ -17,19 +17,22 @@ var ErrRedemptionSubscriptionOnly = errors.New("该兑换码为订阅套餐兑�
 var ErrRedemptionQuotaOnly = errors.New("该兑换码不是订阅套餐兑换码")
 
 type Redemption struct {
-	Id           int            `json:"id"`
-	UserId       int            `json:"user_id"`
-	Key          string         `json:"key" gorm:"type:char(32);uniqueIndex"`
-	Status       int            `json:"status" gorm:"default:1"`
-	Name         string         `json:"name" gorm:"index"`
-	Quota        int            `json:"quota" gorm:"default:100"`
-	PlanId       int            `json:"plan_id" gorm:"type:int;default:0;index"`
-	CreatedTime  int64          `json:"created_time" gorm:"bigint"`
-	RedeemedTime int64          `json:"redeemed_time" gorm:"bigint"`
-	Count        int            `json:"count" gorm:"-:all"` // only for api request
-	UsedUserId   int            `json:"used_user_id"`
-	DeletedAt    gorm.DeletedAt `gorm:"index"`
-	ExpiredTime  int64          `json:"expired_time" gorm:"bigint"` // 过期时间，0 表示不过期
+	Id                    int            `json:"id"`
+	UserId                int            `json:"user_id"`
+	Key                   string         `json:"key" gorm:"type:char(32);uniqueIndex"`
+	Status                int            `json:"status" gorm:"default:1"`
+	Name                  string         `json:"name" gorm:"index"`
+	Quota                 int            `json:"quota" gorm:"default:100"`
+	PlanId                int            `json:"plan_id" gorm:"type:int;default:0;index"`
+	CreatedTime           int64          `json:"created_time" gorm:"bigint"`
+	RedeemedTime          int64          `json:"redeemed_time" gorm:"bigint"`
+	SubscriptionStartTime int64          `json:"subscription_start_time" gorm:"bigint;default:0"`
+	SubscriptionEndTime   int64          `json:"subscription_end_time" gorm:"bigint;default:0"`
+	UserSubscriptionId    int            `json:"user_subscription_id" gorm:"type:int;default:0;index"`
+	Count                 int            `json:"count" gorm:"-:all"` // only for api request
+	UsedUserId            int            `json:"used_user_id"`
+	DeletedAt             gorm.DeletedAt `gorm:"index"`
+	ExpiredTime           int64          `json:"expired_time" gorm:"bigint"` // 过期时间，0 表示不过期
 }
 
 func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
@@ -206,6 +209,11 @@ func RedeemSubscription(key string, userId int) (*UserSubscription, *Subscriptio
 			return planErr
 		}
 		redemption.RedeemedTime = common.GetTimestamp()
+		if sub != nil {
+			redemption.SubscriptionStartTime = sub.StartTime
+			redemption.SubscriptionEndTime = sub.EndTime
+			redemption.UserSubscriptionId = sub.Id
+		}
 		redemption.Status = common.RedemptionCodeStatusUsed
 		redemption.UsedUserId = userId
 		if err := tx.Save(redemption).Error; err != nil {
@@ -230,6 +238,34 @@ func (redemption *Redemption) Insert() error {
 	var err error
 	err = DB.Create(redemption).Error
 	return err
+}
+
+func CreateRedemptions(userId int, name string, quota int, planId int, count int, expiredTime int64) ([]string, error) {
+	if userId <= 0 {
+		return nil, errors.New("invalid user id")
+	}
+	if count <= 0 {
+		return nil, errors.New("count must be positive")
+	}
+	keys := make([]string, 0, count)
+	now := common.GetTimestamp()
+	for i := 0; i < count; i++ {
+		key := common.GetUUID()
+		redemption := Redemption{
+			UserId:      userId,
+			Name:        name,
+			Key:         key,
+			CreatedTime: now,
+			Quota:       quota,
+			PlanId:      planId,
+			ExpiredTime: expiredTime,
+		}
+		if err := redemption.Insert(); err != nil {
+			return keys, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
 }
 
 func (redemption *Redemption) SelectUpdate() error {

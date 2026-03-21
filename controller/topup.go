@@ -31,11 +31,7 @@ func subscriptionOnlyGuard(c *gin.Context) bool {
 	return false
 }
 
-func GetTopUpInfo(c *gin.Context) {
-	if subscriptionOnlyGuard(c) {
-		return
-	}
-	// 获取支付方式
+func buildPayMethods() []map[string]string {
 	payMethods := operation_setting.PayMethods
 
 	// 如果启用了 Stripe 支付，添加到支付方法列表
@@ -59,18 +55,28 @@ func GetTopUpInfo(c *gin.Context) {
 			payMethods = append(payMethods, stripeMethod)
 		}
 	}
+	return payMethods
+}
 
-	data := gin.H{
+func buildSubscriptionPaymentInfo() gin.H {
+	return gin.H{
 		"enable_online_topup": operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != "",
 		"enable_stripe_topup": setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "",
 		"enable_creem_topup":  setting.CreemApiKey != "" && setting.CreemProducts != "[]",
-		"creem_products":      setting.CreemProducts,
-		"pay_methods":         payMethods,
-		"min_topup":           operation_setting.MinTopUp,
-		"stripe_min_topup":    setting.StripeMinTopUp,
-		"amount_options":      operation_setting.GetPaymentSetting().AmountOptions,
-		"discount":            operation_setting.GetPaymentSetting().AmountDiscount,
+		"pay_methods":         buildPayMethods(),
 	}
+}
+
+func GetTopUpInfo(c *gin.Context) {
+	if subscriptionOnlyGuard(c) {
+		return
+	}
+	data := buildSubscriptionPaymentInfo()
+	data["creem_products"] = setting.CreemProducts
+	data["min_topup"] = operation_setting.MinTopUp
+	data["stripe_min_topup"] = setting.StripeMinTopUp
+	data["amount_options"] = operation_setting.GetPaymentSetting().AmountOptions
+	data["discount"] = operation_setting.GetPaymentSetting().AmountDiscount
 	common.ApiSuccess(c, data)
 }
 

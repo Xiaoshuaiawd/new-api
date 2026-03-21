@@ -18,10 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import SubscriptionCenter from '../../components/subscription-center';
+import SubscriptionsPage from '../../components/table/subscriptions';
 
-const Subscription = () => {
-  return <SubscriptionCenter />;
+const SubscriptionAdmin = () => {
+  return (
+    <div className='mt-[60px] px-2'>
+      <SubscriptionsPage />
+    </div>
+  );
 };
 
-export default Subscription;
+export default SubscriptionAdmin;

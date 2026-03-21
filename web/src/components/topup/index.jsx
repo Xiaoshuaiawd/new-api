@@ -28,10 +28,12 @@ import {
   copy,
   getQuotaPerUnit,
 } from '../../helpers';
-import { Modal, Toast } from '@douyinfe/semi-ui';
+import { Avatar, Button, Card, Modal, Toast, Typography } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { UserContext } from '../../context/User';
 import { StatusContext } from '../../context/Status';
+import { ArrowRight, Sparkles, Wallet } from 'lucide-react';
 
 import RechargeCard from './RechargeCard';
 import InvitationCard from './InvitationCard';
@@ -39,8 +41,11 @@ import TransferModal from './modals/TransferModal';
 import PaymentConfirmModal from './modals/PaymentConfirmModal';
 import TopupHistoryModal from './modals/TopupHistoryModal';
 
+const { Text } = Typography;
+
 const TopUp = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [userState, userDispatch] = useContext(UserContext);
   const [statusState] = useContext(StatusContext);
   const subscriptionOnlyModeEnabled =
@@ -90,14 +95,6 @@ const TopUp = () => {
   // 账单Modal状态
   const [openHistory, setOpenHistory] = useState(false);
 
-  // 订阅相关
-  const [subscriptionPlans, setSubscriptionPlans] = useState([]);
-  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
-  const [billingPreference, setBillingPreference] =
-    useState('subscription_first');
-  const [activeSubscriptions, setActiveSubscriptions] = useState([]);
-  const [allSubscriptions, setAllSubscriptions] = useState([]);
-
   // 预设充值额度选项
   const [presetAmounts, setPresetAmounts] = useState([]);
   const [selectedPreset, setSelectedPreset] = useState(null);
@@ -120,18 +117,6 @@ const TopUp = () => {
       });
       const { success, message, data } = res.data;
       if (success) {
-        if (data && typeof data === 'object' && data.type === 'subscription') {
-          const planTitle = data.plan?.title || t('订阅套餐');
-          showSuccess(t('订阅兑换成功！'));
-          Modal.success({
-            title: t('订阅兑换成功！'),
-            content: t('成功兑换订阅套餐：') + planTitle,
-            centered: true,
-          });
-          setRedemptionCode('');
-          await getSubscriptionSelf();
-          return;
-        }
         showSuccess(t('兑换成功！'));
         Modal.success({
           title: t('兑换成功！'),
@@ -341,61 +326,6 @@ const TopUp = () => {
     }
   };
 
-  const getSubscriptionPlans = async () => {
-    setSubscriptionLoading(true);
-    try {
-      const res = await API.get('/api/subscription/plans');
-      if (res.data?.success) {
-        setSubscriptionPlans(res.data.data || []);
-      }
-    } catch (e) {
-      setSubscriptionPlans([]);
-    } finally {
-      setSubscriptionLoading(false);
-    }
-  };
-
-  const getSubscriptionSelf = async () => {
-    try {
-      const res = await API.get('/api/subscription/self');
-      if (res.data?.success) {
-        setBillingPreference(
-          res.data.data?.billing_preference || 'subscription_first',
-        );
-        // Active subscriptions
-        const activeSubs = res.data.data?.subscriptions || [];
-        setActiveSubscriptions(activeSubs);
-        // All subscriptions (including expired)
-        const allSubs = res.data.data?.all_subscriptions || [];
-        setAllSubscriptions(allSubs);
-      }
-    } catch (e) {
-      // ignore
-    }
-  };
-
-  const updateBillingPreference = async (pref) => {
-    const previousPref = billingPreference;
-    setBillingPreference(pref);
-    try {
-      const res = await API.put('/api/subscription/self/preference', {
-        billing_preference: pref,
-      });
-      if (res.data?.success) {
-        showSuccess(t('更新成功'));
-        const normalizedPref =
-          res.data?.data?.billing_preference || pref || previousPref;
-        setBillingPreference(normalizedPref);
-      } else {
-        showError(res.data?.message || t('更新失败'));
-        setBillingPreference(previousPref);
-      }
-    } catch (e) {
-      showError(t('请求失败'));
-      setBillingPreference(previousPref);
-    }
-  };
-
   // 获取充值配置信息
   const getTopupInfo = async () => {
     if (subscriptionOnlyModeEnabled) {
@@ -570,9 +500,7 @@ const TopUp = () => {
     } else {
       setStatusLoading(false);
     }
-    getSubscriptionPlans().then();
-    getSubscriptionSelf().then();
-  }, []);
+  }, [subscriptionOnlyModeEnabled]);
 
   useEffect(() => {
     if (statusState?.status) {
@@ -757,59 +685,81 @@ const TopUp = () => {
         )}
       </Modal>
 
-      {/* 主布局区域 */}
-      <div
-        className={
-          subscriptionOnlyModeEnabled
-            ? 'grid grid-cols-1 gap-6'
-            : 'grid grid-cols-1 lg:grid-cols-2 gap-6'
-        }
-      >
-        <RechargeCard
-          t={t}
-          enableOnlineTopUp={enableOnlineTopUp}
-          enableStripeTopUp={enableStripeTopUp}
-          enableCreemTopUp={enableCreemTopUp}
-          creemProducts={creemProducts}
-          creemPreTopUp={creemPreTopUp}
-          presetAmounts={presetAmounts}
-          selectedPreset={selectedPreset}
-          selectPresetAmount={selectPresetAmount}
-          formatLargeNumber={formatLargeNumber}
-          priceRatio={priceRatio}
-          topUpCount={topUpCount}
-          minTopUp={minTopUp}
-          renderQuotaWithAmount={renderQuotaWithAmount}
-          getAmount={getAmount}
-          setTopUpCount={setTopUpCount}
-          setSelectedPreset={setSelectedPreset}
-          renderAmount={renderAmount}
-          amountLoading={amountLoading}
-          payMethods={payMethods}
-          preTopUp={preTopUp}
-          paymentLoading={paymentLoading}
-          payWay={payWay}
-          redemptionCode={redemptionCode}
-          setRedemptionCode={setRedemptionCode}
-          topUp={topUp}
-          isSubmitting={isSubmitting}
-          topUpLink={topUpLink}
-          openTopUpLink={openTopUpLink}
-          userState={userState}
-          renderQuota={renderQuota}
-          statusLoading={statusLoading}
-          topupInfo={topupInfo}
-          onOpenHistory={handleOpenHistory}
-          subscriptionLoading={subscriptionLoading}
-          subscriptionPlans={subscriptionPlans}
-          billingPreference={billingPreference}
-          onChangeBillingPreference={updateBillingPreference}
-          activeSubscriptions={activeSubscriptions}
-          allSubscriptions={allSubscriptions}
-          reloadSubscriptionSelf={getSubscriptionSelf}
-          subscriptionOnlyModeEnabled={subscriptionOnlyModeEnabled}
-        />
-        {!subscriptionOnlyModeEnabled && (
+      {subscriptionOnlyModeEnabled ? (
+        <Card className='!rounded-2xl shadow-sm border-0'>
+          <div className='flex items-start justify-between gap-4 flex-col md:flex-row'>
+            <div className='flex items-start gap-3'>
+              <Avatar size='small' color='blue' className='shadow-md mt-1'>
+                <Wallet size={16} />
+              </Avatar>
+              <div>
+                <Text className='text-lg font-medium'>
+                  {t('钱包管理已关闭')}
+                </Text>
+                <div className='text-sm text-gray-500 mt-1'>
+                  {t('当前站点已开启订阅专用模式，钱包充值和额度兑换已与订阅逻辑解耦。')}
+                </div>
+                <div className='text-sm text-gray-500 mt-2'>
+                  {t('如需购买或兑换订阅型 Key，请前往订阅中心完成操作。')}
+                </div>
+              </div>
+            </div>
+            <Button
+              theme='solid'
+              icon={<ArrowRight size={16} />}
+              onClick={() => navigate('/console/subscription')}
+            >
+              {t('前往订阅中心')}
+            </Button>
+          </div>
+          <div className='mt-6 rounded-2xl border border-dashed border-blue-200 bg-blue-50/60 p-4 flex items-start gap-3'>
+            <Avatar size='small' color='cyan'>
+              <Sparkles size={16} />
+            </Avatar>
+            <div className='text-sm text-gray-600'>
+              {t('订阅型 Key 会在用户实际激活时开始计时，钱包页面不再承载订阅购买与兑换逻辑。')}
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
+          <RechargeCard
+            t={t}
+            enableOnlineTopUp={enableOnlineTopUp}
+            enableStripeTopUp={enableStripeTopUp}
+            enableCreemTopUp={enableCreemTopUp}
+            creemProducts={creemProducts}
+            creemPreTopUp={creemPreTopUp}
+            presetAmounts={presetAmounts}
+            selectedPreset={selectedPreset}
+            selectPresetAmount={selectPresetAmount}
+            formatLargeNumber={formatLargeNumber}
+            priceRatio={priceRatio}
+            topUpCount={topUpCount}
+            minTopUp={minTopUp}
+            renderQuotaWithAmount={renderQuotaWithAmount}
+            getAmount={getAmount}
+            setTopUpCount={setTopUpCount}
+            setSelectedPreset={setSelectedPreset}
+            renderAmount={renderAmount}
+            amountLoading={amountLoading}
+            payMethods={payMethods}
+            preTopUp={preTopUp}
+            paymentLoading={paymentLoading}
+            payWay={payWay}
+            redemptionCode={redemptionCode}
+            setRedemptionCode={setRedemptionCode}
+            topUp={topUp}
+            isSubmitting={isSubmitting}
+            topUpLink={topUpLink}
+            openTopUpLink={openTopUpLink}
+            userState={userState}
+            renderQuota={renderQuota}
+            statusLoading={statusLoading}
+            topupInfo={topupInfo}
+            onOpenHistory={handleOpenHistory}
+            showSubscriptionSection={false}
+          />
           <InvitationCard
             t={t}
             userState={userState}
@@ -818,8 +768,8 @@ const TopUp = () => {
             affLink={affLink}
             handleAffLinkClick={handleAffLinkClick}
           />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

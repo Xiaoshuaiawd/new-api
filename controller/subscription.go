@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -62,6 +65,10 @@ func GetSubscriptionSelf(c *gin.Context) {
 	})
 }
 
+func GetSubscriptionPaymentInfo(c *gin.Context) {
+	common.ApiSuccess(c, buildSubscriptionPaymentInfo())
+}
+
 func UpdateSubscriptionPreference(c *gin.Context) {
 	userId := c.GetInt("id")
 	var req BillingPreferenceRequest
@@ -84,6 +91,44 @@ func UpdateSubscriptionPreference(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"billing_preference": pref})
+}
+
+func RedeemSubscriptionKey(c *gin.Context) {
+	userId := c.GetInt("id")
+	lock := getTopUpLock(userId)
+	if !lock.TryLock() {
+		common.ApiErrorI18n(c, i18n.MsgUserTopUpProcessing)
+		return
+	}
+	defer lock.Unlock()
+
+	req := topUpRequest{}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	sub, plan, err := model.RedeemSubscription(req.Key, userId)
+	if err != nil {
+		if errors.Is(err, model.ErrRedemptionQuotaOnly) {
+			common.ApiErrorMsg(c, "该 Key 不是订阅型 Key，请前往钱包管理使用额度兑换码")
+			return
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorI18n(c, i18n.MsgRedemptionPlanNotExists)
+			return
+		}
+		if errors.Is(err, model.ErrRedeemFailed) {
+			common.ApiErrorI18n(c, i18n.MsgRedeemFailed)
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"type":         "subscription",
+		"subscription": sub,
+		"plan":         plan,
+	})
 }
 
 // ---- Admin APIs ----
@@ -298,6 +343,66 @@ func AdminBindSubscription(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, nil)
+}
+
+type AdminCreateSubscriptionKeysRequest struct {
+	Name        string `json:"name"`
+	PlanId      int    `json:"plan_id"`
+	Count       int    `json:"count"`
+	ExpiredTime int64  `json:"expired_time"`
+}
+
+func AdminCreateSubscriptionKeys(c *gin.Context) {
+	var req AdminCreateSubscriptionKeysRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "参数错误")
+		return
+	}
+	if req.PlanId <= 0 {
+		common.ApiErrorMsg(c, "订阅套餐不能为空")
+		return
+	}
+	if req.Count <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgRedemptionCountPositive)
+		return
+	}
+	if req.Count > 100 {
+		common.ApiErrorI18n(c, i18n.MsgRedemptionCountMax)
+		return
+	}
+	if valid, msg := validateExpiredTime(c, req.ExpiredTime); !valid {
+		c.JSON(200, gin.H{"success": false, "message": msg})
+		return
+	}
+	plan, err := model.GetSubscriptionPlanById(req.PlanId)
+	if err != nil || plan == nil {
+		common.ApiErrorI18n(c, i18n.MsgRedemptionPlanNotExists)
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = plan.Title
+	}
+	if utf8.RuneCountInString(name) == 0 || utf8.RuneCountInString(name) > 20 {
+		common.ApiErrorI18n(c, i18n.MsgRedemptionNameLength)
+		return
+	}
+	keys, err := model.CreateRedemptions(
+		c.GetInt("id"),
+		name,
+		0,
+		req.PlanId,
+		req.Count,
+		req.ExpiredTime,
+	)
+	if err != nil {
+		common.ApiErrorMsg(c, "创建订阅型 Key 失败")
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"plan": plan,
+		"keys": keys,
+	})
 }
 
 // ---- Admin: user subscription management ----

@@ -95,6 +95,7 @@ const RechargeCard = ({
   allSubscriptions = [],
   reloadSubscriptionSelf,
   subscriptionOnlyModeEnabled = false,
+  showSubscriptionSection = true,
 }) => {
   const onlineFormApiRef = useRef(null);
   const redeemFormApiRef = useRef(null);
@@ -102,8 +103,9 @@ const RechargeCard = ({
   const showAmountSkeleton = useMinimumLoadingTime(amountLoading);
   const [activeTab, setActiveTab] = useState('topup');
   const shouldShowSubscription =
-    subscriptionOnlyModeEnabled ||
-    (!subscriptionLoading && subscriptionPlans.length > 0);
+    showSubscriptionSection &&
+    (subscriptionOnlyModeEnabled ||
+      (!subscriptionLoading && subscriptionPlans.length > 0));
 
   useEffect(() => {
     if (initialTabSetRef.current) return;
@@ -581,7 +583,7 @@ const RechargeCard = ({
   );
 
   // 订阅专用模式：只渲染订阅卡片
-  if (subscriptionOnlyModeEnabled) {
+  if (showSubscriptionSection && subscriptionOnlyModeEnabled) {
     return (
       <Card className='!rounded-2xl shadow-sm border-0'>
         <div className='flex items-center justify-between mb-4'>

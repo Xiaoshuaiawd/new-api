@@ -168,7 +168,7 @@ export const useDashboardStats = (
           avatarColor: 'blue',
           trendData: [],
           trendColor: '#3b82f6',
-          onClick: () => navigate('/topup'),
+          onClick: () => navigate('/console/subscription'),
         },
         {
           title: t('下次刷新时间'),
@@ -177,7 +177,7 @@ export const useDashboardStats = (
           avatarColor: 'indigo',
           trendData: [],
           trendColor: '#6366f1',
-          onClick: () => navigate('/topup'),
+          onClick: () => navigate('/console/subscription'),
         },
         {
           title: t('订阅到期时间'),
@@ -186,7 +186,7 @@ export const useDashboardStats = (
           avatarColor: 'purple',
           trendData: [],
           trendColor: '#8b5cf6',
-          onClick: () => navigate('/topup'),
+          onClick: () => navigate('/console/subscription'),
         },
       ],
     };
