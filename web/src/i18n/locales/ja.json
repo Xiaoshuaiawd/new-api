@@ -3224,6 +3224,9 @@
     "5m缓存创建：{{tokens}} / 1M * 模型倍率 {{modelRatio}} * 5m缓存创建倍率 {{cacheCreationRatio5m}} * {{ratioType}} {{ratio}} = {{amount}}": "5m キャッシュ作成: {{tokens}} / 1M * モデル倍率 {{modelRatio}} * 5m キャッシュ作成倍率 {{cacheCreationRatio5m}} * {{ratioType}} {{ratio}} = {{amount}}",
     "1h缓存创建：{{tokens}} / 1M * 模型倍率 {{modelRatio}} * 1h缓存创建倍率 {{cacheCreationRatio1h}} * {{ratioType}} {{ratio}} = {{amount}}": "1h キャッシュ作成: {{tokens}} / 1M * モデル倍率 {{modelRatio}} * 1h キャッシュ作成倍率 {{cacheCreationRatio1h}} * {{ratioType}} {{ratio}} = {{amount}}",
     "输出：{{tokens}} / 1M * 模型倍率 {{modelRatio}} * 输出倍率 {{completionRatio}} * {{ratioType}} {{ratio}} = {{amount}}": "出力: {{tokens}} / 1M * モデル倍率 {{modelRatio}} * 出力倍率 {{completionRatio}} * {{ratioType}} {{ratio}} = {{amount}}",
+    "启用 Key 级模型请求速率限制（可能会影响高并发性能）": "キー単位のモデルリクエストレート制限を有効にする（高同時実行パフォーマンスに影響する可能性があります）",
+    "Key 每周期最多请求完成次数": "期間ごとのキー最大成功リクエスト数",
+    "Key 每周期最多请求次数": "期間ごとのキー最大リクエスト数",
     "空": "空"
   }
 }

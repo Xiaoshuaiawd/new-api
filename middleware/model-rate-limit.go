@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -20,6 +19,25 @@ const (
 	ModelRequestRateLimitCountMark        = "MRRL"
 	ModelRequestRateLimitSuccessCountMark = "MRRLS"
 )
+
+func getModelRateLimitIdentifier(c *gin.Context) string {
+	tokenId := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
+	if tokenId > 0 {
+		return fmt.Sprintf("token:%d", tokenId)
+	}
+
+	tokenKey := common.GetContextKeyString(c, constant.ContextKeyTokenKey)
+	if tokenKey != "" {
+		return "token:" + common.GenerateHMAC(tokenKey)
+	}
+
+	userId := common.GetContextKeyInt(c, constant.ContextKeyUserId)
+	if userId > 0 {
+		return fmt.Sprintf("user:%d", userId)
+	}
+
+	return ""
+}
 
 // 检查Redis中的请求限制
 func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) (bool, error) {
@@ -77,12 +95,16 @@ func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxC
 // Redis限流处理器
 func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userId := strconv.Itoa(c.GetInt("id"))
+		subjectKey := getModelRateLimitIdentifier(c)
+		if subjectKey == "" {
+			abortWithOpenAiMessage(c, http.StatusUnauthorized, "invalid_rate_limit_subject")
+			return
+		}
 		ctx := context.Background()
 		rdb := common.RDB
 
 		// 1. 检查成功请求数限制
-		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, userId)
+		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, subjectKey)
 		allowed, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
 		if err != nil {
 			fmt.Println("检查成功请求数限制失败:", err.Error())
@@ -96,7 +118,7 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 
 		//2.检查总请求数限制并记录总请求（当totalMaxCount为0时会自动跳过，使用令牌桶限流器
 		if totalMaxCount > 0 {
-			totalKey := fmt.Sprintf("rateLimit:%s", userId)
+			totalKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitCountMark, subjectKey)
 			// 初始化
 			tb := limiter.New(ctx, rdb)
 			allowed, err = tb.Allow(
@@ -133,9 +155,14 @@ func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) 
 	inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
 
 	return func(c *gin.Context) {
-		userId := strconv.Itoa(c.GetInt("id"))
-		totalKey := ModelRequestRateLimitCountMark + userId
-		successKey := ModelRequestRateLimitSuccessCountMark + userId
+		subjectKey := getModelRateLimitIdentifier(c)
+		if subjectKey == "" {
+			c.Status(http.StatusUnauthorized)
+			c.Abort()
+			return
+		}
+		totalKey := ModelRequestRateLimitCountMark + ":" + subjectKey
+		successKey := ModelRequestRateLimitSuccessCountMark + ":" + subjectKey
 
 		// 1. 检查总请求数限制（当totalMaxCount为0时跳过）
 		if totalMaxCount > 0 && !inMemoryRateLimiter.Request(totalKey, totalMaxCount, duration) {
@@ -145,9 +172,7 @@ func memoryRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) 
 		}
 
 		// 2. 检查成功请求数限制
-		// 使用一个临时key来检查限制，这样可以避免实际记录
-		checkKey := successKey + "_check"
-		if !inMemoryRateLimiter.Request(checkKey, successMaxCount, duration) {
+		if !inMemoryRateLimiter.Allow(successKey, successMaxCount, duration) {
 			c.Status(http.StatusTooManyRequests)
 			c.Abort()
 			return

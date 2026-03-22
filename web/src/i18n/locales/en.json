@@ -3308,6 +3308,9 @@
     "无到期时间": "No expiration",
     "当前仅支持订阅模式": "Subscription-only mode is enabled",
     "无限": "Unlimited",
+    "启用 Key 级模型请求速率限制（可能会影响高并发性能）": "Enable key-level model request rate limit (may affect high concurrency performance)",
+    "Key 每周期最多请求完成次数": "Key max successful request times per period",
+    "Key 每周期最多请求次数": "Key max request times per period",
     "空": "Empty"
   }
 }
