@@ -19,6 +19,46 @@ const (
 	ModelRequestRateLimitSuccessCountMark = "MRRLS"
 )
 
+var redisSlidingWindowAllowAndRecordScript = redis.NewScript(`
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local duration = tonumber(ARGV[2])
+local max_count = tonumber(ARGV[3])
+local entry = ARGV[4]
+local expire_seconds = tonumber(ARGV[5])
+
+if max_count <= 0 then
+	return 1
+end
+
+while true do
+	local oldest = redis.call('LINDEX', key, -1)
+	if not oldest then
+		break
+	end
+
+	local ts = tonumber(string.match(oldest, '^(%d+)'))
+	if not ts then
+		redis.call('RPOP', key)
+	elseif now - ts >= duration then
+		redis.call('RPOP', key)
+	else
+		break
+	end
+end
+
+local current = redis.call('LLEN', key)
+if current >= max_count then
+	redis.call('EXPIRE', key, expire_seconds)
+	return 0
+end
+
+redis.call('LPUSH', key, entry)
+redis.call('LTRIM', key, 0, max_count - 1)
+redis.call('EXPIRE', key, expire_seconds)
+return 1
+`)
+
 func getModelRateLimitIdentifier(c *gin.Context) string {
 	tokenId := common.GetContextKeyInt(c, constant.ContextKeyTokenId)
 	if tokenId > 0 {
@@ -38,57 +78,43 @@ func getModelRateLimitIdentifier(c *gin.Context) string {
 	return ""
 }
 
-// 检查Redis中的请求限制
-func checkRedisRateLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64) (bool, error) {
-	// 如果maxCount为0，表示不限制
-	if maxCount == 0 {
-		return true, nil
+func makeRateLimitEntry(c *gin.Context) string {
+	requestID := c.GetString(common.RequestIdKey)
+	if requestID == "" {
+		requestID = fmt.Sprintf("fallback-%d", time.Now().UnixNano())
 	}
-
-	// 获取当前计数
-	length, err := rdb.LLen(ctx, key).Result()
-	if err != nil {
-		return false, err
-	}
-
-	// 如果未达到限制，允许请求
-	if length < int64(maxCount) {
-		return true, nil
-	}
-
-	// 检查时间窗口
-	oldTimeStr, _ := rdb.LIndex(ctx, key, -1).Result()
-	oldTime, err := time.Parse(timeFormat, oldTimeStr)
-	if err != nil {
-		return false, err
-	}
-
-	nowTimeStr := time.Now().Format(timeFormat)
-	nowTime, err := time.Parse(timeFormat, nowTimeStr)
-	if err != nil {
-		return false, err
-	}
-	// 如果在时间窗口内已达到限制，拒绝请求
-	subTime := nowTime.Sub(oldTime).Seconds()
-	if int64(subTime) < duration {
-		rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
-		return false, nil
-	}
-
-	return true, nil
+	return fmt.Sprintf("%d|%s", time.Now().Unix(), requestID)
 }
 
-// 记录Redis请求
-func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxCount int) {
-	// 如果maxCount为0，不记录请求
+func redisAllowAndRecordRateLimit(ctx context.Context, rdb *redis.Client, key string, maxCount int, duration int64, entry string) (bool, error) {
 	if maxCount == 0 {
+		return true, nil
+	}
+	expireSeconds := duration + 60
+	if expireSeconds < 60 {
+		expireSeconds = 60
+	}
+	result, err := redisSlidingWindowAllowAndRecordScript.Run(
+		ctx,
+		rdb,
+		[]string{key},
+		time.Now().Unix(),
+		duration,
+		maxCount,
+		entry,
+		expireSeconds,
+	).Int()
+	if err != nil {
+		return false, err
+	}
+	return result == 1, nil
+}
+
+func redisRollbackRateLimitRecord(ctx context.Context, rdb *redis.Client, key, entry string) {
+	if entry == "" {
 		return
 	}
-
-	now := time.Now().Format(timeFormat)
-	rdb.LPush(ctx, key, now)
-	rdb.LTrim(ctx, key, 0, int64(maxCount-1))
-	rdb.Expire(ctx, key, time.Duration(setting.ModelRequestRateLimitDurationMinutes)*time.Minute)
+	_, _ = rdb.LRem(ctx, key, 1, entry).Result()
 }
 
 // Redis限流处理器
@@ -101,10 +127,26 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 		}
 		ctx := context.Background()
 		rdb := common.RDB
+		requestEntry := makeRateLimitEntry(c)
 
-		// 1. 检查成功请求数限制
+		// 1. 检查总请求数限制并记录总请求（包含失败请求）
+		if totalMaxCount > 0 {
+			totalKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitCountMark, subjectKey)
+			allowed, err := redisAllowAndRecordRateLimit(ctx, rdb, totalKey, totalMaxCount, duration, requestEntry)
+			if err != nil {
+				fmt.Println("检查总请求数限制失败:", err.Error())
+				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+				return
+			}
+			if !allowed {
+				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到总请求数限制：%d分钟内最多请求%d次，包括失败次数，请检查您的请求是否正确", setting.ModelRequestRateLimitDurationMinutes, totalMaxCount))
+				return
+			}
+		}
+
+		// 2. 检查成功请求数限制（预占位，失败后回滚）
 		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, subjectKey)
-		allowed, err := checkRedisRateLimit(ctx, rdb, successKey, successMaxCount, duration)
+		allowed, err := redisAllowAndRecordRateLimit(ctx, rdb, successKey, successMaxCount, duration, requestEntry)
 		if err != nil {
 			fmt.Println("检查成功请求数限制失败:", err.Error())
 			abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
@@ -115,30 +157,12 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 			return
 		}
 
-		// 2. 检查总请求数限制并记录总请求（包含失败请求）
-		if totalMaxCount > 0 {
-			totalKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitCountMark, subjectKey)
-			allowed, err = checkRedisRateLimit(ctx, rdb, totalKey, totalMaxCount, duration)
-			if err != nil {
-				fmt.Println("检查总请求数限制失败:", err.Error())
-				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
-				return
-			}
-
-			if !allowed {
-				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到总请求数限制：%d分钟内最多请求%d次，包括失败次数，请检查您的请求是否正确", setting.ModelRequestRateLimitDurationMinutes, totalMaxCount))
-				return
-			}
-
-			recordRedisRequest(ctx, rdb, totalKey, totalMaxCount)
-		}
-
-		// 4. 处理请求
+		// 3. 处理请求
 		c.Next()
 
-		// 5. 如果请求成功，记录成功请求
-		if c.Writer.Status() < 400 {
-			recordRedisRequest(ctx, rdb, successKey, successMaxCount)
+		// 4. 请求失败则回滚成功请求预占位
+		if c.Writer.Status() >= 400 {
+			redisRollbackRateLimitRecord(ctx, rdb, successKey, requestEntry)
 		}
 	}
 }
