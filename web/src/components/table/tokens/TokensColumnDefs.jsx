@@ -425,10 +425,7 @@ const renderOperations = (
   t,
 ) => {
   const isAdminUser = isAdmin();
-  const canRenewSubscription =
-    isAdminUser &&
-    record.plan_id > 0 &&
-    record.activation_time > 0;
+  const canRenewSubscription = isAdminUser;
   let chatsArray = [];
   try {
     const raw = localStorage.getItem('chats');
