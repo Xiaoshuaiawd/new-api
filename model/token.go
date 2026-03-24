@@ -209,6 +209,93 @@ func ensureSubscriptionTokenReady(token *Token) (*Token, error) {
 	return token, nil
 }
 
+func validateSubscriptionTokenRenewal(token *Token, now int64) error {
+	if token == nil {
+		return errors.New("token is nil")
+	}
+	if !token.IsSubscriptionToken() {
+		return errors.New("该令牌不是订阅型令牌")
+	}
+	if token.ActivationTime == 0 {
+		return errors.New("该订阅型令牌尚未激活，无需续费")
+	}
+	expired := token.ExpiredTime > 0 && token.ExpiredTime <= now
+	exhausted := !token.UnlimitedQuota && token.RemainQuota <= 0
+	statusRenewable := token.Status == common.TokenStatusExpired || token.Status == common.TokenStatusExhausted
+	if !expired && !exhausted && !statusRenewable {
+		return errors.New("当前订阅尚未到期或耗尽，暂不支持提前续费")
+	}
+	return nil
+}
+
+func RenewSubscriptionTokenByID(id int, userId int) (*Token, error) {
+	if id <= 0 || userId <= 0 {
+		return nil, errors.New("id 或 userId 为空！")
+	}
+	var renewed Token
+	now := GetDBTimestamp()
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var locked Token
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+			Where("id = ? AND user_id = ?", id, userId).
+			First(&locked).Error; err != nil {
+			return err
+		}
+		if err := validateSubscriptionTokenRenewal(&locked, now); err != nil {
+			return err
+		}
+		plan := locked.toPlanSnapshot()
+		if plan == nil {
+			return errors.New("subscription plan snapshot is missing")
+		}
+		start := time.Unix(now, 0)
+		endUnix, err := calcPlanEndTime(start, plan)
+		if err != nil {
+			return err
+		}
+		nextReset := calcNextResetTime(start, plan, endUnix)
+		lastReset := int64(0)
+		if nextReset > 0 {
+			lastReset = now
+		}
+		locked.Status = common.TokenStatusEnabled
+		locked.AccessedTime = now
+		locked.ActivationTime = now
+		locked.ExpiredTime = endUnix
+		locked.LastResetTime = lastReset
+		locked.NextResetTime = nextReset
+		locked.UnlimitedQuota = plan.TotalAmount == 0
+		locked.RemainQuota = int(plan.TotalAmount)
+		locked.UsedQuota = 0
+		if err := tx.Model(&locked).Select(
+			"status",
+			"accessed_time",
+			"activation_time",
+			"expired_time",
+			"last_reset_time",
+			"next_reset_time",
+			"unlimited_quota",
+			"remain_quota",
+			"used_quota",
+		).Updates(&locked).Error; err != nil {
+			return err
+		}
+		renewed = locked
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if common.RedisEnabled {
+		gopool.Go(func() {
+			if err := cacheSetToken(renewed); err != nil {
+				common.SysLog("failed to refresh renewed subscription token cache: " + err.Error())
+			}
+		})
+	}
+	return &renewed, nil
+}
+
 func (token *Token) GetIpLimits() []string {
 	// delete empty spaces
 	//split with \n

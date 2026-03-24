@@ -39,6 +39,7 @@ import {
   renderQuota,
   getModelCategories,
   showError,
+  isAdmin,
 } from '../../../helpers';
 import {
   IconTreeTriangleDown,
@@ -344,9 +345,22 @@ const renderOperations = (
   setEditingToken,
   setShowEdit,
   manageToken,
+  renewSubscriptionToken,
   refresh,
   t,
 ) => {
+  const now = Math.floor(Date.now() / 1000);
+  const isAdminUser = isAdmin();
+  const canRenewSubscription =
+    isAdminUser &&
+    record.plan_id > 0 &&
+    record.activation_time > 0 &&
+    (
+      record.status === 3 ||
+      record.status === 4 ||
+      (record.expired_time > 0 && record.expired_time <= now) ||
+      (!record.unlimited_quota && Number(record.remain_quota || 0) <= 0)
+    );
   let chatsArray = [];
   try {
     const raw = localStorage.getItem('chats');
@@ -432,6 +446,29 @@ const renderOperations = (
         {t('编辑')}
       </Button>
 
+      {canRenewSubscription && (
+        <Button
+          type='warning'
+          size='small'
+          onClick={() => {
+            Modal.confirm({
+              title: t('确定要续费此订阅型令牌吗？'),
+              content: t(
+                '续费后会立即开启一个新的套餐周期，并重置该令牌的套餐额度。',
+              ),
+              onOk: async () => {
+                const ok = await renewSubscriptionToken(record.id);
+                if (ok) {
+                  await refresh();
+                }
+              },
+            });
+          }}
+        >
+          {t('续费')}
+        </Button>
+      )}
+
       <Button
         type='danger'
         size='small'
@@ -460,6 +497,7 @@ export const getTokensColumns = ({
   setShowKeys,
   copyText,
   manageToken,
+  renewSubscriptionToken,
   onOpenLink,
   setEditingToken,
   setShowEdit,
@@ -556,6 +594,7 @@ export const getTokensColumns = ({
           setEditingToken,
           setShowEdit,
           manageToken,
+          renewSubscriptionToken,
           refresh,
           t,
         ),

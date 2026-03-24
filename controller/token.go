@@ -409,6 +409,25 @@ func UpdateToken(c *gin.Context) {
 	})
 }
 
+func RenewSubscriptionToken(c *gin.Context) {
+	if c.GetInt("role") < common.RoleAdminUser {
+		common.ApiErrorMsg(c, "仅管理员可续费订阅型令牌")
+		return
+	}
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "无效的ID")
+		return
+	}
+	userId := c.GetInt("id")
+	token, err := model.RenewSubscriptionTokenByID(id, userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, token)
+}
+
 type TokenBatch struct {
 	Ids []int `json:"ids"`
 }

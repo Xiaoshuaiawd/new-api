@@ -203,6 +203,28 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     setLoading(false);
   };
 
+  const renewSubscriptionToken = async (id) => {
+    setLoading(true);
+    try {
+      const res = await API.post(`/api/token/${id}/renew`);
+      const { success, message, data } = res.data;
+      if (!success) {
+        showError(message);
+        return false;
+      }
+      setTokens((prev) =>
+        prev.map((token) => (token.id === id ? { ...token, ...data } : token)),
+      );
+      showSuccess(t('订阅续费成功！'));
+      return true;
+    } catch (error) {
+      showError(error.message);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Search tokens function
   const searchTokens = async (page = 1, size = pageSize) => {
     const normalizedPage = Number.isInteger(page) && page > 0 ? page : 1;
@@ -405,6 +427,7 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     copyText,
     onOpenLink,
     manageToken,
+    renewSubscriptionToken,
     searchTokens,
     sortToken,
     handlePageChange,
