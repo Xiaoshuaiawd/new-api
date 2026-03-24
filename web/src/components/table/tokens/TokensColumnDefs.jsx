@@ -424,18 +424,11 @@ const renderOperations = (
   refresh,
   t,
 ) => {
-  const now = Math.floor(Date.now() / 1000);
   const isAdminUser = isAdmin();
   const canRenewSubscription =
     isAdminUser &&
     record.plan_id > 0 &&
-    record.activation_time > 0 &&
-    (
-      record.status === 3 ||
-      record.status === 4 ||
-      (record.expired_time > 0 && record.expired_time <= now) ||
-      (!record.unlimited_quota && Number(record.remain_quota || 0) <= 0)
-    );
+    record.activation_time > 0;
   let chatsArray = [];
   try {
     const raw = localStorage.getItem('chats');
