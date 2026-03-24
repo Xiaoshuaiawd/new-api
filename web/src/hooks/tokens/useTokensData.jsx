@@ -26,12 +26,14 @@ import {
   showError,
   showSuccess,
   encodeToBase64,
+  isAdmin,
 } from '../../helpers';
 import { ITEMS_PER_PAGE } from '../../constants';
 import { useTableCompactMode } from '../common/useTableCompactMode';
 
 export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
   const { t } = useTranslation();
+  const isAdminUser = isAdmin();
 
   // Basic state
   const [tokens, setTokens] = useState([]);
@@ -41,6 +43,7 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
   const [searching, setSearching] = useState(false);
   const [searchMode, setSearchMode] = useState(false); // 是否处于搜索结果视图
+  const [subscriptionPlans, setSubscriptionPlans] = useState([]);
 
   // Selection state
   const [selectedKeys, setSelectedKeys] = useState([]);
@@ -101,6 +104,18 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
       showError(message);
     }
     setLoading(false);
+  };
+
+  const loadSubscriptionPlans = async () => {
+    if (!isAdminUser) return;
+    const res = await API.get('/api/subscription/admin/plans');
+    const { success, message, data } = res.data;
+    if (!success) {
+      showError(message);
+      return;
+    }
+    const plans = (data || []).map((item) => item.plan || item).filter(Boolean);
+    setSubscriptionPlans(plans);
   };
 
   // Refresh function
@@ -203,10 +218,12 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     setLoading(false);
   };
 
-  const renewSubscriptionToken = async (id) => {
+  const renewSubscriptionToken = async (id, planId = 0) => {
     setLoading(true);
     try {
-      const res = await API.post(`/api/token/${id}/renew`);
+      const res = await API.post(`/api/token/${id}/renew`, {
+        plan_id: Number(planId) || 0,
+      });
       const { success, message, data } = res.data;
       if (!success) {
         showError(message);
@@ -387,6 +404,11 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
       .catch((reason) => {
         showError(reason);
       });
+    if (isAdminUser) {
+      loadSubscriptionPlans().catch((reason) => {
+        showError(reason?.message || reason);
+      });
+    }
   }, [pageSize]);
 
   return {
@@ -397,6 +419,7 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     tokenCount,
     pageSize,
     searching,
+    subscriptionPlans,
 
     // Selection state
     selectedKeys,

@@ -34,6 +34,7 @@ const TokensTable = (tokensData) => {
     pageSize,
     tokenCount,
     compactMode,
+    subscriptionPlans,
     handlePageChange,
     handlePageSizeChange,
     rowSelection,
@@ -54,6 +55,7 @@ const TokensTable = (tokensData) => {
   const columns = useMemo(() => {
     return getTokensColumns({
       t,
+      subscriptionPlans,
       showKeys,
       setShowKeys,
       copyText,
@@ -66,6 +68,7 @@ const TokensTable = (tokensData) => {
     });
   }, [
     t,
+    subscriptionPlans,
     showKeys,
     setShowKeys,
     copyText,

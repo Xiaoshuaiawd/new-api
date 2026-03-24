@@ -32,6 +32,7 @@ import {
   Typography,
   Input,
   Modal,
+  Select,
 } from '@douyinfe/semi-ui';
 import {
   timestamp2string,
@@ -41,6 +42,10 @@ import {
   showError,
   isAdmin,
 } from '../../../helpers';
+import {
+  formatSubscriptionDuration,
+  formatSubscriptionResetPeriod,
+} from '../../../helpers/subscriptionFormat';
 import {
   IconTreeTriangleDown,
   IconCopy,
@@ -337,6 +342,75 @@ const renderQuotaUsage = (text, record, t) => {
   );
 };
 
+const buildCurrentSnapshotPlan = (record) => ({
+  id: 0,
+  title: record.plan_title || `#${record.plan_id}`,
+  duration_unit: record.plan_duration_unit,
+  duration_value: record.plan_duration_value,
+  custom_seconds: record.plan_custom_seconds,
+  total_amount: record.plan_amount_total,
+  quota_reset_period: record.plan_reset_period,
+  quota_reset_custom_seconds: record.plan_reset_seconds,
+});
+
+const RenewSubscriptionPlanSelector = ({
+  record,
+  subscriptionPlans,
+  onPlanChange,
+  t,
+}) => {
+  const currentSnapshotPlan = buildCurrentSnapshotPlan(record);
+  const [selectedPlanId, setSelectedPlanId] = React.useState(0);
+  const selectedPlan =
+    selectedPlanId === 0
+      ? currentSnapshotPlan
+      : subscriptionPlans.find((plan) => plan.id === selectedPlanId) ||
+        currentSnapshotPlan;
+  const optionList = [
+    {
+      value: 0,
+      label: `${t('沿用当前套餐快照')} (${currentSnapshotPlan.title || '-'})`,
+    },
+    ...subscriptionPlans.map((plan) => ({
+      value: plan.id,
+      label: plan.title || `#${plan.id}`,
+    })),
+  ];
+
+  return (
+    <div style={{ minWidth: 320 }}>
+      <div style={{ marginBottom: 8 }}>{t('请选择续费套餐')}</div>
+      <Select
+        style={{ width: '100%' }}
+        optionList={optionList}
+        defaultValue={0}
+        onChange={(value) => {
+          const nextPlanId = Number(value) || 0;
+          setSelectedPlanId(nextPlanId);
+          onPlanChange(nextPlanId);
+        }}
+      />
+      <div style={{ marginTop: 12, fontSize: 12, lineHeight: 1.8 }}>
+        <div>
+          {t('套餐')}：{selectedPlan?.title || '-'}
+        </div>
+        <div>
+          {t('有效期')}：{formatSubscriptionDuration(selectedPlan, t)}
+        </div>
+        <div>
+          {t('额度刷新')}：{formatSubscriptionResetPeriod(selectedPlan, t)}
+        </div>
+        <div>
+          {t('套餐额度')}：
+          {Number(selectedPlan?.total_amount || 0) === 0
+            ? t('无限')
+            : renderQuota(selectedPlan?.total_amount || 0)}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Render operations column
 const renderOperations = (
   text,
@@ -346,6 +420,7 @@ const renderOperations = (
   setShowEdit,
   manageToken,
   renewSubscriptionToken,
+  subscriptionPlans,
   refresh,
   t,
 ) => {
@@ -451,13 +526,24 @@ const renderOperations = (
           type='warning'
           size='small'
           onClick={() => {
+            let selectedPlanId = 0;
             Modal.confirm({
-              title: t('确定要续费此订阅型令牌吗？'),
-              content: t(
-                '续费后会立即开启一个新的套餐周期，并重置该令牌的套餐额度。',
+              title: t('请选择续费套餐'),
+              content: (
+                <RenewSubscriptionPlanSelector
+                  record={record}
+                  subscriptionPlans={subscriptionPlans}
+                  onPlanChange={(planId) => {
+                    selectedPlanId = planId;
+                  }}
+                  t={t}
+                />
               ),
               onOk: async () => {
-                const ok = await renewSubscriptionToken(record.id);
+                const ok = await renewSubscriptionToken(
+                  record.id,
+                  selectedPlanId,
+                );
                 if (ok) {
                   await refresh();
                 }
@@ -498,6 +584,7 @@ export const getTokensColumns = ({
   copyText,
   manageToken,
   renewSubscriptionToken,
+  subscriptionPlans,
   onOpenLink,
   setEditingToken,
   setShowEdit,
@@ -595,6 +682,7 @@ export const getTokensColumns = ({
           setShowEdit,
           manageToken,
           renewSubscriptionToken,
+          subscriptionPlans,
           refresh,
           t,
         ),

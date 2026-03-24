@@ -228,7 +228,28 @@ func validateSubscriptionTokenRenewal(token *Token, now int64) error {
 	return nil
 }
 
-func RenewSubscriptionTokenByID(id int, userId int) (*Token, error) {
+func prepareSubscriptionTokenRenewalPlanTx(tx *gorm.DB, token *Token, planId int) (*SubscriptionPlan, error) {
+	if token == nil {
+		return nil, errors.New("token is nil")
+	}
+	if planId > 0 {
+		plan, err := getSubscriptionPlanByIdTx(tx, planId)
+		if err != nil {
+			return nil, err
+		}
+		if err := FillTokenPlanSnapshot(token, plan); err != nil {
+			return nil, err
+		}
+		return token.toPlanSnapshot(), nil
+	}
+	plan := token.toPlanSnapshot()
+	if plan == nil {
+		return nil, errors.New("subscription plan snapshot is missing")
+	}
+	return plan, nil
+}
+
+func RenewSubscriptionTokenByID(id int, userId int, planId int) (*Token, error) {
 	if id <= 0 || userId <= 0 {
 		return nil, errors.New("id 或 userId 为空！")
 	}
@@ -244,9 +265,9 @@ func RenewSubscriptionTokenByID(id int, userId int) (*Token, error) {
 		if err := validateSubscriptionTokenRenewal(&locked, now); err != nil {
 			return err
 		}
-		plan := locked.toPlanSnapshot()
-		if plan == nil {
-			return errors.New("subscription plan snapshot is missing")
+		plan, err := prepareSubscriptionTokenRenewalPlanTx(tx, &locked, planId)
+		if err != nil {
+			return err
 		}
 		start := time.Unix(now, 0)
 		endUnix, err := calcPlanEndTime(start, plan)
@@ -267,17 +288,7 @@ func RenewSubscriptionTokenByID(id int, userId int) (*Token, error) {
 		locked.UnlimitedQuota = plan.TotalAmount == 0
 		locked.RemainQuota = int(plan.TotalAmount)
 		locked.UsedQuota = 0
-		if err := tx.Model(&locked).Select(
-			"status",
-			"accessed_time",
-			"activation_time",
-			"expired_time",
-			"last_reset_time",
-			"next_reset_time",
-			"unlimited_quota",
-			"remain_quota",
-			"used_quota",
-		).Updates(&locked).Error; err != nil {
+		if err := tx.Save(&locked).Error; err != nil {
 			return err
 		}
 		renewed = locked

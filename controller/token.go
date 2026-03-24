@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,6 +27,10 @@ type AdminIssueSubscriptionTokensRequest struct {
 	ModelLimits        string  `json:"model_limits"`
 	AllowIps           *string `json:"allow_ips"`
 	TokenCount         int     `json:"token_count"`
+}
+
+type RenewSubscriptionTokenRequest struct {
+	PlanId int `json:"plan_id"`
 }
 
 func buildIssuedTokenName(baseName string, fallback string, key string, useSuffix bool) string {
@@ -414,13 +420,20 @@ func RenewSubscriptionToken(c *gin.Context) {
 		common.ApiErrorMsg(c, "仅管理员可续费订阅型令牌")
 		return
 	}
+	var req RenewSubscriptionTokenRequest
+	if c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
 		common.ApiErrorMsg(c, "无效的ID")
 		return
 	}
 	userId := c.GetInt("id")
-	token, err := model.RenewSubscriptionTokenByID(id, userId)
+	token, err := model.RenewSubscriptionTokenByID(id, userId, req.PlanId)
 	if err != nil {
 		common.ApiError(c, err)
 		return

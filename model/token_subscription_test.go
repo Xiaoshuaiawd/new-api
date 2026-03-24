@@ -46,7 +46,7 @@ func TestRenewSubscriptionTokenByID_RenewsExpiredToken(t *testing.T) {
 	require.NoError(t, DB.Create(token).Error)
 
 	before := GetDBTimestamp()
-	renewed, err := RenewSubscriptionTokenByID(token.Id, token.UserId)
+	renewed, err := RenewSubscriptionTokenByID(token.Id, token.UserId, 0)
 	after := GetDBTimestamp()
 
 	require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestRenewSubscriptionTokenByID_RejectsActiveToken(t *testing.T) {
 	}
 	require.NoError(t, DB.Create(token).Error)
 
-	renewed, err := RenewSubscriptionTokenByID(token.Id, token.UserId)
+	renewed, err := RenewSubscriptionTokenByID(token.Id, token.UserId, 0)
 
 	require.Error(t, err)
 	assert.Nil(t, renewed)
@@ -105,4 +105,55 @@ func TestRenewSubscriptionTokenByID_RejectsActiveToken(t *testing.T) {
 	assert.Equal(t, token.ExpiredTime, stored.ExpiredTime)
 	assert.Equal(t, token.RemainQuota, stored.RemainQuota)
 	assert.Equal(t, token.UsedQuota, stored.UsedQuota)
+}
+
+func TestRenewSubscriptionTokenByID_UsesSelectedPlan(t *testing.T) {
+	truncateTables(t)
+	seedTokenTestUser(t, 103)
+
+	plan := &SubscriptionPlan{
+		Id:                      201,
+		Title:                   "Pro Plan",
+		DurationUnit:            SubscriptionDurationDay,
+		DurationValue:           7,
+		TotalAmount:             9000,
+		QuotaResetPeriod:        SubscriptionResetDaily,
+		QuotaResetCustomSeconds: 0,
+	}
+	require.NoError(t, DB.Create(plan).Error)
+
+	now := time.Now().Unix()
+	token := &Token{
+		Id:                1003,
+		UserId:            103,
+		Key:               "renew-plan-token",
+		Name:              "plan-switch-token",
+		Status:            common.TokenStatusExpired,
+		AccessedTime:      now - 60,
+		ExpiredTime:       now - 1,
+		RemainQuota:       0,
+		UsedQuota:         1000,
+		PlanId:            3,
+		PlanTitle:         "Old Plan",
+		ActivationTime:    now - 3*24*3600,
+		PlanDurationUnit:  SubscriptionDurationDay,
+		PlanDurationValue: 3,
+		PlanAmountTotal:   1000,
+		PlanResetPeriod:   SubscriptionResetNever,
+	}
+	require.NoError(t, DB.Create(token).Error)
+
+	renewed, err := RenewSubscriptionTokenByID(token.Id, token.UserId, plan.Id)
+
+	require.NoError(t, err)
+	require.NotNil(t, renewed)
+	assert.Equal(t, plan.Id, renewed.PlanId)
+	assert.Equal(t, plan.Title, renewed.PlanTitle)
+	assert.Equal(t, plan.DurationUnit, renewed.PlanDurationUnit)
+	assert.Equal(t, plan.DurationValue, renewed.PlanDurationValue)
+	assert.Equal(t, int(plan.TotalAmount), renewed.PlanAmountTotal)
+	assert.Equal(t, plan.QuotaResetPeriod, renewed.PlanResetPeriod)
+	assert.Equal(t, int(plan.TotalAmount), renewed.RemainQuota)
+	assert.Equal(t, 0, renewed.UsedQuota)
+	assert.Greater(t, renewed.NextResetTime, renewed.ActivationTime)
 }
