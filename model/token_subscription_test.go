@@ -157,3 +157,44 @@ func TestRenewSubscriptionTokenByID_UsesSelectedPlan(t *testing.T) {
 	assert.Equal(t, 0, renewed.UsedQuota)
 	assert.Greater(t, renewed.NextResetTime, renewed.ActivationTime)
 }
+
+func TestResetDueSubscriptionTokens_ResetsQuota(t *testing.T) {
+	truncateTables(t)
+	seedTokenTestUser(t, 104)
+
+	now := time.Now().Unix()
+	token := &Token{
+		Id:                1004,
+		UserId:            104,
+		Key:               "due-reset-token",
+		Name:              "due-reset-token",
+		Status:            common.TokenStatusExhausted,
+		AccessedTime:      now - 3600,
+		ActivationTime:    now - 48*3600,
+		ExpiredTime:       now + 48*3600,
+		LastResetTime:     now - 24*3600,
+		NextResetTime:     now - 60,
+		RemainQuota:       0,
+		UsedQuota:         5000,
+		PlanId:            4,
+		PlanTitle:         "Daily Reset Plan",
+		PlanDurationUnit:  SubscriptionDurationDay,
+		PlanDurationValue: 7,
+		PlanAmountTotal:   5000,
+		PlanResetPeriod:   SubscriptionResetDaily,
+	}
+	require.NoError(t, DB.Create(token).Error)
+
+	resetCount, err := ResetDueSubscriptionTokens(10)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, resetCount)
+
+	var stored Token
+	require.NoError(t, DB.First(&stored, token.Id).Error)
+	assert.Equal(t, common.TokenStatusEnabled, stored.Status)
+	assert.Equal(t, 5000, stored.RemainQuota)
+	assert.Equal(t, 0, stored.UsedQuota)
+	assert.Greater(t, stored.LastResetTime, token.LastResetTime)
+	assert.Greater(t, stored.NextResetTime, now)
+}

@@ -312,7 +312,9 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
 
   // Handle row styling
   const handleRow = (record, index) => {
-    if (record.status !== 1) {
+    const now = Math.floor(Date.now() / 1000);
+    const expired = record?.expired_time > 0 && record.expired_time <= now;
+    if (record.status !== 1 || expired) {
       return {
         style: {
           background: 'var(--semi-color-disabled-border)',

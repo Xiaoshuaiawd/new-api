@@ -209,6 +209,55 @@ func ensureSubscriptionTokenReady(token *Token) (*Token, error) {
 	return token, nil
 }
 
+func ResetDueSubscriptionTokens(limit int) (int, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	now := GetDBTimestamp()
+	var tokens []Token
+	if err := DB.Where("plan_id > 0 AND activation_time > 0 AND next_reset_time > 0 AND next_reset_time <= ?", now).
+		Order("next_reset_time asc").
+		Limit(limit).
+		Find(&tokens).Error; err != nil {
+		return 0, err
+	}
+	if len(tokens) == 0 {
+		return 0, nil
+	}
+	resetCount := 0
+	for _, token := range tokens {
+		tokenCopy := token
+		updated := false
+		err := DB.Transaction(func(tx *gorm.DB) error {
+			var locked Token
+			if err := tx.Set("gorm:query_option", "FOR UPDATE").
+				Where("id = ? AND plan_id > 0 AND activation_time > 0 AND next_reset_time > 0 AND next_reset_time <= ?", tokenCopy.Id, now).
+				First(&locked).Error; err != nil {
+				return nil
+			}
+			if err := maybeResetSubscriptionTokenTx(tx, &locked, now); err != nil {
+				return err
+			}
+			tokenCopy = locked
+			updated = true
+			resetCount++
+			return nil
+		})
+		if err != nil {
+			return resetCount, err
+		}
+		if updated && common.RedisEnabled {
+			cacheToken := tokenCopy
+			gopool.Go(func() {
+				if err := cacheSetToken(cacheToken); err != nil {
+					common.SysLog("failed to refresh due subscription token cache: " + err.Error())
+				}
+			})
+		}
+	}
+	return resetCount, nil
+}
+
 func validateSubscriptionTokenRenewal(token *Token, now int64) error {
 	if token == nil {
 		return errors.New("token is nil")

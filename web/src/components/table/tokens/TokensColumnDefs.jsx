@@ -66,9 +66,22 @@ function renderTimestamp(timestamp) {
   return <>{timestamp2string(timestamp)}</>;
 }
 
+const getEffectiveTokenStatus = (record) => {
+  const now = Math.floor(Date.now() / 1000);
+  if (record?.plan_id > 0 && record?.activation_time === 0 && record?.status === 1) {
+    return 'pending_activation';
+  }
+  if (record?.expired_time > 0 && record?.expired_time <= now) {
+    return 3;
+  }
+  return record?.status;
+};
+
 // Render status column only (no usage)
 const renderStatus = (text, record, t) => {
-  if (record.plan_id > 0 && record.activation_time === 0 && text === 1) {
+  const effectiveStatus = getEffectiveTokenStatus(record);
+
+  if (effectiveStatus === 'pending_activation') {
     return (
       <Tag color='cyan' shape='circle' size='small'>
         {t('未激活')}
@@ -76,20 +89,20 @@ const renderStatus = (text, record, t) => {
     );
   }
 
-  const enabled = text === 1;
+  const enabled = effectiveStatus === 1;
 
   let tagColor = 'black';
   let tagText = t('未知状态');
   if (enabled) {
     tagColor = 'green';
     tagText = t('已启用');
-  } else if (text === 2) {
+  } else if (effectiveStatus === 2) {
     tagColor = 'red';
     tagText = t('已禁用');
-  } else if (text === 3) {
+  } else if (effectiveStatus === 3) {
     tagColor = 'yellow';
     tagText = t('已过期');
-  } else if (text === 4) {
+  } else if (effectiveStatus === 4) {
     tagColor = 'grey';
     tagText = t('已耗尽');
   }
