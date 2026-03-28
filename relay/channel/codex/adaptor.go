@@ -217,8 +217,9 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	}
 
 	req.Set("Authorization", "Bearer "+accessToken)
-	req.Set("chatgpt-account-id", accountID)
 	req.Set("User-Agent", "codex_cli_rs/0.116.0 (Mac OS 15.3.0; arm64) Apple_Terminal/455")
+	req.Set("version", "0.117.0")
+	req.Set("chatgpt-account-id", "307d8688-2643-4274-9911-ba1a8e91c278")
 
 	if req.Get("OpenAI-Beta") == "" {
 		req.Set("OpenAI-Beta", "responses=experimental")
