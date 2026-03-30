@@ -229,6 +229,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
+		// 全局渠道粘性：429/401 时使当前活跃渠道失效，触发切换
+		if service.IsGlobalChannelStickyTriggerCode(newAPIError.StatusCode) {
+			stickyGroup := relayInfo.TokenGroup
+			if ag := common.GetContextKeyString(c, constant.ContextKeyAutoGroup); ag != "" {
+				stickyGroup = ag
+			}
+			service.InvalidateGlobalStickyChannel(stickyGroup, relayInfo.OriginModelName)
+		}
+
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
@@ -307,6 +316,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	if channel == nil {
 		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
+
+	// 全局渠道粘性：重试时选出新渠道后写入 Redis
+	service.SetGlobalStickyChannelID(selectGroup, info.OriginModelName, channel.Id)
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 	if newAPIError != nil {

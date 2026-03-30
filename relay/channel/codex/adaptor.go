@@ -217,9 +217,6 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	}
 
 	req.Set("Authorization", "Bearer "+accessToken)
-	req.Set("User-Agent", "codex_cli_rs/0.116.0 (Mac OS 15.3.0; arm64) Apple_Terminal/455")
-	req.Set("version", "0.117.0")
-	req.Set("chatgpt-account-id", accountID)
 
 	if req.Get("OpenAI-Beta") == "" {
 		req.Set("OpenAI-Beta", "responses=experimental")
@@ -230,9 +227,7 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	sessionID := common.GetUUID()
 	req.Set("session_id", sessionID)
 	req.Set("x-client-request-id", sessionID)
-
-	turnID := common.GetUUID()
-	req.Set("x-codex-turn-metadata", `{"turn_id":"`+turnID+`","sandbox":"seatbelt"}`)
+	req.Set("x-codex-turn-metadata", `{"turn_id":"`+sessionID+`","sandbox":"seatbelt"}`)
 
 	// chatgpt.com/backend-api/codex/responses is strict about Content-Type.
 	// Clients may omit it or include parameters like `application/json; charset=utf-8`,
