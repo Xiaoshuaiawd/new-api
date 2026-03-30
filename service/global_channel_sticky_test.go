@@ -53,23 +53,17 @@ func TestRefreshGlobalStickyChannelIDDoesNotOverwriteDifferentChannel(t *testing
 		scope := ResolveGlobalStickyScope("auto", "vip")
 		modelName := "gpt-5"
 
-		SetGlobalStickyChannelID(scope, modelName, 101)
+		entry101 := SetGlobalStickyChannelID(scope, modelName, 101)
 		assert.Equal(t, 101, GetGlobalStickyChannelID(scope, modelName))
 
 		// Matching refresh keeps the sticky alive.
-		assert.True(t, refreshGlobalStickyChannelID(scope, modelName, 101))
+		assert.True(t, refreshGlobalStickyChannelEntry(scope, modelName, entry101))
 		assert.Equal(t, 101, GetGlobalStickyChannelID(scope, modelName))
 
 		// A stale successful request must not overwrite a newer sticky channel.
 		SetGlobalStickyChannelID(scope, modelName, 202)
-		assert.False(t, refreshGlobalStickyChannelID(scope, modelName, 101))
+		assert.False(t, refreshGlobalStickyChannelEntry(scope, modelName, entry101))
 		assert.Equal(t, 202, GetGlobalStickyChannelID(scope, modelName))
-
-		// If the key is absent, the first successful request may adopt it again.
-		assert.True(t, invalidateGlobalStickyChannelIfMatch(scope, modelName, 202))
-		assert.Equal(t, 0, GetGlobalStickyChannelID(scope, modelName))
-		assert.True(t, refreshGlobalStickyChannelID(scope, modelName, 303))
-		assert.Equal(t, 303, GetGlobalStickyChannelID(scope, modelName))
 	})
 }
 
@@ -78,14 +72,39 @@ func TestInvalidateGlobalStickyChannelIfMatchOnlyDeletesMatchingChannel(t *testi
 		scope := ResolveGlobalStickyScope("auto", "vip")
 		modelName := "gpt-5"
 
-		SetGlobalStickyChannelID(scope, modelName, 515)
+		entry515 := SetGlobalStickyChannelID(scope, modelName, 515)
 		assert.Equal(t, 515, GetGlobalStickyChannelID(scope, modelName))
 
 		// A stale failing request must not clear a newer sticky owner.
-		assert.False(t, invalidateGlobalStickyChannelIfMatch(scope, modelName, 404))
+		assert.False(t, invalidateGlobalStickyChannelIfMatch(scope, modelName, globalChannelStickyEntry{ChannelID: 404, Raw: "404"}))
 		assert.Equal(t, 515, GetGlobalStickyChannelID(scope, modelName))
 
-		assert.True(t, invalidateGlobalStickyChannelIfMatch(scope, modelName, 515))
+		assert.True(t, invalidateGlobalStickyChannelIfMatch(scope, modelName, entry515))
+		assert.Equal(t, 0, GetGlobalStickyChannelID(scope, modelName))
+	})
+}
+
+func TestGlobalStickyEntryVersionPreventsSameChannelStaleOperations(t *testing.T) {
+	withGlobalStickyTestRedis(t, func() {
+		scope := ResolveGlobalStickyScope("auto", "vip")
+		modelName := "gpt-5"
+
+		oldEntry := SetGlobalStickyChannelID(scope, modelName, 707)
+		newEntry := SetGlobalStickyChannelID(scope, modelName, 707)
+		require.NotEqual(t, oldEntry.Raw, newEntry.Raw)
+		assert.Equal(t, 707, GetGlobalStickyChannelID(scope, modelName))
+
+		// Old in-flight success must not refresh the new generation even when channel id is unchanged.
+		assert.False(t, refreshGlobalStickyChannelEntry(scope, modelName, oldEntry))
+		assert.Equal(t, 707, GetGlobalStickyChannelID(scope, modelName))
+
+		// Old in-flight failure must not invalidate the new generation either.
+		assert.False(t, invalidateGlobalStickyChannelIfMatch(scope, modelName, oldEntry))
+		assert.Equal(t, 707, GetGlobalStickyChannelID(scope, modelName))
+
+		// Only the latest generation can mutate the sticky key.
+		assert.True(t, refreshGlobalStickyChannelEntry(scope, modelName, newEntry))
+		assert.True(t, invalidateGlobalStickyChannelIfMatch(scope, modelName, newEntry))
 		assert.Equal(t, 0, GetGlobalStickyChannelID(scope, modelName))
 	})
 }

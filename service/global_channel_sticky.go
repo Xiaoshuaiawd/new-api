@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 const (
@@ -19,12 +20,13 @@ const (
 	// ginKeyGlobalChannelStickyUsed 标记本次请求是否走了全局渠道粘性
 	ginKeyGlobalChannelStickyUsed  = "global_channel_sticky_used"
 	ginKeyGlobalChannelStickyScope = "global_channel_sticky_scope"
+	ginKeyGlobalChannelStickyEntry = "global_channel_sticky_entry"
 )
 
 const (
 	globalChannelStickyRefreshLua = `
 local current = redis.call('GET', KEYS[1])
-if current and current ~= ARGV[1] then
+if current ~= ARGV[1] then
 	return 0
 end
 local ttl = tonumber(ARGV[2])
@@ -40,8 +42,54 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then
 	return redis.call('DEL', KEYS[1])
 end
 return 0
-`
+	`
 )
+
+type globalChannelStickyEntry struct {
+	ChannelID int
+	Version   string
+	Raw       string
+}
+
+func newGlobalChannelStickyEntry(channelID int) globalChannelStickyEntry {
+	entry := globalChannelStickyEntry{
+		ChannelID: channelID,
+		Version:   uuid.NewString(),
+	}
+	entry.Raw = encodeGlobalChannelStickyEntry(entry)
+	return entry
+}
+
+func encodeGlobalChannelStickyEntry(entry globalChannelStickyEntry) string {
+	if entry.ChannelID <= 0 {
+		return ""
+	}
+	raw := strconv.Itoa(entry.ChannelID)
+	if strings.TrimSpace(entry.Version) == "" {
+		return raw
+	}
+	return raw + "|" + strings.TrimSpace(entry.Version)
+}
+
+func decodeGlobalChannelStickyEntry(raw string) (globalChannelStickyEntry, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return globalChannelStickyEntry{}, false
+	}
+	parts := strings.SplitN(raw, "|", 2)
+	channelID, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil || channelID <= 0 {
+		return globalChannelStickyEntry{}, false
+	}
+	entry := globalChannelStickyEntry{
+		ChannelID: channelID,
+		Raw:       raw,
+	}
+	if len(parts) == 2 {
+		entry.Version = strings.TrimSpace(parts[1])
+	}
+	return entry, true
+}
 
 // ResolveGlobalStickyScope returns the sticky scope used as the Redis key dimension.
 // For auto group we include userGroup so different user-group auto pools do not fight each other.
@@ -88,6 +136,32 @@ func getOrInitGlobalStickyScope(c *gin.Context, requestedGroup string) string {
 		return scope
 	}
 	return SetGlobalStickyScopeContext(c, requestedGroup)
+}
+
+func setGlobalStickyEntryContext(c *gin.Context, entry globalChannelStickyEntry) {
+	if c == nil {
+		return
+	}
+	raw := strings.TrimSpace(entry.Raw)
+	if raw == "" {
+		raw = encodeGlobalChannelStickyEntry(entry)
+	}
+	if raw == "" {
+		return
+	}
+	c.Set(ginKeyGlobalChannelStickyEntry, raw)
+}
+
+func getGlobalStickyEntryContext(c *gin.Context) (globalChannelStickyEntry, bool) {
+	if c == nil {
+		return globalChannelStickyEntry{}, false
+	}
+	anyEntry, ok := c.Get(ginKeyGlobalChannelStickyEntry)
+	if !ok {
+		return globalChannelStickyEntry{}, false
+	}
+	raw, _ := anyEntry.(string)
+	return decodeGlobalChannelStickyEntry(raw)
 }
 
 // globalChannelStickyRedisKey 生成 Redis key
@@ -145,25 +219,31 @@ func resolveGlobalStickySelectedChannel(requestedGroup, userGroup, modelName str
 
 // GetGlobalStickyChannelID 从 Redis 中获取当前活跃渠道 ID。
 // 返回 0 表示尚无活跃渠道（需要正常选渠道流程）。
-func GetGlobalStickyChannelID(scope, model string) int {
+func getGlobalStickyEntry(scope, model string) (globalChannelStickyEntry, bool) {
 	setting := operation_setting.GetGlobalChannelStickySetting()
 	if setting == nil || !setting.Enabled {
-		return 0
+		return globalChannelStickyEntry{}, false
 	}
 	if !common.RedisEnabled || common.RDB == nil {
-		return 0
+		return globalChannelStickyEntry{}, false
 	}
 	key := globalChannelStickyRedisKey(scope, model)
 	val, err := common.RDB.Get(context.Background(), key).Result()
 	if err != nil {
 		// key 不存在或 Redis 错误均视为无活跃渠道
+		return globalChannelStickyEntry{}, false
+	}
+	return decodeGlobalChannelStickyEntry(val)
+}
+
+// GetGlobalStickyChannelID 从 Redis 中获取当前活跃渠道 ID。
+// 返回 0 表示尚无活跃渠道（需要正常选渠道流程）。
+func GetGlobalStickyChannelID(scope, model string) int {
+	entry, ok := getGlobalStickyEntry(scope, model)
+	if !ok {
 		return 0
 	}
-	id, err := strconv.Atoi(val)
-	if err != nil || id <= 0 {
-		return 0
-	}
-	return id
+	return entry.ChannelID
 }
 
 func TryGetGlobalStickyChannel(c *gin.Context, requestedGroup, modelName string) (*model.Channel, string, bool) {
@@ -171,37 +251,39 @@ func TryGetGlobalStickyChannel(c *gin.Context, requestedGroup, modelName string)
 	if scope == "" {
 		return nil, "", false
 	}
-	channelID := GetGlobalStickyChannelID(scope, modelName)
-	if channelID <= 0 {
+	entry, ok := getGlobalStickyEntry(scope, modelName)
+	if !ok {
 		return nil, "", false
 	}
 	channel, selectedGroup, ok := resolveGlobalStickySelectedChannel(
 		requestedGroup,
 		common.GetContextKeyString(c, constant.ContextKeyUserGroup),
 		modelName,
-		channelID,
+		entry.ChannelID,
 	)
 	if !ok {
 		return nil, "", false
 	}
 	applyGlobalStickySelectedGroup(c, requestedGroup, selectedGroup)
+	setGlobalStickyEntryContext(c, entry)
 	c.Set(ginKeyGlobalChannelStickyUsed, true)
 	return channel, selectedGroup, true
 }
 
 // SetGlobalStickyChannelIDWithLock 使用 SETNX 原子写入活跃渠道，避免并发竞态。
 // 返回 true 表示写入成功，false 表示已有其他请求写入。
-func SetGlobalStickyChannelIDWithLock(scope, model string, channelID int) bool {
+func SetGlobalStickyChannelIDWithLock(scope, model string, channelID int) (globalChannelStickyEntry, bool) {
 	setting := operation_setting.GetGlobalChannelStickySetting()
 	if setting == nil || !setting.Enabled {
-		return false
+		return globalChannelStickyEntry{}, false
 	}
 	if !common.RedisEnabled || common.RDB == nil {
-		return false
+		return globalChannelStickyEntry{}, false
 	}
 	if channelID <= 0 {
-		return false
+		return globalChannelStickyEntry{}, false
 	}
+	entry := newGlobalChannelStickyEntry(channelID)
 	key := globalChannelStickyRedisKey(scope, model)
 	ttl := time.Duration(setting.TTLSeconds) * time.Second
 	if setting.TTLSeconds <= 0 {
@@ -212,29 +294,30 @@ func SetGlobalStickyChannelIDWithLock(scope, model string, channelID int) bool {
 	var success bool
 	var err error
 	if ttl > 0 {
-		success, err = common.RDB.SetNX(context.Background(), key, strconv.Itoa(channelID), ttl).Result()
+		success, err = common.RDB.SetNX(context.Background(), key, entry.Raw, ttl).Result()
 	} else {
-		success, err = common.RDB.SetNX(context.Background(), key, strconv.Itoa(channelID), 0).Result()
+		success, err = common.RDB.SetNX(context.Background(), key, entry.Raw, 0).Result()
 	}
 	if err != nil {
 		common.SysError(fmt.Sprintf("global channel sticky setnx failed: key=%s, err=%v", key, err))
-		return false
+		return globalChannelStickyEntry{}, false
 	}
-	return success
+	return entry, success
 }
 
 // SetGlobalStickyChannelID 将指定渠道设为全局活跃渠道，写入 Redis（覆盖模式）。
-func SetGlobalStickyChannelID(scope, model string, channelID int) {
+func SetGlobalStickyChannelID(scope, model string, channelID int) globalChannelStickyEntry {
 	setting := operation_setting.GetGlobalChannelStickySetting()
 	if setting == nil || !setting.Enabled {
-		return
+		return globalChannelStickyEntry{}
 	}
 	if !common.RedisEnabled || common.RDB == nil {
-		return
+		return globalChannelStickyEntry{}
 	}
 	if channelID <= 0 {
-		return
+		return globalChannelStickyEntry{}
 	}
+	entry := newGlobalChannelStickyEntry(channelID)
 	key := globalChannelStickyRedisKey(scope, model)
 	ttl := time.Duration(setting.TTLSeconds) * time.Second
 	if setting.TTLSeconds <= 0 {
@@ -242,13 +325,14 @@ func SetGlobalStickyChannelID(scope, model string, channelID int) {
 	}
 	var err error
 	if ttl > 0 {
-		err = common.RDB.Set(context.Background(), key, strconv.Itoa(channelID), ttl).Err()
+		err = common.RDB.Set(context.Background(), key, entry.Raw, ttl).Err()
 	} else {
-		err = common.RDB.Set(context.Background(), key, strconv.Itoa(channelID), 0).Err()
+		err = common.RDB.Set(context.Background(), key, entry.Raw, 0).Err()
 	}
 	if err != nil {
 		common.SysError(fmt.Sprintf("global channel sticky set failed: key=%s, err=%v", key, err))
 	}
+	return entry
 }
 
 // RefreshGlobalStickyChannelFromContext refreshes the sticky TTL if the current sticky value is unchanged.
@@ -256,10 +340,17 @@ func SetGlobalStickyChannelID(scope, model string, channelID int) {
 // requests do not clobber a newer sticky decision.
 func RefreshGlobalStickyChannelFromContext(c *gin.Context, model string, channelID int) bool {
 	scope := getGlobalStickyScopeContext(c)
-	return refreshGlobalStickyChannelID(scope, model, channelID)
+	entry, ok := getGlobalStickyEntryContext(c)
+	if !ok {
+		return false
+	}
+	if channelID > 0 && entry.ChannelID != channelID {
+		return false
+	}
+	return refreshGlobalStickyChannelEntry(scope, model, entry)
 }
 
-func refreshGlobalStickyChannelID(scope, model string, channelID int) bool {
+func refreshGlobalStickyChannelEntry(scope, model string, entry globalChannelStickyEntry) bool {
 	setting := operation_setting.GetGlobalChannelStickySetting()
 	if setting == nil || !setting.Enabled {
 		return false
@@ -268,7 +359,11 @@ func refreshGlobalStickyChannelID(scope, model string, channelID int) bool {
 		return false
 	}
 	scope = strings.TrimSpace(scope)
-	if scope == "" || strings.TrimSpace(model) == "" || channelID <= 0 {
+	raw := strings.TrimSpace(entry.Raw)
+	if raw == "" {
+		raw = encodeGlobalChannelStickyEntry(entry)
+	}
+	if scope == "" || strings.TrimSpace(model) == "" || raw == "" {
 		return false
 	}
 
@@ -280,7 +375,7 @@ func refreshGlobalStickyChannelID(scope, model string, channelID int) bool {
 		ctx,
 		globalChannelStickyRefreshLua,
 		[]string{key},
-		strconv.Itoa(channelID),
+		raw,
 		strconv.Itoa(globalChannelStickyTTLSeconds()),
 	).Int()
 	if err != nil {
@@ -330,19 +425,21 @@ func GetOrSelectGlobalStickyChannel(c *gin.Context, requestedGroup, modelName st
 	}
 
 	// 尝试用 SETNX 写入（原子操作）
-	if SetGlobalStickyChannelIDWithLock(scope, modelName, channel.Id) {
+	if entry, ok := SetGlobalStickyChannelIDWithLock(scope, modelName, channel.Id); ok {
 		// 写入成功，我是第一个
 		applyGlobalStickySelectedGroup(c, requestedGroup, selectGroup)
+		setGlobalStickyEntryContext(c, entry)
 		return channel, selectGroup, nil
 	}
 
 	// 写入失败，说明其他请求已写入，短暂等待后重新读取几次。
 	for i := 0; i < 3; i++ {
 		time.Sleep(time.Duration(i+1) * 20 * time.Millisecond)
-		if channelID := GetGlobalStickyChannelID(scope, modelName); channelID > 0 {
-			newChannel, stickyGroup, ok := resolveGlobalStickySelectedChannel(requestedGroup, userGroup, modelName, channelID)
+		if entry, ok := getGlobalStickyEntry(scope, modelName); ok {
+			newChannel, stickyGroup, ok := resolveGlobalStickySelectedChannel(requestedGroup, userGroup, modelName, entry.ChannelID)
 			if ok {
 				applyGlobalStickySelectedGroup(c, requestedGroup, stickyGroup)
+				setGlobalStickyEntryContext(c, entry)
 				c.Set(ginKeyGlobalChannelStickyUsed, true)
 				return newChannel, stickyGroup, nil
 			}
@@ -358,10 +455,17 @@ func GetOrSelectGlobalStickyChannel(c *gin.Context, requestedGroup, modelName st
 // to the failing channel. This avoids deleting a newer sticky channel chosen by another request.
 func InvalidateGlobalStickyChannelFromContext(c *gin.Context, model string, channelID int) bool {
 	scope := getGlobalStickyScopeContext(c)
-	return invalidateGlobalStickyChannelIfMatch(scope, model, channelID)
+	entry, ok := getGlobalStickyEntryContext(c)
+	if !ok {
+		return false
+	}
+	if channelID > 0 && entry.ChannelID != channelID {
+		return false
+	}
+	return invalidateGlobalStickyChannelIfMatch(scope, model, entry)
 }
 
-func invalidateGlobalStickyChannelIfMatch(scope, model string, channelID int) bool {
+func invalidateGlobalStickyChannelIfMatch(scope, model string, entry globalChannelStickyEntry) bool {
 	setting := operation_setting.GetGlobalChannelStickySetting()
 	if setting == nil || !setting.Enabled {
 		return false
@@ -370,7 +474,11 @@ func invalidateGlobalStickyChannelIfMatch(scope, model string, channelID int) bo
 		return false
 	}
 	scope = strings.TrimSpace(scope)
-	if scope == "" || strings.TrimSpace(model) == "" || channelID <= 0 {
+	raw := strings.TrimSpace(entry.Raw)
+	if raw == "" {
+		raw = encodeGlobalChannelStickyEntry(entry)
+	}
+	if scope == "" || strings.TrimSpace(model) == "" || raw == "" {
 		return false
 	}
 
@@ -382,7 +490,7 @@ func invalidateGlobalStickyChannelIfMatch(scope, model string, channelID int) bo
 		ctx,
 		globalChannelStickyDeleteIfMatchLua,
 		[]string{key},
-		strconv.Itoa(channelID),
+		raw,
 	).Int()
 	if err != nil {
 		common.SysError(fmt.Sprintf("global channel sticky invalidate failed: key=%s, err=%v", key, err))
