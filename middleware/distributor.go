@@ -99,26 +99,12 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
+				service.SetGlobalStickyScopeContext(c, usingGroup)
+
 				// 全局渠道粘性：优先使用 Redis 中记录的活跃渠道
-				if stickyChannelID := service.GetGlobalStickyChannelID(usingGroup, modelRequest.Model); stickyChannelID > 0 {
-					sticky, stickyErr := model.CacheGetChannel(stickyChannelID)
-					if stickyErr == nil && sticky != nil && sticky.Status == common.ChannelStatusEnabled {
-						if usingGroup == "auto" {
-							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-							autoGroups := service.GetUserAutoGroup(userGroup)
-							for _, g := range autoGroups {
-								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, sticky.Id) {
-									selectGroup = g
-									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
-									channel = sticky
-									break
-								}
-							}
-						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, sticky.Id) {
-							channel = sticky
-							selectGroup = usingGroup
-						}
-					}
+				if sticky, stickyGroup, found := service.TryGetGlobalStickyChannel(c, usingGroup, modelRequest.Model); found {
+					channel = sticky
+					selectGroup = stickyGroup
 				}
 
 				if channel == nil {
@@ -147,7 +133,7 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				if channel == nil {
-					channel, selectGroup, err = service.GetOrSelectGlobalStickyChannel(usingGroup, modelRequest.Model, func() (*model.Channel, string, error) {
+					channel, selectGroup, err = service.GetOrSelectGlobalStickyChannel(c, usingGroup, modelRequest.Model, func() (*model.Channel, string, error) {
 						return service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
 							Ctx:        c,
 							ModelName:  modelRequest.Model,
@@ -175,14 +161,14 @@ func Distribute() func(c *gin.Context) {
 		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
-			service.RecordChannelAffinity(c, channel.Id)
-			// 请求成功后刷新全局粘性渠道的 TTL
-			if modelRequest != nil {
-				stickyGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
-				if ag := common.GetContextKeyString(c, constant.ContextKeyAutoGroup); ag != "" {
-					stickyGroup = ag
-				}
-				service.SetGlobalStickyChannelID(stickyGroup, modelRequest.Model, channel.Id)
+			successChannelID := c.GetInt("channel_id")
+			if successChannelID <= 0 {
+				successChannelID = channel.Id
+			}
+			service.RecordChannelAffinity(c, successChannelID)
+			// 请求成功后仅在 sticky 仍指向当前成功渠道时刷新 TTL，避免旧请求覆盖新切换结果。
+			if modelRequest != nil && successChannelID > 0 {
+				service.RefreshGlobalStickyChannelFromContext(c, modelRequest.Model, successChannelID)
 			}
 		}
 	}

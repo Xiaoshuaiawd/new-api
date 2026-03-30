@@ -229,13 +229,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
-		// 全局渠道粘性：429/401 时使当前活跃渠道失效，触发切换
+		// 全局渠道粘性：429/401 时仅在 sticky 仍指向当前失败渠道时失效，避免误删其他请求刚切换的新渠道
 		if service.IsGlobalChannelStickyTriggerCode(newAPIError.StatusCode) {
-			stickyGroup := relayInfo.TokenGroup
-			if ag := common.GetContextKeyString(c, constant.ContextKeyAutoGroup); ag != "" {
-				stickyGroup = ag
-			}
-			service.InvalidateGlobalStickyChannel(stickyGroup, relayInfo.OriginModelName)
+			service.InvalidateGlobalStickyChannelFromContext(c, relayInfo.OriginModelName, channel.Id)
 		}
 
 		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
@@ -307,45 +303,31 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		}, nil
 	}
 	var channel *model.Channel
-	var selectGroup string
 	var err error
 
-	// 全局渠道粘性：重试时优先从 Redis 获取已切换的新渠道
-	usingGroup := info.TokenGroup
-	if ag := common.GetContextKeyString(c, constant.ContextKeyAutoGroup); ag != "" {
-		usingGroup = ag
-	}
-	if stickyChannelID := service.GetGlobalStickyChannelID(usingGroup, info.OriginModelName); stickyChannelID > 0 {
-		sticky, stickyErr := model.CacheGetChannel(stickyChannelID)
-		if stickyErr == nil && sticky != nil && sticky.Status == common.ChannelStatusEnabled {
-			if usingGroup == "auto" {
-				userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-				autoGroups := service.GetUserAutoGroup(userGroup)
-				for _, g := range autoGroups {
-					if model.IsChannelEnabledForGroupModel(g, info.OriginModelName, sticky.Id) {
-						selectGroup = g
-						channel = sticky
-						break
-					}
-				}
-			} else if model.IsChannelEnabledForGroupModel(usingGroup, info.OriginModelName, sticky.Id) {
-				channel = sticky
-				selectGroup = usingGroup
-			}
+	channel, _, err = service.GetOrSelectGlobalStickyChannel(c, info.TokenGroup, info.OriginModelName, func() (*model.Channel, string, error) {
+		selectedChannel, selectedGroup, selectErr := service.CacheGetRandomSatisfiedChannel(retryParam)
+		if selectErr != nil {
+			return nil, selectedGroup, types.NewError(
+				fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectedGroup, info.OriginModelName, selectErr.Error()),
+				types.ErrorCodeGetChannelFailed,
+				types.ErrOptionWithSkipRetry(),
+			)
 		}
-	}
-
-	// 如果全局粘性渠道不可用，才随机选新渠道
-	if channel == nil {
-		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
-		if err != nil {
-			return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		if selectedChannel == nil {
+			return nil, selectedGroup, types.NewError(
+				fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectedGroup, info.OriginModelName),
+				types.ErrorCodeGetChannelFailed,
+				types.ErrOptionWithSkipRetry(),
+			)
 		}
-		if channel == nil {
-			return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		return selectedChannel, selectedGroup, nil
+	})
+	if err != nil {
+		if retryErr, ok := err.(*types.NewAPIError); ok {
+			return nil, retryErr
 		}
-		// 新渠道选出后写入全局粘性缓存
-		service.SetGlobalStickyChannelID(selectGroup, info.OriginModelName, channel.Id)
+		return nil, types.NewError(err, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
