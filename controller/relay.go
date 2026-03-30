@@ -306,19 +306,49 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			AutoBan: &autoBanInt,
 		}, nil
 	}
-	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+	var channel *model.Channel
+	var selectGroup string
+	var err error
+
+	// 全局渠道粘性：重试时优先从 Redis 获取已切换的新渠道
+	usingGroup := info.TokenGroup
+	if ag := common.GetContextKeyString(c, constant.ContextKeyAutoGroup); ag != "" {
+		usingGroup = ag
+	}
+	if stickyChannelID := service.GetGlobalStickyChannelID(usingGroup, info.OriginModelName); stickyChannelID > 0 {
+		sticky, stickyErr := model.CacheGetChannel(stickyChannelID)
+		if stickyErr == nil && sticky != nil && sticky.Status == common.ChannelStatusEnabled {
+			if usingGroup == "auto" {
+				userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+				autoGroups := service.GetUserAutoGroup(userGroup)
+				for _, g := range autoGroups {
+					if model.IsChannelEnabledForGroupModel(g, info.OriginModelName, sticky.Id) {
+						selectGroup = g
+						channel = sticky
+						break
+					}
+				}
+			} else if model.IsChannelEnabledForGroupModel(usingGroup, info.OriginModelName, sticky.Id) {
+				channel = sticky
+				selectGroup = usingGroup
+			}
+		}
+	}
+
+	// 如果全局粘性渠道不可用，才随机选新渠道
+	if channel == nil {
+		channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(retryParam)
+		if err != nil {
+			return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		if channel == nil {
+			return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		// 新渠道选出后写入全局粘性缓存
+		service.SetGlobalStickyChannelID(selectGroup, info.OriginModelName, channel.Id)
+	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
-
-	if err != nil {
-		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
-	if channel == nil {
-		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-	}
-
-	// 全局渠道粘性：重试时选出新渠道后写入 Redis
-	service.SetGlobalStickyChannelID(selectGroup, info.OriginModelName, channel.Id)
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 	if newAPIError != nil {
