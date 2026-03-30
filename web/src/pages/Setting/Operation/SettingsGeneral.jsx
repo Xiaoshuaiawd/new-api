@@ -50,6 +50,7 @@ export default function GeneralSettings(props) {
     'general_setting.custom_currency_symbol': '¤',
     'general_setting.custom_currency_exchange_rate': '',
     'general_setting.log_model_mapping_enabled': true,
+    'general_setting.codex_upstream_websocket_enabled': false,
     QuotaPerUnit: '',
     RetryTimes: '',
     USDExchangeRate: '',
@@ -297,6 +298,21 @@ export default function GeneralSettings(props) {
                   uncheckedText='〇'
                   onChange={handleFieldChange(
                     'general_setting.log_model_mapping_enabled',
+                  )}
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'general_setting.codex_upstream_websocket_enabled'}
+                  label={t('Codex 上游使用 WebSocket')}
+                  extraText={t(
+                    '全局控制 57 渠道的 /v1/responses 请求走 WebSocket 还是 HTTP。开启后走 WebSocket，关闭后走 HTTP；/v1/responses/compact 仍固定使用 HTTP。',
+                  )}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  onChange={handleFieldChange(
+                    'general_setting.codex_upstream_websocket_enabled',
                   )}
                 />
               </Col>

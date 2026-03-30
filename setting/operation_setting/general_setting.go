@@ -14,6 +14,8 @@ type GeneralSetting struct {
 	DocsLink            string `json:"docs_link"`
 	PingIntervalEnabled bool   `json:"ping_interval_enabled"`
 	PingIntervalSeconds int    `json:"ping_interval_seconds"`
+	// Codex 渠道上游是否使用 WebSocket 连接 chatgpt.com/backend-api/codex/responses
+	CodexUpstreamWebSocketEnabled bool `json:"codex_upstream_websocket_enabled"`
 	// 当前站点额度展示类型：USD / CNY / TOKENS
 	QuotaDisplayType string `json:"quota_display_type"`
 	// 自定义货币符号，用于 CUSTOM 展示类型
@@ -26,13 +28,14 @@ type GeneralSetting struct {
 
 // 默认配置
 var generalSetting = GeneralSetting{
-	DocsLink:                   "https://docs.newapi.pro",
-	PingIntervalEnabled:        false,
-	PingIntervalSeconds:        60,
-	QuotaDisplayType:           QuotaDisplayTypeUSD,
-	CustomCurrencySymbol:       "¤",
-	CustomCurrencyExchangeRate: 1.0,
-	LogModelMappingEnabled:     true,
+	DocsLink:                      "https://docs.newapi.pro",
+	PingIntervalEnabled:           false,
+	PingIntervalSeconds:           60,
+	CodexUpstreamWebSocketEnabled: false,
+	QuotaDisplayType:              QuotaDisplayTypeUSD,
+	CustomCurrencySymbol:          "¤",
+	CustomCurrencyExchangeRate:    1.0,
+	LogModelMappingEnabled:        true,
 }
 
 func init() {

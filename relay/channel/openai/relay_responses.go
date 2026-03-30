@@ -24,6 +24,34 @@ type responsesStreamEventRaw struct {
 	Response json.RawMessage `json:"response,omitempty"`
 }
 
+func responsesStreamFailureStatusCode(streamResponse *dto.ResponsesStreamResponse, fallback int) int {
+	if streamResponse == nil || streamResponse.Response == nil {
+		return fallback
+	}
+	return types.StatusCodeFromOpenAIError(streamResponse.Response.GetOpenAIError(), fallback)
+}
+
+func newResponsesStreamFailureError(streamResponse *dto.ResponsesStreamResponse, skipRetry bool) *types.NewAPIError {
+	statusCode := responsesStreamFailureStatusCode(streamResponse, http.StatusInternalServerError)
+	if streamResponse != nil && streamResponse.Response != nil {
+		if oaiError := streamResponse.Response.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+			if skipRetry {
+				return types.WithOpenAIError(*oaiError, statusCode, types.ErrOptionWithSkipRetry())
+			}
+			return types.WithOpenAIError(*oaiError, statusCode)
+		}
+	}
+
+	message := "responses stream error"
+	if streamResponse != nil && streamResponse.Type != "" {
+		message = fmt.Sprintf("responses stream error: %s", streamResponse.Type)
+	}
+	if skipRetry {
+		return types.NewOpenAIError(fmt.Errorf("%s", message), types.ErrorCodeBadResponse, statusCode, types.ErrOptionWithSkipRetry())
+	}
+	return types.NewOpenAIError(fmt.Errorf("%s", message), types.ErrorCodeBadResponse, statusCode)
+}
+
 func setUsageFromResponses(usage *dto.Usage, responsesResponse *dto.OpenAIResponsesResponse) {
 	if usage == nil || responsesResponse == nil || responsesResponse.Usage == nil {
 		return
@@ -172,11 +200,11 @@ func OaiResponsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.Rela
 			if len(rawEvent.Response) > 0 {
 				completedResponseRaw = append(completedResponseRaw[:0], rawEvent.Response...)
 			}
+			if streamResponse.Type == "response.failed" {
+				streamErr = newResponsesStreamFailureError(&streamResponse, false)
+				break
+			}
 			if streamResponse.Response != nil {
-				if oaiError := streamResponse.Response.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-					streamErr = types.WithOpenAIError(*oaiError, http.StatusInternalServerError)
-					break
-				}
 				setUsageFromResponses(usage, streamResponse.Response)
 				countBuiltInToolsFromResponsesObject(c, info, streamResponse.Response)
 				if streamResponse.Response.HasImageGenerationCall() {
@@ -186,13 +214,7 @@ func OaiResponsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.Rela
 				}
 			}
 		case "response.error":
-			if streamResponse.Response != nil {
-				if oaiError := streamResponse.Response.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-					streamErr = types.WithOpenAIError(*oaiError, http.StatusInternalServerError)
-					break
-				}
-			}
-			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResponse.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			streamErr = newResponsesStreamFailureError(&streamResponse, false)
 		}
 
 		if streamErr != nil {
@@ -254,6 +276,8 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
+	var streamErr *types.NewAPIError
+	sentStreamData := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string) bool {
 
@@ -261,6 +285,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		var streamResponse dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err == nil {
 			sendResponsesStreamData(c, info, streamResponse, data)
+			sentStreamData = true
 			switch streamResponse.Type {
 			case "response.completed":
 				if streamResponse.Response != nil {
@@ -274,6 +299,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			case "response.output_text.delta":
 				// 处理输出文本
 				responseTextBuilder.WriteString(streamResponse.Delta)
+			case "response.failed", "response.error":
+				streamErr = newResponsesStreamFailureError(&streamResponse, sentStreamData)
+				return false
 			case dto.ResponsesOutputTypeItemDone:
 				countBuiltInToolFromStreamItem(info, streamResponse.Item)
 			}
@@ -282,6 +310,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 		return true
 	})
+
+	if streamErr != nil {
+		return nil, streamErr
+	}
 
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量

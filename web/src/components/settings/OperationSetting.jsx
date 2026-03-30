@@ -46,6 +46,7 @@ const OperationSetting = () => {
     RetryTimes: 0,
     'general_setting.quota_display_type': 'USD',
     'general_setting.log_model_mapping_enabled': true,
+    'general_setting.codex_upstream_websocket_enabled': false,
     DisplayTokenStatEnabled: false,
     DefaultCollapseSidebar: false,
     DemoSiteEnabled: false,

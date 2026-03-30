@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -16,6 +17,116 @@ type OpenAIError struct {
 	Param    string          `json:"param"`
 	Code     any             `json:"code"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
+}
+
+func StatusCodeFromOpenAIError(openAIError *OpenAIError, fallback int) int {
+	if fallback < 100 || fallback > 599 {
+		fallback = http.StatusInternalServerError
+	}
+	if openAIError == nil {
+		return fallback
+	}
+
+	if statusCode, ok := parseStatusCodeAny(openAIError.Code); ok {
+		return statusCode
+	}
+
+	if len(openAIError.Metadata) > 0 {
+		var metadata map[string]any
+		if err := common.Unmarshal(openAIError.Metadata, &metadata); err == nil {
+			for _, key := range []string{"status", "status_code", "http_status", "http_status_code"} {
+				if statusCode, ok := parseStatusCodeAny(metadata[key]); ok {
+					return statusCode
+				}
+			}
+		}
+	}
+
+	joinedText := strings.ToLower(strings.TrimSpace(openAIError.Type + " " + openAIError.Message))
+	switch {
+	case strings.Contains(joinedText, "rate_limit"), strings.Contains(joinedText, "too many requests"), strings.Contains(joinedText, "quota exceeded"):
+		return http.StatusTooManyRequests
+	case strings.Contains(joinedText, "unauthorized"), strings.Contains(joinedText, "authentication"), strings.Contains(joinedText, "invalid api key"), strings.Contains(joinedText, "invalid_api_key"):
+		return http.StatusUnauthorized
+	}
+
+	return fallback
+}
+
+func parseStatusCodeAny(value any) (int, bool) {
+	switch v := value.(type) {
+	case nil:
+		return 0, false
+	case int:
+		if v >= 100 && v <= 599 {
+			return v, true
+		}
+	case int8:
+		if v >= 100 && v <= 127 {
+			return int(v), true
+		}
+	case int16:
+		if v >= 100 && v <= 599 {
+			return int(v), true
+		}
+	case int32:
+		if v >= 100 && v <= 599 {
+			return int(v), true
+		}
+	case int64:
+		if v >= 100 && v <= 599 {
+			return int(v), true
+		}
+	case uint:
+		if v >= 100 && v <= 599 {
+			return int(v), true
+		}
+	case uint8:
+		if v >= 100 {
+			return int(v), true
+		}
+	case uint16:
+		if v >= 100 && v <= 599 {
+			return int(v), true
+		}
+	case uint32:
+		if v >= 100 && v <= 599 {
+			return int(v), true
+		}
+	case uint64:
+		if v >= 100 && v <= 599 {
+			return int(v), true
+		}
+	case float32:
+		code := int(v)
+		if float32(code) == v && code >= 100 && code <= 599 {
+			return code, true
+		}
+	case float64:
+		code := int(v)
+		if float64(code) == v && code >= 100 && code <= 599 {
+			return code, true
+		}
+	case json.Number:
+		if code, err := v.Int64(); err == nil && code >= 100 && code <= 599 {
+			return int(code), true
+		}
+		if code, err := v.Float64(); err == nil {
+			parsed := int(code)
+			if float64(parsed) == code && parsed >= 100 && parsed <= 599 {
+				return parsed, true
+			}
+		}
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return 0, false
+		}
+		if code, err := strconv.Atoi(trimmed); err == nil && code >= 100 && code <= 599 {
+			return code, true
+		}
+	}
+	return 0, false
 }
 
 type ClaudeError struct {

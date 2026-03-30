@@ -2,12 +2,14 @@ package codex
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
 func newRelayInfo(mode int) *relaycommon.RelayInfo {
@@ -218,5 +220,97 @@ func TestConvertOpenAIResponsesRequest_CompactKeepsStringInput(t *testing.T) {
 
 	if got := common.GetJsonType(converted.Input); got != "string" {
 		t.Fatalf("expected compact input to remain string, got %s", got)
+	}
+}
+
+func TestGetRequestURL_UsesWebSocketWhenEnabled(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := newRelayInfo(relayconstant.RelayModeResponses)
+	info.ChannelBaseUrl = "https://chatgpt.com"
+	original := operation_setting.GetGeneralSetting().CodexUpstreamWebSocketEnabled
+	operation_setting.GetGeneralSetting().CodexUpstreamWebSocketEnabled = true
+	defer func() {
+		operation_setting.GetGeneralSetting().CodexUpstreamWebSocketEnabled = original
+	}()
+
+	requestURL, err := adaptor.GetRequestURL(info)
+	if err != nil {
+		t.Fatalf("GetRequestURL returned error: %v", err)
+	}
+
+	if requestURL != "wss://chatgpt.com/backend-api/codex/responses" {
+		t.Fatalf("unexpected websocket request url: %s", requestURL)
+	}
+}
+
+func TestGetRequestURL_CompactStillUsesHTTP(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := newRelayInfo(relayconstant.RelayModeResponsesCompact)
+	info.ChannelBaseUrl = "https://chatgpt.com"
+	original := operation_setting.GetGeneralSetting().CodexUpstreamWebSocketEnabled
+	operation_setting.GetGeneralSetting().CodexUpstreamWebSocketEnabled = true
+	defer func() {
+		operation_setting.GetGeneralSetting().CodexUpstreamWebSocketEnabled = original
+	}()
+
+	requestURL, err := adaptor.GetRequestURL(info)
+	if err != nil {
+		t.Fatalf("GetRequestURL returned error: %v", err)
+	}
+
+	if requestURL != "https://chatgpt.com/backend-api/codex/responses/compact" {
+		t.Fatalf("unexpected compact request url: %s", requestURL)
+	}
+}
+
+func TestBuildResponsesWebSocketRequestPayload_AddsCreateEvent(t *testing.T) {
+	payload, err := buildResponsesWebSocketRequestPayload(strings.NewReader(`{"model":"gpt-5.4","stream":true,"input":"hi"}`))
+	if err != nil {
+		t.Fatalf("buildResponsesWebSocketRequestPayload returned error: %v", err)
+	}
+
+	var payloadMap map[string]json.RawMessage
+	if err := common.Unmarshal(payload, &payloadMap); err != nil {
+		t.Fatalf("failed to unmarshal websocket payload: %v", err)
+	}
+
+	var eventType string
+	if err := common.Unmarshal(payloadMap["type"], &eventType); err != nil {
+		t.Fatalf("failed to unmarshal websocket event type: %v", err)
+	}
+	if eventType != "response.create" {
+		t.Fatalf("expected response.create, got %q", eventType)
+	}
+	if _, exists := payloadMap["stream"]; exists {
+		t.Fatalf("expected stream field removed from websocket payload")
+	}
+	if got := common.GetJsonType(payloadMap["input"]); got != "string" {
+		t.Fatalf("expected input preserved, got %s", got)
+	}
+}
+
+func TestNormalizeResponsesWebSocketEvent_ErrorBecomesFailed(t *testing.T) {
+	normalized, eventType, err := normalizeResponsesWebSocketEvent([]byte(`{"type":"error","error":{"message":"boom","type":"server_error"}}`))
+	if err != nil {
+		t.Fatalf("normalizeResponsesWebSocketEvent returned error: %v", err)
+	}
+	if eventType != "response.failed" {
+		t.Fatalf("expected response.failed event type, got %q", eventType)
+	}
+
+	var payloadMap map[string]json.RawMessage
+	if err := common.Unmarshal(normalized, &payloadMap); err != nil {
+		t.Fatalf("failed to unmarshal normalized event: %v", err)
+	}
+
+	var normalizedType string
+	if err := common.Unmarshal(payloadMap["type"], &normalizedType); err != nil {
+		t.Fatalf("failed to unmarshal normalized type: %v", err)
+	}
+	if normalizedType != "response.failed" {
+		t.Fatalf("expected normalized type response.failed, got %q", normalizedType)
+	}
+	if _, exists := payloadMap["response"]; !exists {
+		t.Fatalf("expected normalized response payload")
 	}
 }
