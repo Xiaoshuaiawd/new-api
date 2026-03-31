@@ -441,6 +441,30 @@ func RenewSubscriptionToken(c *gin.Context) {
 	common.ApiSuccess(c, token)
 }
 
+func DeleteSubscriptionTokenRenewal(c *gin.Context) {
+	if c.GetInt("role") < common.RoleAdminUser {
+		common.ApiErrorMsg(c, "仅管理员可删除订阅型令牌的待续费项")
+		return
+	}
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "无效的ID")
+		return
+	}
+	queueIndex, err := strconv.Atoi(c.Param("index"))
+	if err != nil || queueIndex < 0 {
+		common.ApiErrorMsg(c, "无效的待续费项")
+		return
+	}
+	userId := c.GetInt("id")
+	token, err := model.RemoveSubscriptionTokenRenewalByID(id, userId, queueIndex)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, token)
+}
+
 type TokenBatch struct {
 	Ids []int `json:"ids"`
 }

@@ -246,6 +246,28 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     }
   };
 
+  const removeSubscriptionTokenRenewal = async (id, queueIndex) => {
+    setLoading(true);
+    try {
+      const res = await API.delete(`/api/token/${id}/renewals/${queueIndex}`);
+      const { success, message, data } = res.data;
+      if (!success) {
+        showError(message);
+        return null;
+      }
+      setTokens((prev) =>
+        prev.map((token) => (token.id === id ? { ...token, ...data } : token)),
+      );
+      showSuccess(t('待续费已删除'));
+      return data;
+    } catch (error) {
+      showError(error.message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Search tokens function
   const searchTokens = async (page = 1, size = pageSize) => {
     const normalizedPage = Number.isInteger(page) && page > 0 ? page : 1;
@@ -457,6 +479,7 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     onOpenLink,
     manageToken,
     renewSubscriptionToken,
+    removeSubscriptionTokenRenewal,
     searchTokens,
     sortToken,
     handlePageChange,

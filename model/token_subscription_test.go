@@ -286,3 +286,112 @@ func TestEnsureSubscriptionTokenReady_ActivatesQueuedRenewalAfterExpiry(t *testi
 	assert.Greater(t, latest.NextResetTime, now)
 	assert.Empty(t, latest.RenewalPlanQueue)
 }
+
+func TestRemoveSubscriptionTokenRenewalByID_RemovesQueuedItem(t *testing.T) {
+	truncateTables(t)
+	seedTokenTestUser(t, 106)
+
+	now := time.Now().Unix()
+	token := &Token{
+		Id:                1006,
+		UserId:            106,
+		Key:               "remove-renewal-token",
+		Name:              "remove-renewal-token",
+		Status:            common.TokenStatusEnabled,
+		AccessedTime:      now - 60,
+		ActivationTime:    now - 12*3600,
+		ExpiredTime:       now + 24*3600,
+		RemainQuota:       2000,
+		UsedQuota:         1000,
+		PlanId:            6,
+		PlanTitle:         "Active Plan",
+		PlanDurationUnit:  SubscriptionDurationDay,
+		PlanDurationValue: 30,
+		PlanAmountTotal:   3000,
+		PlanResetPeriod:   SubscriptionResetNever,
+	}
+	require.NoError(t, token.setRenewalPlanQueue([]tokenRenewalSnapshot{
+		{
+			PlanId:            301,
+			PlanTitle:         "Queued Basic",
+			PlanDurationUnit:  SubscriptionDurationDay,
+			PlanDurationValue: 7,
+			PlanAmountTotal:   5000,
+			PlanResetPeriod:   SubscriptionResetNever,
+			QueuedAt:          now - 20,
+		},
+		{
+			PlanId:            302,
+			PlanTitle:         "Queued Pro",
+			PlanDurationUnit:  SubscriptionDurationDay,
+			PlanDurationValue: 30,
+			PlanAmountTotal:   9000,
+			PlanResetPeriod:   SubscriptionResetDaily,
+			QueuedAt:          now - 10,
+		},
+	}))
+	require.NoError(t, DB.Create(token).Error)
+
+	updated, err := RemoveSubscriptionTokenRenewalByID(token.Id, token.UserId, 0)
+
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.Equal(t, token.PlanId, updated.PlanId)
+	assert.Equal(t, token.PlanTitle, updated.PlanTitle)
+	assert.Equal(t, 1, updated.RenewalQueuedCount)
+	assert.Equal(t, 302, updated.NextRenewalPlanId)
+	assert.Equal(t, "Queued Pro", updated.NextRenewalPlanTitle)
+	require.Len(t, updated.RenewalQueue, 1)
+	assert.Equal(t, 0, updated.RenewalQueue[0].QueueIndex)
+	assert.Equal(t, 302, updated.RenewalQueue[0].PlanId)
+
+	var stored Token
+	require.NoError(t, DB.First(&stored, token.Id).Error)
+	stored.syncRenewalQueueState(nil)
+	assert.Equal(t, 1, stored.RenewalQueuedCount)
+	assert.Equal(t, "Queued Pro", stored.NextRenewalPlanTitle)
+	require.Len(t, stored.RenewalQueue, 1)
+}
+
+func TestRemoveSubscriptionTokenRenewalByID_RejectsInvalidIndex(t *testing.T) {
+	truncateTables(t)
+	seedTokenTestUser(t, 107)
+
+	now := time.Now().Unix()
+	token := &Token{
+		Id:                1007,
+		UserId:            107,
+		Key:               "remove-renewal-invalid-token",
+		Name:              "remove-renewal-invalid-token",
+		Status:            common.TokenStatusEnabled,
+		AccessedTime:      now - 60,
+		ActivationTime:    now - 12*3600,
+		ExpiredTime:       now + 24*3600,
+		RemainQuota:       2000,
+		UsedQuota:         1000,
+		PlanId:            7,
+		PlanTitle:         "Active Plan",
+		PlanDurationUnit:  SubscriptionDurationDay,
+		PlanDurationValue: 30,
+		PlanAmountTotal:   3000,
+		PlanResetPeriod:   SubscriptionResetNever,
+	}
+	require.NoError(t, token.setRenewalPlanQueue([]tokenRenewalSnapshot{
+		{
+			PlanId:            401,
+			PlanTitle:         "Queued Basic",
+			PlanDurationUnit:  SubscriptionDurationDay,
+			PlanDurationValue: 7,
+			PlanAmountTotal:   5000,
+			PlanResetPeriod:   SubscriptionResetNever,
+			QueuedAt:          now - 20,
+		},
+	}))
+	require.NoError(t, DB.Create(token).Error)
+
+	updated, err := RemoveSubscriptionTokenRenewalByID(token.Id, token.UserId, 3)
+
+	require.Error(t, err)
+	assert.Nil(t, updated)
+	assert.Contains(t, err.Error(), "待续费项不存在")
+}

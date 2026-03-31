@@ -123,6 +123,9 @@ func RedisHSetObj(key string, obj interface{}, expiration time.Duration) error {
 		if field.Type.String() == "gorm.DeletedAt" {
 			continue
 		}
+		if field.Tag.Get("redis") == "-" {
+			continue
+		}
 
 		// 处理指针类型
 		if value.Kind() == reflect.Ptr {
@@ -188,6 +191,9 @@ func RedisHGetObj(key string, obj interface{}) error {
 	for i := 0; i < v.NumField(); i++ {
 		field := t.Field(i)
 		fieldName := field.Name
+		if field.Tag.Get("redis") == "-" {
+			continue
+		}
 		if value, ok := result[fieldName]; ok {
 			fieldValue := v.Field(i)
 

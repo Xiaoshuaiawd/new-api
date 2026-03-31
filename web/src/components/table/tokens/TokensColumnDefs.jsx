@@ -447,6 +447,94 @@ const RenewSubscriptionPlanSelector = ({
   );
 };
 
+const TokenRenewalQueueManager = ({
+  record,
+  onRemoveRenewal,
+  t,
+}) => {
+  const [queue, setQueue] = React.useState(record?.renewal_queue || []);
+  const [removingIndex, setRemovingIndex] = React.useState(null);
+
+  React.useEffect(() => {
+    setQueue(record?.renewal_queue || []);
+  }, [record]);
+
+  if (!queue.length) {
+    return <div>{t('暂无待续费套餐')}</div>;
+  }
+
+  return (
+    <div style={{ minWidth: 380, maxHeight: 420, overflowY: 'auto' }}>
+      {queue.map((item) => (
+        <div
+          key={`${item.queue_index}-${item.plan_id}-${item.queued_at}`}
+          style={{
+            border: '1px solid var(--semi-color-border)',
+            borderRadius: 8,
+            padding: 12,
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ fontWeight: 600 }}>
+              {item.plan_title || `#${item.plan_id}`}
+            </div>
+            <Tag color='orange' shape='circle' size='small'>
+              #{item.queue_index + 1}
+            </Tag>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 12, lineHeight: 1.8 }}>
+            <div>
+              {t('加入时间')}：{timestamp2string(item.queued_at)}
+            </div>
+            <div>
+              {t('有效期')}：{formatSubscriptionDuration(item, t)}
+            </div>
+            <div>
+              {t('额度刷新')}：{formatSubscriptionResetPeriod(item, t)}
+            </div>
+            <div>
+              {t('套餐额度')}：
+              {Number(item?.total_amount || 0) === 0
+                ? t('无限')
+                : renderQuota(item?.total_amount || 0)}
+            </div>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <Button
+              type='danger'
+              size='small'
+              loading={removingIndex === item.queue_index}
+              onClick={() => {
+                Modal.confirm({
+                  title: t('确认删除这条待续费吗？'),
+                  content: t('删除后不会影响当前正在使用的套餐，只会移除这条排队续费。'),
+                  onOk: async () => {
+                    setRemovingIndex(item.queue_index);
+                    try {
+                      const updated = await onRemoveRenewal(
+                        record.id,
+                        item.queue_index,
+                      );
+                      if (updated) {
+                        setQueue(updated.renewal_queue || []);
+                      }
+                    } finally {
+                      setRemovingIndex(null);
+                    }
+                  },
+                });
+              }}
+            >
+              {t('删除待续费')}
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 // Render operations column
 const renderOperations = (
   text,
@@ -456,6 +544,7 @@ const renderOperations = (
   setShowEdit,
   manageToken,
   renewSubscriptionToken,
+  removeSubscriptionTokenRenewal,
   subscriptionPlans,
   refresh,
   t,
@@ -548,37 +637,61 @@ const renderOperations = (
       </Button>
 
       {canRenewSubscription && (
-        <Button
-          type='warning'
-          size='small'
-          onClick={() => {
-            let selectedPlanId = 0;
-            Modal.confirm({
-              title: t('请选择续费套餐'),
-              content: (
-                <RenewSubscriptionPlanSelector
-                  record={record}
-                  subscriptionPlans={subscriptionPlans}
-                  onPlanChange={(planId) => {
-                    selectedPlanId = planId;
-                  }}
-                  t={t}
-                />
-              ),
-              onOk: async () => {
-                const ok = await renewSubscriptionToken(
-                  record.id,
-                  selectedPlanId,
-                );
-                if (ok) {
-                  await refresh();
-                }
-              },
-            });
-          }}
-        >
-          {t('续费')}
-        </Button>
+        <>
+          {Number(record.renewal_queued_count || 0) > 0 && (
+            <Button
+              type='secondary'
+              size='small'
+              onClick={() => {
+                Modal.info({
+                  title: t('待续费列表'),
+                  footer: null,
+                  content: (
+                    <TokenRenewalQueueManager
+                      record={record}
+                      onRemoveRenewal={removeSubscriptionTokenRenewal}
+                      t={t}
+                    />
+                  ),
+                });
+              }}
+            >
+              {t('待续费')} ({record.renewal_queued_count})
+            </Button>
+          )}
+
+          <Button
+            type='warning'
+            size='small'
+            onClick={() => {
+              let selectedPlanId = 0;
+              Modal.confirm({
+                title: t('请选择续费套餐'),
+                content: (
+                  <RenewSubscriptionPlanSelector
+                    record={record}
+                    subscriptionPlans={subscriptionPlans}
+                    onPlanChange={(planId) => {
+                      selectedPlanId = planId;
+                    }}
+                    t={t}
+                  />
+                ),
+                onOk: async () => {
+                  const ok = await renewSubscriptionToken(
+                    record.id,
+                    selectedPlanId,
+                  );
+                  if (ok) {
+                    await refresh();
+                  }
+                },
+              });
+            }}
+          >
+            {t('续费')}
+          </Button>
+        </>
       )}
 
       <Button
@@ -610,6 +723,7 @@ export const getTokensColumns = ({
   copyText,
   manageToken,
   renewSubscriptionToken,
+  removeSubscriptionTokenRenewal,
   subscriptionPlans,
   onOpenLink,
   setEditingToken,
@@ -708,6 +822,7 @@ export const getTokensColumns = ({
           setShowEdit,
           manageToken,
           renewSubscriptionToken,
+          removeSubscriptionTokenRenewal,
           subscriptionPlans,
           refresh,
           t,
