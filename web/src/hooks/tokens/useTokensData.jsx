@@ -232,7 +232,11 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
       setTokens((prev) =>
         prev.map((token) => (token.id === id ? { ...token, ...data } : token)),
       );
-      showSuccess(t('订阅续费成功！'));
+      if (Number(data?.renewal_queued_count || 0) > 0) {
+        showSuccess(t('续费已加入队列，将在当前套餐结束后自动生效'));
+      } else {
+        showSuccess(t('订阅续费成功！'));
+      }
       return true;
     } catch (error) {
       showError(error.message);

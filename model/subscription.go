@@ -305,6 +305,26 @@ func NormalizeResetPeriod(period string) string {
 	}
 }
 
+func subscriptionResetLocation() *time.Location {
+	resetTimezone := strings.TrimSpace(common.GetEnvOrDefaultString("SUBSCRIPTION_RESET_TIMEZONE", ""))
+	if resetTimezone == "" {
+		resetTimezone = strings.TrimSpace(common.GetEnvOrDefaultString("TZ", ""))
+	}
+	if resetTimezone == "" {
+		resetTimezone = "Asia/Shanghai"
+	}
+	loc, err := time.LoadLocation(resetTimezone)
+	if err == nil {
+		return loc
+	}
+	common.SysLog(fmt.Sprintf("invalid subscription reset timezone %q, fallback to Asia/Shanghai: %v", resetTimezone, err))
+	shanghai, shanghaiErr := time.LoadLocation("Asia/Shanghai")
+	if shanghaiErr == nil {
+		return shanghai
+	}
+	return time.FixedZone("CST", 8*3600)
+}
+
 func calcNextResetTime(base time.Time, plan *SubscriptionPlan, endUnix int64) int64 {
 	if plan == nil {
 		return 0
@@ -316,21 +336,24 @@ func calcNextResetTime(base time.Time, plan *SubscriptionPlan, endUnix int64) in
 	var next time.Time
 	switch period {
 	case SubscriptionResetDaily:
-		next = time.Date(base.Year(), base.Month(), base.Day(), 0, 0, 0, 0, base.Location()).
+		resetBase := base.In(subscriptionResetLocation())
+		next = time.Date(resetBase.Year(), resetBase.Month(), resetBase.Day(), 0, 0, 0, 0, resetBase.Location()).
 			AddDate(0, 0, 1)
 	case SubscriptionResetWeekly:
 		// Align to next Monday 00:00
-		weekday := int(base.Weekday()) // Sunday=0
+		resetBase := base.In(subscriptionResetLocation())
+		weekday := int(resetBase.Weekday()) // Sunday=0
 		// Convert to Monday=1..Sunday=7
 		if weekday == 0 {
 			weekday = 7
 		}
 		daysUntil := 8 - weekday
-		next = time.Date(base.Year(), base.Month(), base.Day(), 0, 0, 0, 0, base.Location()).
+		next = time.Date(resetBase.Year(), resetBase.Month(), resetBase.Day(), 0, 0, 0, 0, resetBase.Location()).
 			AddDate(0, 0, daysUntil)
 	case SubscriptionResetMonthly:
 		// Align to first day of next month 00:00
-		next = time.Date(base.Year(), base.Month(), 1, 0, 0, 0, 0, base.Location()).
+		resetBase := base.In(subscriptionResetLocation())
+		next = time.Date(resetBase.Year(), resetBase.Month(), 1, 0, 0, 0, 0, resetBase.Location()).
 			AddDate(0, 1, 0)
 	case SubscriptionResetCustom:
 		if plan.QuotaResetCustomSeconds <= 0 {

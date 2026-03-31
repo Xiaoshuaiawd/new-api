@@ -13,34 +13,50 @@ import (
 )
 
 type Token struct {
-	Id                 int            `json:"id"`
-	UserId             int            `json:"user_id" gorm:"index"`
-	Key                string         `json:"key" gorm:"type:char(48);uniqueIndex"`
-	Status             int            `json:"status" gorm:"default:1"`
-	Name               string         `json:"name" gorm:"index" `
-	CreatedTime        int64          `json:"created_time" gorm:"bigint"`
-	AccessedTime       int64          `json:"accessed_time" gorm:"bigint"`
-	ExpiredTime        int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
-	RemainQuota        int            `json:"remain_quota" gorm:"default:0"`
-	UnlimitedQuota     bool           `json:"unlimited_quota"`
-	ModelLimitsEnabled bool           `json:"model_limits_enabled"`
-	ModelLimits        string         `json:"model_limits" gorm:"type:text"`
-	AllowIps           *string        `json:"allow_ips" gorm:"default:''"`
-	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
-	Group              string         `json:"group" gorm:"default:''"`
-	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
-	PlanId             int            `json:"plan_id" gorm:"type:int;default:0;index"`
-	PlanTitle          string         `json:"plan_title" gorm:"type:varchar(128);default:''"`
-	ActivationTime     int64          `json:"activation_time" gorm:"bigint;default:0"`
-	NextResetTime      int64          `json:"next_reset_time" gorm:"type:bigint;default:0;index"`
-	LastResetTime      int64          `json:"last_reset_time" gorm:"type:bigint;default:0"`
-	PlanDurationUnit   string         `json:"plan_duration_unit" gorm:"type:varchar(16);default:''"`
-	PlanDurationValue  int            `json:"plan_duration_value" gorm:"type:int;default:0"`
-	PlanCustomSeconds  int64          `json:"plan_custom_seconds" gorm:"type:bigint;default:0"`
-	PlanAmountTotal    int            `json:"plan_amount_total" gorm:"type:int;default:0"`
-	PlanResetPeriod    string         `json:"plan_reset_period" gorm:"type:varchar(16);default:''"`
-	PlanResetSeconds   int64          `json:"plan_reset_seconds" gorm:"type:bigint;default:0"`
-	DeletedAt          gorm.DeletedAt `gorm:"index"`
+	Id                   int            `json:"id"`
+	UserId               int            `json:"user_id" gorm:"index"`
+	Key                  string         `json:"key" gorm:"type:char(48);uniqueIndex"`
+	Status               int            `json:"status" gorm:"default:1"`
+	Name                 string         `json:"name" gorm:"index" `
+	CreatedTime          int64          `json:"created_time" gorm:"bigint"`
+	AccessedTime         int64          `json:"accessed_time" gorm:"bigint"`
+	ExpiredTime          int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
+	RemainQuota          int            `json:"remain_quota" gorm:"default:0"`
+	UnlimitedQuota       bool           `json:"unlimited_quota"`
+	ModelLimitsEnabled   bool           `json:"model_limits_enabled"`
+	ModelLimits          string         `json:"model_limits" gorm:"type:text"`
+	AllowIps             *string        `json:"allow_ips" gorm:"default:''"`
+	UsedQuota            int            `json:"used_quota" gorm:"default:0"` // used quota
+	Group                string         `json:"group" gorm:"default:''"`
+	CrossGroupRetry      bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	PlanId               int            `json:"plan_id" gorm:"type:int;default:0;index"`
+	PlanTitle            string         `json:"plan_title" gorm:"type:varchar(128);default:''"`
+	ActivationTime       int64          `json:"activation_time" gorm:"bigint;default:0"`
+	NextResetTime        int64          `json:"next_reset_time" gorm:"type:bigint;default:0;index"`
+	LastResetTime        int64          `json:"last_reset_time" gorm:"type:bigint;default:0"`
+	PlanDurationUnit     string         `json:"plan_duration_unit" gorm:"type:varchar(16);default:''"`
+	PlanDurationValue    int            `json:"plan_duration_value" gorm:"type:int;default:0"`
+	PlanCustomSeconds    int64          `json:"plan_custom_seconds" gorm:"type:bigint;default:0"`
+	PlanAmountTotal      int            `json:"plan_amount_total" gorm:"type:int;default:0"`
+	PlanResetPeriod      string         `json:"plan_reset_period" gorm:"type:varchar(16);default:''"`
+	PlanResetSeconds     int64          `json:"plan_reset_seconds" gorm:"type:bigint;default:0"`
+	RenewalPlanQueue     string         `json:"-" gorm:"type:text"`
+	RenewalQueuedCount   int            `json:"renewal_queued_count" gorm:"-"`
+	NextRenewalPlanId    int            `json:"next_renewal_plan_id" gorm:"-"`
+	NextRenewalPlanTitle string         `json:"next_renewal_plan_title" gorm:"-"`
+	DeletedAt            gorm.DeletedAt `gorm:"index"`
+}
+
+type tokenRenewalSnapshot struct {
+	PlanId                 int    `json:"plan_id"`
+	PlanTitle              string `json:"plan_title"`
+	PlanDurationUnit       string `json:"duration_unit"`
+	PlanDurationValue      int    `json:"duration_value"`
+	PlanCustomSeconds      int64  `json:"custom_seconds"`
+	PlanAmountTotal        int    `json:"total_amount"`
+	PlanResetPeriod        string `json:"quota_reset_period"`
+	PlanResetCustomSeconds int64  `json:"quota_reset_custom_seconds"`
+	QueuedAt               int64  `json:"queued_at"`
 }
 
 func (token *Token) Clean() {
@@ -49,6 +65,118 @@ func (token *Token) Clean() {
 
 func (token *Token) IsSubscriptionToken() bool {
 	return token != nil && token.PlanId > 0
+}
+
+func (token *Token) AfterFind(tx *gorm.DB) error {
+	token.syncRenewalQueueState(nil)
+	return nil
+}
+
+func (token *Token) currentRenewalSnapshot(queuedAt int64) *tokenRenewalSnapshot {
+	if token == nil || token.PlanId <= 0 {
+		return nil
+	}
+	return &tokenRenewalSnapshot{
+		PlanId:                 token.PlanId,
+		PlanTitle:              token.PlanTitle,
+		PlanDurationUnit:       token.PlanDurationUnit,
+		PlanDurationValue:      token.PlanDurationValue,
+		PlanCustomSeconds:      token.PlanCustomSeconds,
+		PlanAmountTotal:        token.PlanAmountTotal,
+		PlanResetPeriod:        token.PlanResetPeriod,
+		PlanResetCustomSeconds: token.PlanResetSeconds,
+		QueuedAt:               queuedAt,
+	}
+}
+
+func buildRenewalSnapshotFromPlan(plan *SubscriptionPlan, queuedAt int64) (*tokenRenewalSnapshot, error) {
+	tmp := &Token{}
+	if err := FillTokenPlanSnapshot(tmp, plan); err != nil {
+		return nil, err
+	}
+	return tmp.currentRenewalSnapshot(queuedAt), nil
+}
+
+func (snapshot *tokenRenewalSnapshot) toPlanSnapshot() *SubscriptionPlan {
+	if snapshot == nil || snapshot.PlanId <= 0 {
+		return nil
+	}
+	return &SubscriptionPlan{
+		Id:                      snapshot.PlanId,
+		Title:                   snapshot.PlanTitle,
+		DurationUnit:            snapshot.PlanDurationUnit,
+		DurationValue:           snapshot.PlanDurationValue,
+		CustomSeconds:           snapshot.PlanCustomSeconds,
+		TotalAmount:             int64(snapshot.PlanAmountTotal),
+		QuotaResetPeriod:        snapshot.PlanResetPeriod,
+		QuotaResetCustomSeconds: snapshot.PlanResetCustomSeconds,
+	}
+}
+
+func applyRenewalSnapshotToToken(token *Token, snapshot tokenRenewalSnapshot) {
+	if token == nil {
+		return
+	}
+	token.PlanId = snapshot.PlanId
+	token.PlanTitle = snapshot.PlanTitle
+	token.PlanDurationUnit = snapshot.PlanDurationUnit
+	token.PlanDurationValue = snapshot.PlanDurationValue
+	token.PlanCustomSeconds = snapshot.PlanCustomSeconds
+	token.PlanAmountTotal = snapshot.PlanAmountTotal
+	token.PlanResetPeriod = snapshot.PlanResetPeriod
+	token.PlanResetSeconds = snapshot.PlanResetCustomSeconds
+}
+
+func (token *Token) getRenewalPlanQueue() ([]tokenRenewalSnapshot, error) {
+	if token == nil || strings.TrimSpace(token.RenewalPlanQueue) == "" {
+		return nil, nil
+	}
+	var queue []tokenRenewalSnapshot
+	if err := common.UnmarshalJsonStr(token.RenewalPlanQueue, &queue); err != nil {
+		return nil, fmt.Errorf("invalid token renewal queue: %w", err)
+	}
+	return queue, nil
+}
+
+func (token *Token) setRenewalPlanQueue(queue []tokenRenewalSnapshot) error {
+	if token == nil {
+		return errors.New("token is nil")
+	}
+	if len(queue) == 0 {
+		token.RenewalPlanQueue = ""
+		token.syncRenewalQueueState(queue)
+		return nil
+	}
+	data, err := common.Marshal(queue)
+	if err != nil {
+		return err
+	}
+	token.RenewalPlanQueue = string(data)
+	token.syncRenewalQueueState(queue)
+	return nil
+}
+
+func (token *Token) syncRenewalQueueState(queue []tokenRenewalSnapshot) {
+	if token == nil {
+		return
+	}
+	token.RenewalQueuedCount = 0
+	token.NextRenewalPlanId = 0
+	token.NextRenewalPlanTitle = ""
+	if queue == nil {
+		var err error
+		queue, err = token.getRenewalPlanQueue()
+		if err != nil {
+			common.SysLog("failed to parse token renewal queue: " + err.Error())
+			return
+		}
+	}
+	if len(queue) == 0 {
+		return
+	}
+	token.RenewalQueuedCount = len(queue)
+	token.NextRenewalPlanId = queue[0].PlanId
+	token.NextRenewalPlanTitle = queue[0].PlanTitle
 }
 
 func FillTokenPlanSnapshot(token *Token, plan *SubscriptionPlan) error {
@@ -99,6 +227,38 @@ func (token *Token) toPlanSnapshot() *SubscriptionPlan {
 	}
 }
 
+func applySubscriptionTokenRuntime(token *Token, plan *SubscriptionPlan, startUnix int64, accessUnix int64) error {
+	if token == nil {
+		return errors.New("token is nil")
+	}
+	if plan == nil {
+		return errors.New("plan is nil")
+	}
+	if startUnix <= 0 {
+		return errors.New("invalid start time")
+	}
+	start := time.Unix(startUnix, 0)
+	endUnix, err := calcPlanEndTime(start, plan)
+	if err != nil {
+		return err
+	}
+	nextReset := calcNextResetTime(start, plan, endUnix)
+	lastReset := int64(0)
+	if nextReset > 0 {
+		lastReset = startUnix
+	}
+	token.Status = common.TokenStatusEnabled
+	token.ActivationTime = startUnix
+	token.ExpiredTime = endUnix
+	token.AccessedTime = accessUnix
+	token.LastResetTime = lastReset
+	token.NextResetTime = nextReset
+	token.UnlimitedQuota = plan.TotalAmount == 0
+	token.RemainQuota = int(plan.TotalAmount)
+	token.UsedQuota = 0
+	return nil
+}
+
 func activateSubscriptionTokenTx(tx *gorm.DB, token *Token, now int64) error {
 	if tx == nil || token == nil || !token.IsSubscriptionToken() || token.ActivationTime > 0 {
 		return nil
@@ -107,21 +267,51 @@ func activateSubscriptionTokenTx(tx *gorm.DB, token *Token, now int64) error {
 	if plan == nil {
 		return errors.New("subscription plan snapshot is missing")
 	}
-	start := time.Unix(now, 0)
-	endUnix, err := calcPlanEndTime(start, plan)
+	if err := applySubscriptionTokenRuntime(token, plan, now, now); err != nil {
+		return err
+	}
+	return tx.Save(token).Error
+}
+
+func maybeActivateQueuedRenewalTokensTx(tx *gorm.DB, token *Token, now int64) error {
+	if tx == nil || token == nil || !token.IsSubscriptionToken() || token.ActivationTime == 0 {
+		return nil
+	}
+	queue, err := token.getRenewalPlanQueue()
 	if err != nil {
 		return err
 	}
-	nextReset := calcNextResetTime(start, plan, endUnix)
-	lastReset := int64(0)
-	if nextReset > 0 {
-		lastReset = now
+	if len(queue) == 0 {
+		token.syncRenewalQueueState(queue)
+		return nil
 	}
-	token.ActivationTime = now
-	token.ExpiredTime = endUnix
-	token.AccessedTime = now
-	token.LastResetTime = lastReset
-	token.NextResetTime = nextReset
+	updated := false
+	for token.ExpiredTime > 0 && token.ExpiredTime <= now && len(queue) > 0 {
+		nextSnapshot := queue[0]
+		startUnix := token.ExpiredTime
+		if startUnix < nextSnapshot.QueuedAt {
+			startUnix = nextSnapshot.QueuedAt
+		}
+		if startUnix > now {
+			break
+		}
+		plan := nextSnapshot.toPlanSnapshot()
+		if plan == nil {
+			return errors.New("queued renewal plan snapshot is missing")
+		}
+		applyRenewalSnapshotToToken(token, nextSnapshot)
+		if err := applySubscriptionTokenRuntime(token, plan, startUnix, now); err != nil {
+			return err
+		}
+		queue = queue[1:]
+		updated = true
+	}
+	if err := token.setRenewalPlanQueue(queue); err != nil {
+		return err
+	}
+	if !updated {
+		return nil
+	}
 	return tx.Save(token).Error
 }
 
@@ -173,7 +363,10 @@ func ensureSubscriptionTokenReady(token *Token) (*Token, error) {
 		return token, nil
 	}
 	now := GetDBTimestamp()
-	if token.ActivationTime > 0 && (token.NextResetTime == 0 || token.NextResetTime > now) {
+	needsActivation := token.ActivationTime == 0
+	needsReset := token.ActivationTime > 0 && token.NextResetTime > 0 && token.NextResetTime <= now
+	needsRenewalSwitch := token.ActivationTime > 0 && token.ExpiredTime > 0 && token.ExpiredTime <= now && strings.TrimSpace(token.RenewalPlanQueue) != ""
+	if !needsActivation && !needsReset && !needsRenewalSwitch {
 		return token, nil
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
@@ -190,9 +383,13 @@ func ensureSubscriptionTokenReady(token *Token) (*Token, error) {
 				return err
 			}
 		}
+		if err := maybeActivateQueuedRenewalTokensTx(tx, &locked, now); err != nil {
+			return err
+		}
 		if err := maybeResetSubscriptionTokenTx(tx, &locked, now); err != nil {
 			return err
 		}
+		locked.syncRenewalQueueState(nil)
 		*token = locked
 		return nil
 	})
@@ -215,7 +412,8 @@ func ResetDueSubscriptionTokens(limit int) (int, error) {
 	}
 	now := GetDBTimestamp()
 	var tokens []Token
-	if err := DB.Where("plan_id > 0 AND activation_time > 0 AND next_reset_time > 0 AND next_reset_time <= ?", now).
+	if err := DB.Where("plan_id > 0 AND activation_time > 0 AND ((next_reset_time > 0 AND next_reset_time <= ?) OR (expired_time > 0 AND expired_time <= ? AND renewal_plan_queue <> ''))", now, now).
+		Order("expired_time asc").
 		Order("next_reset_time asc").
 		Limit(limit).
 		Find(&tokens).Error; err != nil {
@@ -231,13 +429,17 @@ func ResetDueSubscriptionTokens(limit int) (int, error) {
 		err := DB.Transaction(func(tx *gorm.DB) error {
 			var locked Token
 			if err := tx.Set("gorm:query_option", "FOR UPDATE").
-				Where("id = ? AND plan_id > 0 AND activation_time > 0 AND next_reset_time > 0 AND next_reset_time <= ?", tokenCopy.Id, now).
+				Where("id = ? AND plan_id > 0 AND activation_time > 0 AND ((next_reset_time > 0 AND next_reset_time <= ?) OR (expired_time > 0 AND expired_time <= ? AND renewal_plan_queue <> ''))", tokenCopy.Id, now, now).
 				First(&locked).Error; err != nil {
 				return nil
+			}
+			if err := maybeActivateQueuedRenewalTokensTx(tx, &locked, now); err != nil {
+				return err
 			}
 			if err := maybeResetSubscriptionTokenTx(tx, &locked, now); err != nil {
 				return err
 			}
+			locked.syncRenewalQueueState(nil)
 			tokenCopy = locked
 			updated = true
 			resetCount++
@@ -258,26 +460,17 @@ func ResetDueSubscriptionTokens(limit int) (int, error) {
 	return resetCount, nil
 }
 
-func validateSubscriptionTokenRenewal(token *Token, now int64) error {
+func validateSubscriptionTokenRenewal(token *Token, _ int64) error {
 	if token == nil {
 		return errors.New("token is nil")
 	}
 	if !token.IsSubscriptionToken() {
 		return errors.New("该令牌不是订阅型令牌")
 	}
-	if token.ActivationTime == 0 {
-		return errors.New("该订阅型令牌尚未激活，无需续费")
-	}
-	expired := token.ExpiredTime > 0 && token.ExpiredTime <= now
-	exhausted := !token.UnlimitedQuota && token.RemainQuota <= 0
-	statusRenewable := token.Status == common.TokenStatusExpired || token.Status == common.TokenStatusExhausted
-	if !expired && !exhausted && !statusRenewable {
-		return errors.New("当前订阅尚未到期或耗尽，暂不支持提前续费")
-	}
 	return nil
 }
 
-func prepareSubscriptionTokenRenewalPlanTx(tx *gorm.DB, token *Token, planId int) (*SubscriptionPlan, error) {
+func prepareSubscriptionTokenRenewalPlanTx(tx *gorm.DB, token *Token, planId int, queuedAt int64) (*tokenRenewalSnapshot, error) {
 	if token == nil {
 		return nil, errors.New("token is nil")
 	}
@@ -286,16 +479,13 @@ func prepareSubscriptionTokenRenewalPlanTx(tx *gorm.DB, token *Token, planId int
 		if err != nil {
 			return nil, err
 		}
-		if err := FillTokenPlanSnapshot(token, plan); err != nil {
-			return nil, err
-		}
-		return token.toPlanSnapshot(), nil
+		return buildRenewalSnapshotFromPlan(plan, queuedAt)
 	}
-	plan := token.toPlanSnapshot()
-	if plan == nil {
+	snapshot := token.currentRenewalSnapshot(queuedAt)
+	if snapshot == nil {
 		return nil, errors.New("subscription plan snapshot is missing")
 	}
-	return plan, nil
+	return snapshot, nil
 }
 
 func RenewSubscriptionTokenByID(id int, userId int, planId int) (*Token, error) {
@@ -314,32 +504,28 @@ func RenewSubscriptionTokenByID(id int, userId int, planId int) (*Token, error) 
 		if err := validateSubscriptionTokenRenewal(&locked, now); err != nil {
 			return err
 		}
-		plan, err := prepareSubscriptionTokenRenewalPlanTx(tx, &locked, planId)
+		snapshot, err := prepareSubscriptionTokenRenewalPlanTx(tx, &locked, planId, now)
 		if err != nil {
 			return err
 		}
-		start := time.Unix(now, 0)
-		endUnix, err := calcPlanEndTime(start, plan)
+		queue, err := locked.getRenewalPlanQueue()
 		if err != nil {
 			return err
 		}
-		nextReset := calcNextResetTime(start, plan, endUnix)
-		lastReset := int64(0)
-		if nextReset > 0 {
-			lastReset = now
+		queue = append(queue, *snapshot)
+		if err := locked.setRenewalPlanQueue(queue); err != nil {
+			return err
 		}
-		locked.Status = common.TokenStatusEnabled
-		locked.AccessedTime = now
-		locked.ActivationTime = now
-		locked.ExpiredTime = endUnix
-		locked.LastResetTime = lastReset
-		locked.NextResetTime = nextReset
-		locked.UnlimitedQuota = plan.TotalAmount == 0
-		locked.RemainQuota = int(plan.TotalAmount)
-		locked.UsedQuota = 0
 		if err := tx.Save(&locked).Error; err != nil {
 			return err
 		}
+		if err := maybeActivateQueuedRenewalTokensTx(tx, &locked, now); err != nil {
+			return err
+		}
+		if err := maybeResetSubscriptionTokenTx(tx, &locked, now); err != nil {
+			return err
+		}
+		locked.syncRenewalQueueState(nil)
 		renewed = locked
 		return nil
 	})
@@ -581,12 +767,16 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Try Redis first
 		token, err := cacheGetTokenByKey(key)
 		if err == nil {
+			token.syncRenewalQueueState(nil)
 			return token, nil
 		}
 		// Don't return error - fall through to DB
 	}
 	fromDB = true
 	err = DB.Where(commonKeyCol+" = ?", key).First(&token).Error
+	if err == nil && token != nil {
+		token.syncRenewalQueueState(nil)
+	}
 	return token, err
 }
 

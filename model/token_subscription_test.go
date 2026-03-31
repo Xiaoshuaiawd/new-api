@@ -68,9 +68,20 @@ func TestRenewSubscriptionTokenByID_RenewsExpiredToken(t *testing.T) {
 	assert.Equal(t, renewed.UsedQuota, stored.UsedQuota)
 }
 
-func TestRenewSubscriptionTokenByID_RejectsActiveToken(t *testing.T) {
+func TestRenewSubscriptionTokenByID_QueuesActiveTokenRenewal(t *testing.T) {
 	truncateTables(t)
 	seedTokenTestUser(t, 102)
+
+	plan := &SubscriptionPlan{
+		Id:                      202,
+		Title:                   "Queued Pro Plan",
+		DurationUnit:            SubscriptionDurationDay,
+		DurationValue:           15,
+		TotalAmount:             6000,
+		QuotaResetPeriod:        SubscriptionResetNever,
+		QuotaResetCustomSeconds: 0,
+	}
+	require.NoError(t, DB.Create(plan).Error)
 
 	now := time.Now().Unix()
 	token := &Token{
@@ -93,11 +104,19 @@ func TestRenewSubscriptionTokenByID_RejectsActiveToken(t *testing.T) {
 	}
 	require.NoError(t, DB.Create(token).Error)
 
-	renewed, err := RenewSubscriptionTokenByID(token.Id, token.UserId, 0)
+	renewed, err := RenewSubscriptionTokenByID(token.Id, token.UserId, plan.Id)
 
-	require.Error(t, err)
-	assert.Nil(t, renewed)
-	assert.Contains(t, err.Error(), "暂不支持提前续费")
+	require.NoError(t, err)
+	require.NotNil(t, renewed)
+	assert.Equal(t, token.PlanId, renewed.PlanId)
+	assert.Equal(t, token.PlanTitle, renewed.PlanTitle)
+	assert.Equal(t, token.ActivationTime, renewed.ActivationTime)
+	assert.Equal(t, token.ExpiredTime, renewed.ExpiredTime)
+	assert.Equal(t, token.RemainQuota, renewed.RemainQuota)
+	assert.Equal(t, token.UsedQuota, renewed.UsedQuota)
+	assert.Equal(t, 1, renewed.RenewalQueuedCount)
+	assert.Equal(t, plan.Id, renewed.NextRenewalPlanId)
+	assert.Equal(t, plan.Title, renewed.NextRenewalPlanTitle)
 
 	var stored Token
 	require.NoError(t, DB.First(&stored, token.Id).Error)
@@ -105,6 +124,10 @@ func TestRenewSubscriptionTokenByID_RejectsActiveToken(t *testing.T) {
 	assert.Equal(t, token.ExpiredTime, stored.ExpiredTime)
 	assert.Equal(t, token.RemainQuota, stored.RemainQuota)
 	assert.Equal(t, token.UsedQuota, stored.UsedQuota)
+	assert.NotEmpty(t, stored.RenewalPlanQueue)
+	stored.syncRenewalQueueState(nil)
+	assert.Equal(t, 1, stored.RenewalQueuedCount)
+	assert.Equal(t, plan.Title, stored.NextRenewalPlanTitle)
 }
 
 func TestRenewSubscriptionTokenByID_UsesSelectedPlan(t *testing.T) {
@@ -197,4 +220,69 @@ func TestResetDueSubscriptionTokens_ResetsQuota(t *testing.T) {
 	assert.Equal(t, 0, stored.UsedQuota)
 	assert.Greater(t, stored.LastResetTime, token.LastResetTime)
 	assert.Greater(t, stored.NextResetTime, now)
+}
+
+func TestEnsureSubscriptionTokenReady_ActivatesQueuedRenewalAfterExpiry(t *testing.T) {
+	truncateTables(t)
+	seedTokenTestUser(t, 105)
+
+	plan := &SubscriptionPlan{
+		Id:                      203,
+		Title:                   "Follow-up Plan",
+		DurationUnit:            SubscriptionDurationDay,
+		DurationValue:           7,
+		TotalAmount:             7000,
+		QuotaResetPeriod:        SubscriptionResetDaily,
+		QuotaResetCustomSeconds: 0,
+	}
+	require.NoError(t, DB.Create(plan).Error)
+
+	now := time.Now().Unix()
+	expiredAt := now - 3600
+	token := &Token{
+		Id:                1005,
+		UserId:            105,
+		Key:               "queued-renewal-token",
+		Name:              "queued-renewal-token",
+		Status:            common.TokenStatusEnabled,
+		AccessedTime:      now - 7200,
+		ActivationTime:    now - 30*24*3600,
+		ExpiredTime:       expiredAt,
+		RemainQuota:       0,
+		UsedQuota:         3000,
+		PlanId:            5,
+		PlanTitle:         "Legacy Plan",
+		PlanDurationUnit:  SubscriptionDurationDay,
+		PlanDurationValue: 30,
+		PlanAmountTotal:   3000,
+		PlanResetPeriod:   SubscriptionResetNever,
+	}
+	queueSnapshot, err := buildRenewalSnapshotFromPlan(plan, now-24*3600)
+	require.NoError(t, err)
+	require.NoError(t, token.setRenewalPlanQueue([]tokenRenewalSnapshot{*queueSnapshot}))
+	require.NoError(t, DB.Create(token).Error)
+
+	stored, err := GetTokenById(token.Id)
+	require.NoError(t, err)
+	require.NotNil(t, stored)
+
+	ready, err := ensureSubscriptionTokenReady(stored)
+	require.NoError(t, err)
+	require.NotNil(t, ready)
+	assert.Equal(t, plan.Id, ready.PlanId)
+	assert.Equal(t, plan.Title, ready.PlanTitle)
+	assert.Equal(t, expiredAt, ready.ActivationTime)
+	assert.Greater(t, ready.ExpiredTime, now)
+	assert.Equal(t, int(plan.TotalAmount), ready.RemainQuota)
+	assert.Equal(t, 0, ready.UsedQuota)
+	assert.Equal(t, 0, ready.RenewalQueuedCount)
+	assert.Empty(t, ready.NextRenewalPlanTitle)
+
+	var latest Token
+	require.NoError(t, DB.First(&latest, token.Id).Error)
+	latest.syncRenewalQueueState(nil)
+	assert.Equal(t, plan.Id, latest.PlanId)
+	assert.Equal(t, expiredAt, latest.ActivationTime)
+	assert.Greater(t, latest.NextResetTime, now)
+	assert.Empty(t, latest.RenewalPlanQueue)
 }

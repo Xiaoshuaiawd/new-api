@@ -133,7 +133,27 @@ const renderPlanTitle = (record, t) => {
   if (record.plan_id <= 0) {
     return <span>{t('无')}</span>;
   }
-  return <span>{record.plan_title || `#${record.plan_id}`}</span>;
+  const planTitle = record.plan_title || `#${record.plan_id}`;
+  const queuedCount = Number(record.renewal_queued_count || 0);
+  if (!record.next_renewal_plan_title) {
+    return <span>{planTitle}</span>;
+  }
+  const queuedLabel =
+    queuedCount > 1 ? `${t('待续费')} +${queuedCount}` : t('待续费');
+  const queuedContent =
+    queuedCount > 1
+      ? `${t('已排队')} ${queuedCount} ${t('个套餐')}，${t('下一个续费套餐')}：${record.next_renewal_plan_title}`
+      : `${t('下一个续费套餐')}：${record.next_renewal_plan_title}`;
+  return (
+    <Space wrap>
+      <span>{planTitle}</span>
+      <Tooltip content={queuedContent} position='top'>
+        <Tag color='orange' shape='circle' size='small'>
+          {queuedLabel}
+        </Tag>
+      </Tooltip>
+    </Space>
+  );
 };
 
 // Render group column
@@ -419,6 +439,9 @@ const RenewSubscriptionPlanSelector = ({
             ? t('无限')
             : renderQuota(selectedPlan?.total_amount || 0)}
         </div>
+        <div style={{ marginTop: 8, color: 'var(--semi-color-text-2)' }}>
+          {t('当前套餐未结束时，续费会先加入队列，待当前套餐结束后自动切换。')}
+        </div>
       </div>
     </div>
   );
@@ -438,7 +461,7 @@ const renderOperations = (
   t,
 ) => {
   const isAdminUser = isAdmin();
-  const canRenewSubscription = isAdminUser;
+  const canRenewSubscription = isAdminUser && record.plan_id > 0;
   let chatsArray = [];
   try {
     const raw = localStorage.getItem('chats');
