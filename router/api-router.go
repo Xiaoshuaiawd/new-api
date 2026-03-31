@@ -252,6 +252,7 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.GET("/search", middleware.SearchRateLimit(), controller.SearchTokens)
 			tokenRoute.GET("/:id", controller.GetToken)
 			tokenRoute.POST("/:id/renew", controller.RenewSubscriptionToken)
+			tokenRoute.POST("/:id/upgrade", controller.UpgradeSubscriptionToken)
 			tokenRoute.DELETE("/:id/renewals/:index", controller.DeleteSubscriptionTokenRenewal)
 			tokenRoute.POST("/", controller.AddToken)
 			tokenRoute.PUT("/", controller.UpdateToken)

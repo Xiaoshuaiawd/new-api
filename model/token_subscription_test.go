@@ -395,3 +395,112 @@ func TestRemoveSubscriptionTokenRenewalByID_RejectsInvalidIndex(t *testing.T) {
 	assert.Nil(t, updated)
 	assert.Contains(t, err.Error(), "待续费项不存在")
 }
+
+func TestUpgradeSubscriptionTokenByID_UpgradesActivePlanWithoutChangingExpiry(t *testing.T) {
+	truncateTables(t)
+	seedTokenTestUser(t, 108)
+	t.Setenv("SUBSCRIPTION_RESET_TIMEZONE", "Asia/Shanghai")
+
+	targetPlan := &SubscriptionPlan{
+		Id:                      501,
+		Title:                   "500 Daily Plan",
+		DurationUnit:            SubscriptionDurationMonth,
+		DurationValue:           1,
+		TotalAmount:             500,
+		QuotaResetPeriod:        SubscriptionResetDaily,
+		QuotaResetCustomSeconds: 0,
+	}
+	require.NoError(t, DB.Create(targetPlan).Error)
+
+	now := time.Now().Unix()
+	expiredAt := now + 15*24*3600
+	token := &Token{
+		Id:                1008,
+		UserId:            108,
+		Key:               "upgrade-active-token",
+		Name:              "upgrade-active-token",
+		Status:            common.TokenStatusExhausted,
+		AccessedTime:      now - 120,
+		ActivationTime:    now - 15*24*3600,
+		ExpiredTime:       expiredAt,
+		RemainQuota:       0,
+		UsedQuota:         200,
+		PlanId:            8,
+		PlanTitle:         "200 Daily Plan",
+		PlanDurationUnit:  SubscriptionDurationMonth,
+		PlanDurationValue: 1,
+		PlanAmountTotal:   200,
+		PlanResetPeriod:   SubscriptionResetDaily,
+		LastResetTime:     now - 3600,
+		NextResetTime:     now + 3600,
+	}
+	require.NoError(t, DB.Create(token).Error)
+
+	before := GetDBTimestamp()
+	upgraded, err := UpgradeSubscriptionTokenByID(token.Id, token.UserId, targetPlan.Id)
+	after := GetDBTimestamp()
+
+	require.NoError(t, err)
+	require.NotNil(t, upgraded)
+	assert.Equal(t, targetPlan.Id, upgraded.PlanId)
+	assert.Equal(t, targetPlan.Title, upgraded.PlanTitle)
+	assert.Equal(t, expiredAt, upgraded.ExpiredTime)
+	assert.Equal(t, token.ActivationTime, upgraded.ActivationTime)
+	assert.Equal(t, 500, upgraded.RemainQuota)
+	assert.Equal(t, 0, upgraded.UsedQuota)
+	assert.Equal(t, common.TokenStatusEnabled, upgraded.Status)
+	assert.GreaterOrEqual(t, upgraded.LastResetTime, before)
+	assert.LessOrEqual(t, upgraded.LastResetTime, after)
+	assert.Greater(t, upgraded.NextResetTime, after)
+	assert.LessOrEqual(t, upgraded.NextResetTime, expiredAt)
+
+	var stored Token
+	require.NoError(t, DB.First(&stored, token.Id).Error)
+	assert.Equal(t, targetPlan.Id, stored.PlanId)
+	assert.Equal(t, expiredAt, stored.ExpiredTime)
+	assert.Equal(t, token.ActivationTime, stored.ActivationTime)
+	assert.Equal(t, 500, stored.RemainQuota)
+	assert.Equal(t, 0, stored.UsedQuota)
+}
+
+func TestUpgradeSubscriptionTokenByID_RejectsExpiredToken(t *testing.T) {
+	truncateTables(t)
+	seedTokenTestUser(t, 109)
+
+	targetPlan := &SubscriptionPlan{
+		Id:               502,
+		Title:            "500 Daily Plan",
+		DurationUnit:     SubscriptionDurationMonth,
+		DurationValue:    1,
+		TotalAmount:      500,
+		QuotaResetPeriod: SubscriptionResetDaily,
+	}
+	require.NoError(t, DB.Create(targetPlan).Error)
+
+	now := time.Now().Unix()
+	token := &Token{
+		Id:                1009,
+		UserId:            109,
+		Key:               "upgrade-expired-token",
+		Name:              "upgrade-expired-token",
+		Status:            common.TokenStatusExpired,
+		AccessedTime:      now - 120,
+		ActivationTime:    now - 30*24*3600,
+		ExpiredTime:       now - 60,
+		RemainQuota:       0,
+		UsedQuota:         200,
+		PlanId:            9,
+		PlanTitle:         "200 Daily Plan",
+		PlanDurationUnit:  SubscriptionDurationMonth,
+		PlanDurationValue: 1,
+		PlanAmountTotal:   200,
+		PlanResetPeriod:   SubscriptionResetDaily,
+	}
+	require.NoError(t, DB.Create(token).Error)
+
+	upgraded, err := UpgradeSubscriptionTokenByID(token.Id, token.UserId, targetPlan.Id)
+
+	require.Error(t, err)
+	assert.Nil(t, upgraded)
+	assert.Contains(t, err.Error(), "当前订阅已到期")
+}

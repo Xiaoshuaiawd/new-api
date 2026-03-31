@@ -579,6 +579,86 @@ func RenewSubscriptionTokenByID(id int, userId int, planId int) (*Token, error) 
 	return &renewed, nil
 }
 
+func UpgradeSubscriptionTokenByID(id int, userId int, planId int) (*Token, error) {
+	if id <= 0 || userId <= 0 {
+		return nil, errors.New("id 或 userId 为空！")
+	}
+	if planId <= 0 {
+		return nil, errors.New("升级套餐不能为空")
+	}
+	var upgraded Token
+	now := GetDBTimestamp()
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var locked Token
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+			Where("id = ? AND user_id = ?", id, userId).
+			First(&locked).Error; err != nil {
+			return err
+		}
+		if !locked.IsSubscriptionToken() {
+			return errors.New("该令牌不是订阅型令牌")
+		}
+		if locked.ActivationTime <= 0 {
+			return errors.New("该订阅型令牌尚未激活，无法升级套餐")
+		}
+		if locked.ExpiredTime > 0 && locked.ExpiredTime <= now {
+			return errors.New("当前订阅已到期，请使用续费而不是升级")
+		}
+		targetPlan, err := getSubscriptionPlanByIdTx(tx, planId)
+		if err != nil {
+			return err
+		}
+		if targetPlan == nil || targetPlan.Id <= 0 {
+			return errors.New("订阅套餐不存在")
+		}
+		if targetPlan.Id == locked.PlanId {
+			return errors.New("升级套餐不能与当前套餐相同")
+		}
+		snapshot, err := buildRenewalSnapshotFromPlan(targetPlan, now)
+		if err != nil {
+			return err
+		}
+		expiredTime := locked.ExpiredTime
+		activationTime := locked.ActivationTime
+		manualDisabled := locked.Status == common.TokenStatusDisabled
+
+		applyRenewalSnapshotToToken(&locked, *snapshot)
+		locked.AccessedTime = now
+		locked.ActivationTime = activationTime
+		locked.ExpiredTime = expiredTime
+		locked.UnlimitedQuota = targetPlan.TotalAmount == 0
+		locked.RemainQuota = int(targetPlan.TotalAmount)
+		locked.UsedQuota = 0
+		locked.LastResetTime = 0
+		locked.NextResetTime = calcNextResetTime(time.Unix(now, 0), targetPlan, expiredTime)
+		if locked.NextResetTime > 0 {
+			locked.LastResetTime = now
+		}
+		if manualDisabled {
+			locked.Status = common.TokenStatusDisabled
+		} else {
+			locked.Status = common.TokenStatusEnabled
+		}
+		if err := tx.Save(&locked).Error; err != nil {
+			return err
+		}
+		locked.syncRenewalQueueState(nil)
+		upgraded = locked
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if common.RedisEnabled {
+		gopool.Go(func() {
+			if err := cacheSetToken(upgraded); err != nil {
+				common.SysLog("failed to refresh upgraded subscription token cache: " + err.Error())
+			}
+		})
+	}
+	return &upgraded, nil
+}
+
 func RemoveSubscriptionTokenRenewalByID(id int, userId int, queueIndex int) (*Token, error) {
 	if id <= 0 || userId <= 0 {
 		return nil, errors.New("id 或 userId 为空！")

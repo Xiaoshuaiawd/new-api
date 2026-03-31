@@ -33,6 +33,10 @@ type RenewSubscriptionTokenRequest struct {
 	PlanId int `json:"plan_id"`
 }
 
+type UpgradeSubscriptionTokenRequest struct {
+	PlanId int `json:"plan_id"`
+}
+
 func buildIssuedTokenName(baseName string, fallback string, key string, useSuffix bool) string {
 	name := strings.TrimSpace(baseName)
 	if name == "" {
@@ -434,6 +438,30 @@ func RenewSubscriptionToken(c *gin.Context) {
 	}
 	userId := c.GetInt("id")
 	token, err := model.RenewSubscriptionTokenByID(id, userId, req.PlanId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, token)
+}
+
+func UpgradeSubscriptionToken(c *gin.Context) {
+	if c.GetInt("role") < common.RoleAdminUser {
+		common.ApiErrorMsg(c, "仅管理员可升级订阅型令牌")
+		return
+	}
+	var req UpgradeSubscriptionTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "无效的ID")
+		return
+	}
+	userId := c.GetInt("id")
+	token, err := model.UpgradeSubscriptionTokenByID(id, userId, req.PlanId)
 	if err != nil {
 		common.ApiError(c, err)
 		return

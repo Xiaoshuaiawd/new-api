@@ -390,20 +390,36 @@ const RenewSubscriptionPlanSelector = ({
   record,
   subscriptionPlans,
   onPlanChange,
+  includeCurrentSnapshot = true,
+  title,
+  description = '',
   t,
 }) => {
   const currentSnapshotPlan = buildCurrentSnapshotPlan(record);
-  const [selectedPlanId, setSelectedPlanId] = React.useState(0);
+  const defaultPlanId = includeCurrentSnapshot ? 0 : subscriptionPlans[0]?.id;
+  const [selectedPlanId, setSelectedPlanId] = React.useState(defaultPlanId);
+
+  React.useEffect(() => {
+    setSelectedPlanId(defaultPlanId);
+  }, [defaultPlanId]);
+
+  React.useEffect(() => {
+    onPlanChange(selectedPlanId);
+  }, [onPlanChange, selectedPlanId]);
+
   const selectedPlan =
-    selectedPlanId === 0
+    includeCurrentSnapshot && selectedPlanId === 0
       ? currentSnapshotPlan
-      : subscriptionPlans.find((plan) => plan.id === selectedPlanId) ||
-        currentSnapshotPlan;
+      : subscriptionPlans.find((plan) => plan.id === selectedPlanId) || null;
   const optionList = [
-    {
-      value: 0,
-      label: `${t('沿用当前套餐快照')} (${currentSnapshotPlan.title || '-'})`,
-    },
+    ...(includeCurrentSnapshot
+      ? [
+          {
+            value: 0,
+            label: `${t('沿用当前套餐快照')} (${currentSnapshotPlan.title || '-'})`,
+          },
+        ]
+      : []),
     ...subscriptionPlans.map((plan) => ({
       value: plan.id,
       label: plan.title || `#${plan.id}`,
@@ -412,13 +428,15 @@ const RenewSubscriptionPlanSelector = ({
 
   return (
     <div style={{ minWidth: 320 }}>
-      <div style={{ marginBottom: 8 }}>{t('请选择续费套餐')}</div>
+      <div style={{ marginBottom: 8 }}>{title || t('请选择续费套餐')}</div>
       <Select
         style={{ width: '100%' }}
         optionList={optionList}
-        defaultValue={0}
+        value={selectedPlanId}
+        placeholder={t('请选择套餐')}
         onChange={(value) => {
-          const nextPlanId = Number(value) || 0;
+          const nextPlanId =
+            value === undefined || value === null ? undefined : Number(value);
           setSelectedPlanId(nextPlanId);
           onPlanChange(nextPlanId);
         }}
@@ -440,7 +458,7 @@ const RenewSubscriptionPlanSelector = ({
             : renderQuota(selectedPlan?.total_amount || 0)}
         </div>
         <div style={{ marginTop: 8, color: 'var(--semi-color-text-2)' }}>
-          {t('当前套餐未结束时，续费会先加入队列，待当前套餐结束后自动切换。')}
+          {description || t('当前套餐未结束时，续费会先加入队列，待当前套餐结束后自动切换。')}
         </div>
       </div>
     </div>
@@ -544,6 +562,7 @@ const renderOperations = (
   setShowEdit,
   manageToken,
   renewSubscriptionToken,
+  upgradeSubscriptionToken,
   removeSubscriptionTokenRenewal,
   subscriptionPlans,
   refresh,
@@ -551,6 +570,13 @@ const renderOperations = (
 ) => {
   const isAdminUser = isAdmin();
   const canRenewSubscription = isAdminUser && record.plan_id > 0;
+  const now = Math.floor(Date.now() / 1000);
+  const upgradePlans = subscriptionPlans.filter((plan) => plan.id !== record.plan_id);
+  const canUpgradeSubscription =
+    isAdminUser &&
+    record.plan_id > 0 &&
+    record.activation_time > 0 &&
+    (record.expired_time <= 0 || record.expired_time > now);
   let chatsArray = [];
   try {
     const raw = localStorage.getItem('chats');
@@ -674,6 +700,7 @@ const renderOperations = (
                     onPlanChange={(planId) => {
                       selectedPlanId = planId;
                     }}
+                    title={t('请选择续费套餐')}
                     t={t}
                   />
                 ),
@@ -691,6 +718,54 @@ const renderOperations = (
           >
             {t('续费')}
           </Button>
+
+          {canUpgradeSubscription && (
+            <Button
+              type='primary'
+              size='small'
+              onClick={() => {
+                if (upgradePlans.length === 0) {
+                  showError(t('暂无可升级套餐'));
+                  return;
+                }
+                let selectedPlanId = upgradePlans[0]?.id;
+                Modal.confirm({
+                  title: t('请选择升级套餐'),
+                  content: (
+                    <RenewSubscriptionPlanSelector
+                      record={record}
+                      subscriptionPlans={upgradePlans}
+                      includeCurrentSnapshot={false}
+                      title={t('请选择升级套餐')}
+                      description={t(
+                        '升级会立即切换当前套餐、重置本周期额度，但保持原到期时间不变。',
+                      )}
+                      onPlanChange={(planId) => {
+                        selectedPlanId = planId;
+                      }}
+                      t={t}
+                    />
+                  ),
+                  onOk: async () => {
+                    if (!selectedPlanId) {
+                      showError(t('请选择升级套餐'));
+                      return false;
+                    }
+                    const ok = await upgradeSubscriptionToken(
+                      record.id,
+                      selectedPlanId,
+                    );
+                    if (ok) {
+                      await refresh();
+                    }
+                    return ok;
+                  },
+                });
+              }}
+            >
+              {t('升级套餐')}
+            </Button>
+          )}
         </>
       )}
 
@@ -723,6 +798,7 @@ export const getTokensColumns = ({
   copyText,
   manageToken,
   renewSubscriptionToken,
+  upgradeSubscriptionToken,
   removeSubscriptionTokenRenewal,
   subscriptionPlans,
   onOpenLink,
@@ -822,6 +898,7 @@ export const getTokensColumns = ({
           setShowEdit,
           manageToken,
           renewSubscriptionToken,
+          upgradeSubscriptionToken,
           removeSubscriptionTokenRenewal,
           subscriptionPlans,
           refresh,

@@ -246,6 +246,30 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     }
   };
 
+  const upgradeSubscriptionToken = async (id, planId) => {
+    setLoading(true);
+    try {
+      const res = await API.post(`/api/token/${id}/upgrade`, {
+        plan_id: Number(planId) || 0,
+      });
+      const { success, message, data } = res.data;
+      if (!success) {
+        showError(message);
+        return false;
+      }
+      setTokens((prev) =>
+        prev.map((token) => (token.id === id ? { ...token, ...data } : token)),
+      );
+      showSuccess(t('套餐升级成功，当前周期额度已重置，到期时间保持不变'));
+      return true;
+    } catch (error) {
+      showError(error.message);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const removeSubscriptionTokenRenewal = async (id, queueIndex) => {
     setLoading(true);
     try {
@@ -479,6 +503,7 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     onOpenLink,
     manageToken,
     renewSubscriptionToken,
+    upgradeSubscriptionToken,
     removeSubscriptionTokenRenewal,
     searchTokens,
     sortToken,
