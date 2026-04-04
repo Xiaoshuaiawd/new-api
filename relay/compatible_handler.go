@@ -567,6 +567,7 @@ func saveErrorToMES(c *gin.Context, relayInfo *relaycommon.RelayInfo, apiErr *ty
 		relayInfo.OriginModelName,
 		relayInfo.UserId,
 		relayInfo.TokenId,
+		relayInfo.TokenName,
 		relayInfo.ChannelId,
 	)
 

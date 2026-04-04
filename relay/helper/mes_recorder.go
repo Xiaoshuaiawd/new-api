@@ -476,7 +476,7 @@ func SaveMESWithTextResponseAsync(c *gin.Context, info *relaycommon.RelayInfo, r
 
 		conversationId := GenerateConversationID(c)
 		mesHelper := model.GetMESHelper()
-		if err := mesHelper.SaveFullConversation(c, conversationId, fullConversation, response, info.OriginModelName, info.UserId, info.TokenId, info.ChannelId); err != nil {
+		if err := mesHelper.SaveFullConversation(c, conversationId, fullConversation, response, info.OriginModelName, info.UserId, info.TokenId, info.TokenName, info.ChannelId); err != nil {
 			logger.LogError(c, "MES: 保存聊天补全失败: "+err.Error())
 			return
 		}
@@ -512,7 +512,7 @@ func SaveMESWithGenericResponseAsync(c *gin.Context, info *relaycommon.RelayInfo
 
 		conversationId := GenerateConversationID(c)
 		mesHelper := model.GetMESHelper()
-		if err := mesHelper.SaveChatCompletion(c, conversationId, messages, response, info.OriginModelName, info.UserId, info.TokenId, info.ChannelId); err != nil {
+		if err := mesHelper.SaveChatCompletion(c, conversationId, messages, response, info.OriginModelName, info.UserId, info.TokenId, info.TokenName, info.ChannelId); err != nil {
 			logger.LogError(c, "MES: 保存对话失败: "+err.Error())
 			return
 		}

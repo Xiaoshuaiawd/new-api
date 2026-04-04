@@ -132,7 +132,7 @@ func handleChatCompletion(c *gin.Context) {
     
     // 保存到 MES 数据库
     mesHelper := model.GetMESHelper()
-    err := mesHelper.SaveChatCompletion(c, conversationId, messages, response, modelName, userId, tokenId, channelId)
+    err := mesHelper.SaveChatCompletion(c, conversationId, messages, response, modelName, userId, tokenId, tokenName, channelId)
     if err != nil {
         fmt.Printf("保存聊天历史失败: %v\n", err)
     }
@@ -162,7 +162,7 @@ func handleChatCompletionWithError(c *gin.Context) {
     
     // 保存错误到 MES 数据库
     mesHelper := model.GetMESHelper()
-    err := mesHelper.SaveErrorConversation(c, conversationId, messages, errorCode, errorMessage, modelName, userId, tokenId, channelId)
+    err := mesHelper.SaveErrorConversation(c, conversationId, messages, errorCode, errorMessage, modelName, userId, tokenId, tokenName, channelId)
     if err != nil {
         fmt.Printf("保存错误对话失败: %v\n", err)
     }

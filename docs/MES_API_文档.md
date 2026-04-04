@@ -19,6 +19,7 @@ func (h *MESHelper) SaveChatCompletion(
     modelName string,         // 模型名称
     userId int,              // 用户 ID
     tokenId int,             // 令牌 ID
+    tokenName string,        // 令牌名称
     channelId int            // 渠道 ID
 ) error
 ```
@@ -28,7 +29,7 @@ func (h *MESHelper) SaveChatCompletion(
 **使用示例**：
 ```go
 mesHelper := model.GetMESHelper()
-err := mesHelper.SaveChatCompletion(c, "conv_123", messages, response, "gpt-3.5-turbo", 1, 1, 1)
+err := mesHelper.SaveChatCompletion(c, "conv_123", messages, response, "gpt-3.5-turbo", 1, 1, "my-token", 1)
 ```
 
 #### 2. SaveErrorConversation - 保存错误对话
@@ -43,6 +44,7 @@ func (h *MESHelper) SaveErrorConversation(
     modelName string,        // 模型名称
     userId int,              // 用户 ID
     tokenId int,             // 令牌 ID
+    tokenName string,        // 令牌名称
     channelId int            // 渠道 ID
 ) error
 ```

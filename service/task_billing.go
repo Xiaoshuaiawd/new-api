@@ -17,7 +17,6 @@ import (
 // LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
 // 实际扣费已由 BillingSession（PreConsumeBilling + SettleBilling）完成。
 func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
-	tokenName := c.GetString("token_name")
 	logContent := fmt.Sprintf("操作 %s", info.Action)
 	// 支持任务仅按次计费
 	if common.StringsContains(constant.TaskPricePatches, info.OriginModelName) {
@@ -49,7 +48,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,
 		ModelName: info.OriginModelName,
-		TokenName: tokenName,
+		TokenName: info.TokenName,
 		Quota:     info.PriceData.Quota,
 		Content:   logContent,
 		TokenId:   info.TokenId,
@@ -169,6 +168,7 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) {
 		ModelName: taskModelName(task),
 		Quota:     quota,
 		TokenId:   task.PrivateData.TokenId,
+		TokenName: task.PrivateData.TokenName,
 		Group:     task.Group,
 		Other:     other,
 	})
@@ -233,6 +233,7 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 		ModelName: taskModelName(task),
 		Quota:     logQuota,
 		TokenId:   task.PrivateData.TokenId,
+		TokenName: task.PrivateData.TokenName,
 		Group:     task.Group,
 		Other:     other,
 	})

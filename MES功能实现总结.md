@@ -144,7 +144,7 @@ MES_SQL_DSN=postgres://user:password@localhost:5432/oneapi_messages
 mesHelper := model.GetMESHelper()
 
 // 保存聊天补全
-err := mesHelper.SaveChatCompletion(c, conversationId, messages, response, modelName, userId, tokenId, channelId)
+err := mesHelper.SaveChatCompletion(c, conversationId, messages, response, modelName, userId, tokenId, tokenName, channelId)
 
 // 获取对话历史
 messages, err := mesHelper.GetConversationMessages(conversationId, limit)
@@ -156,7 +156,7 @@ stats, err := mesHelper.GetConversationStats(userId)
 ### 错误处理
 ```go
 // 保存错误对话
-err := mesHelper.SaveErrorConversation(c, conversationId, messages, errorCode, errorMessage, modelName, userId, tokenId, channelId)
+err := mesHelper.SaveErrorConversation(c, conversationId, messages, errorCode, errorMessage, modelName, userId, tokenId, tokenName, channelId)
 ```
 
 ## 📈 监控和维护

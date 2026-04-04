@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -16,21 +15,22 @@ type ConversationHistory struct {
 	UserId           int    `json:"user_id" gorm:"index"`
 	CreatedAt        int64  `json:"created_at" gorm:"bigint;index"`
 	UpdatedAt        int64  `json:"updated_at" gorm:"bigint"`
-	ConversationId   string `json:"conversation_id" gorm:"type:varchar(255);index"` // 唯一对话标识符
-	MessageId        string `json:"message_id" gorm:"type:varchar(255);index"`      // 消息标识符
-	Role             string `json:"role" gorm:"type:varchar(20);index"`             // 角色：user, assistant, system
-	Content          string `json:"content" gorm:"type:text"`                       // 消息内容
-	ModelName        string `json:"model_name" gorm:"type:varchar(100);index"`      // 使用的AI模型
-	TokenId          int    `json:"token_id" gorm:"index"`                          // 本次对话使用的令牌
-	ChannelId        int    `json:"channel_id" gorm:"index"`                        // 使用的渠道
-	PromptTokens     int    `json:"prompt_tokens" gorm:"default:0"`                 // 提示词令牌数
-	CompletionTokens int    `json:"completion_tokens" gorm:"default:0"`             // 补全令牌数
-	TotalTokens      int    `json:"total_tokens" gorm:"default:0"`                  // 总令牌数
-	IsStream         bool   `json:"is_stream" gorm:"default:false"`                 // 是否为流式输出
-	FinishReason     string `json:"finish_reason" gorm:"type:varchar(50)"`          // 完成原因
-	Usage            string `json:"usage" gorm:"type:text"`                         // 详细使用情况的JSON字符串
-	Other            string `json:"other" gorm:"type:text"`                         // 其他元数据的JSON格式
-	Ip               string `json:"ip" gorm:"type:varchar(45);index"`               // 客户端IP地址
+	ConversationId   string `json:"conversation_id" gorm:"type:varchar(255);index"`       // 唯一对话标识符
+	MessageId        string `json:"message_id" gorm:"type:varchar(255);index"`            // 消息标识符
+	Role             string `json:"role" gorm:"type:varchar(20);index"`                   // 角色：user, assistant, system
+	Content          string `json:"content" gorm:"type:text"`                             // 消息内容
+	ModelName        string `json:"model_name" gorm:"type:varchar(100);index"`            // 使用的AI模型
+	TokenId          int    `json:"token_id" gorm:"index"`                                // 本次对话使用的令牌
+	TokenName        string `json:"token_name" gorm:"type:varchar(255);index;default:''"` // 本次对话使用的令牌名称快照
+	ChannelId        int    `json:"channel_id" gorm:"index"`                              // 使用的渠道
+	PromptTokens     int    `json:"prompt_tokens" gorm:"default:0"`                       // 提示词令牌数
+	CompletionTokens int    `json:"completion_tokens" gorm:"default:0"`                   // 补全令牌数
+	TotalTokens      int    `json:"total_tokens" gorm:"default:0"`                        // 总令牌数
+	IsStream         bool   `json:"is_stream" gorm:"default:false"`                       // 是否为流式输出
+	FinishReason     string `json:"finish_reason" gorm:"type:varchar(50)"`                // 完成原因
+	Usage            string `json:"usage" gorm:"type:text"`                               // 详细使用情况的JSON字符串
+	Other            string `json:"other" gorm:"type:text"`                               // 其他元数据的JSON格式
+	Ip               string `json:"ip" gorm:"type:varchar(45);index"`                     // 客户端IP地址
 }
 
 // ErrorConversationHistory 存储导致错误的聊天历史记录
@@ -38,20 +38,21 @@ type ErrorConversationHistory struct {
 	Id               int    `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
 	UserId           int    `json:"user_id" gorm:"index"`
 	CreatedAt        int64  `json:"created_at" gorm:"bigint;index"`
-	ConversationId   string `json:"conversation_id" gorm:"type:varchar(255);index"` // 对话标识符
-	MessageId        string `json:"message_id" gorm:"type:varchar(255);index"`      // 消息标识符
-	Role             string `json:"role" gorm:"type:varchar(20);index"`             // 角色
-	Content          string `json:"content" gorm:"type:text"`                       // 消息内容
-	ModelName        string `json:"model_name" gorm:"type:varchar(100);index"`      // AI模型
-	TokenId          int    `json:"token_id" gorm:"index"`                          // 令牌ID
-	ChannelId        int    `json:"channel_id" gorm:"index"`                        // 渠道ID
-	ErrorCode        int    `json:"error_code" gorm:"index"`                        // 错误代码
-	ErrorMessage     string `json:"error_message" gorm:"type:text"`                 // 错误消息
-	PromptTokens     int    `json:"prompt_tokens" gorm:"default:0"`                 // 提示词令牌数
-	CompletionTokens int    `json:"completion_tokens" gorm:"default:0"`             // 补全令牌数
-	TotalTokens      int    `json:"total_tokens" gorm:"default:0"`                  // 总令牌数
-	Other            string `json:"other" gorm:"type:text"`                         // 其他元数据
-	Ip               string `json:"ip" gorm:"type:varchar(45);index"`               // 客户端IP
+	ConversationId   string `json:"conversation_id" gorm:"type:varchar(255);index"`       // 对话标识符
+	MessageId        string `json:"message_id" gorm:"type:varchar(255);index"`            // 消息标识符
+	Role             string `json:"role" gorm:"type:varchar(20);index"`                   // 角色
+	Content          string `json:"content" gorm:"type:text"`                             // 消息内容
+	ModelName        string `json:"model_name" gorm:"type:varchar(100);index"`            // AI模型
+	TokenId          int    `json:"token_id" gorm:"index"`                                // 令牌ID
+	TokenName        string `json:"token_name" gorm:"type:varchar(255);index;default:''"` // 令牌名称快照
+	ChannelId        int    `json:"channel_id" gorm:"index"`                              // 渠道ID
+	ErrorCode        int    `json:"error_code" gorm:"index"`                              // 错误代码
+	ErrorMessage     string `json:"error_message" gorm:"type:text"`                       // 错误消息
+	PromptTokens     int    `json:"prompt_tokens" gorm:"default:0"`                       // 提示词令牌数
+	CompletionTokens int    `json:"completion_tokens" gorm:"default:0"`                   // 补全令牌数
+	TotalTokens      int    `json:"total_tokens" gorm:"default:0"`                        // 总令牌数
+	Other            string `json:"other" gorm:"type:text"`                               // 其他元数据
+	Ip               string `json:"ip" gorm:"type:varchar(45);index"`                     // 客户端IP
 }
 
 // MES数据库全局连接
@@ -108,6 +109,35 @@ func createTableIfNotExists(tableName string, model interface{}) error {
 	}
 
 	common.SysLog(fmt.Sprintf("Created MES table: %s", tableName))
+	return nil
+}
+
+func migrateExistingMESPartitionTables() error {
+	specs := []struct {
+		prefix string
+		model  interface{}
+	}{
+		{
+			prefix: "conversation_histories_",
+			model:  &ConversationHistory{},
+		},
+		{
+			prefix: "error_conversation_histories_",
+			model:  &ErrorConversationHistory{},
+		},
+	}
+
+	for _, spec := range specs {
+		tables, err := getExistingPartitionTables(spec.prefix)
+		if err != nil {
+			return err
+		}
+		for _, tableName := range tables {
+			if err := MES_DB.Table(tableName).AutoMigrate(spec.model); err != nil {
+				return fmt.Errorf("failed to migrate MES partition table %s: %v", tableName, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -395,7 +425,7 @@ func DeleteConversationHistory(conversationId string) error {
 }
 
 // CreateConversationFromMessages creates a conversation history from OpenAI messages format
-func CreateConversationFromMessages(conversationId string, messages []map[string]interface{}, modelName string, userId int, tokenId int, channelId int, ip string) error {
+func CreateConversationFromMessages(conversationId string, messages []map[string]interface{}, modelName string, userId int, tokenId int, tokenName string, channelId int, ip string) error {
 	if MES_DB == nil {
 		return fmt.Errorf("MES database not initialized")
 	}
@@ -409,11 +439,11 @@ func CreateConversationFromMessages(conversationId string, messages []map[string
 			content = contentStr
 		} else if contentArray, ok := message["content"].([]interface{}); ok {
 			// Handle array content (like OpenAI format with images)
-			contentBytes, _ := json.Marshal(contentArray)
+			contentBytes, _ := common.Marshal(contentArray)
 			content = string(contentBytes)
 		} else if contentObj, ok := message["content"].(map[string]interface{}); ok {
 			// Handle object content
-			contentBytes, _ := json.Marshal(contentObj)
+			contentBytes, _ := common.Marshal(contentObj)
 			content = string(contentBytes)
 		}
 
@@ -425,6 +455,7 @@ func CreateConversationFromMessages(conversationId string, messages []map[string
 			ModelName:      modelName,
 			UserId:         userId,
 			TokenId:        tokenId,
+			TokenName:      tokenName,
 			ChannelId:      channelId,
 			Ip:             ip,
 		}
@@ -437,7 +468,7 @@ func CreateConversationFromMessages(conversationId string, messages []map[string
 			}
 		}
 		if len(otherData) > 0 {
-			otherBytes, _ := json.Marshal(otherData)
+			otherBytes, _ := common.Marshal(otherData)
 			history.Other = string(otherBytes)
 		}
 

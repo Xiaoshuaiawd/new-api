@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -21,7 +20,7 @@ func NewMESHelper() *MESHelper {
 
 // SaveChatCompletion 将完整的聊天对话上下文保存到 MES 数据库
 func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, messages []map[string]interface{},
-	response map[string]interface{}, modelName string, userId int, tokenId int, channelId int) error {
+	response map[string]interface{}, modelName string, userId int, tokenId int, tokenName string, channelId int) error {
 
 	if !common.MESEnabled {
 		return nil // MES 未启用，跳过保存
@@ -49,7 +48,7 @@ func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, me
 	}
 
 	// 将完整对话序列化为JSON
-	contentJSON, err := json.Marshal(conversationContent)
+	contentJSON, err := common.Marshal(conversationContent)
 	if err != nil {
 		return fmt.Errorf("序列化对话内容失败: %v", err)
 	}
@@ -75,6 +74,7 @@ func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, me
 		Content:          string(contentJSON), // 完整的JSON对话内容
 		ModelName:        modelName,
 		TokenId:          tokenId,
+		TokenName:        tokenName,
 		ChannelId:        channelId,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
@@ -97,7 +97,7 @@ func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, me
 		otherData["response_raw"] = response
 	}
 
-	otherBytes, _ := json.Marshal(otherData)
+	otherBytes, _ := common.Marshal(otherData)
 	history.Other = string(otherBytes)
 
 	// 保存到数据库
@@ -111,7 +111,7 @@ func (h *MESHelper) SaveChatCompletion(c *gin.Context, conversationId string, me
 
 // SaveFullConversation 保存完整的对话到 MES 数据库（新方法）
 func (h *MESHelper) SaveFullConversation(c *gin.Context, conversationId string, fullConversation []map[string]interface{},
-	response *dto.OpenAITextResponse, modelName string, userId int, tokenId int, channelId int) error {
+	response *dto.OpenAITextResponse, modelName string, userId int, tokenId int, tokenName string, channelId int) error {
 
 	if !common.MESEnabled {
 		return nil // MES 未启用，跳过保存
@@ -125,7 +125,7 @@ func (h *MESHelper) SaveFullConversation(c *gin.Context, conversationId string, 
 	}
 
 	// 将完整对话序列化为JSON
-	contentJSON, err := json.Marshal(conversationContent)
+	contentJSON, err := common.Marshal(conversationContent)
 	if err != nil {
 		return fmt.Errorf("序列化完整对话内容失败: %v", err)
 	}
@@ -149,6 +149,7 @@ func (h *MESHelper) SaveFullConversation(c *gin.Context, conversationId string, 
 		Content:          string(contentJSON), // 完整的JSON对话内容
 		ModelName:        modelName,
 		TokenId:          tokenId,
+		TokenName:        tokenName,
 		ChannelId:        channelId,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
@@ -168,7 +169,7 @@ func (h *MESHelper) SaveFullConversation(c *gin.Context, conversationId string, 
 		otherData["response_created"] = response.Created
 	}
 
-	otherBytes, _ := json.Marshal(otherData)
+	otherBytes, _ := common.Marshal(otherData)
 	history.Other = string(otherBytes)
 
 	// 保存到数据库
@@ -182,7 +183,7 @@ func (h *MESHelper) SaveFullConversation(c *gin.Context, conversationId string, 
 
 // SaveErrorConversation 保存导致错误的完整对话上下文
 func (h *MESHelper) SaveErrorConversation(c *gin.Context, conversationId string, messages []map[string]interface{},
-	errorCode int, errorMessage string, modelName string, userId int, tokenId int, channelId int) error {
+	errorCode int, errorMessage string, modelName string, userId int, tokenId int, tokenName string, channelId int) error {
 
 	if !common.MESEnabled {
 		return nil
@@ -200,7 +201,7 @@ func (h *MESHelper) SaveErrorConversation(c *gin.Context, conversationId string,
 	}
 
 	// 将完整对话序列化为JSON
-	contentJSON, err := json.Marshal(conversationContent)
+	contentJSON, err := common.Marshal(conversationContent)
 	if err != nil {
 		return fmt.Errorf("序列化错误对话内容失败: %v", err)
 	}
@@ -215,6 +216,7 @@ func (h *MESHelper) SaveErrorConversation(c *gin.Context, conversationId string,
 		Content:        string(contentJSON),  // 完整的JSON对话内容
 		ModelName:      modelName,
 		TokenId:        tokenId,
+		TokenName:      tokenName,
 		ChannelId:      channelId,
 		ErrorCode:      errorCode,
 		ErrorMessage:   errorMessage,
@@ -228,7 +230,7 @@ func (h *MESHelper) SaveErrorConversation(c *gin.Context, conversationId string,
 		"error_type":    "api_error",
 	}
 
-	otherBytes, _ := json.Marshal(otherData)
+	otherBytes, _ := common.Marshal(otherData)
 	errorHistory.Other = string(otherBytes)
 
 	return SaveErrorConversationHistory(errorHistory)
@@ -253,7 +255,7 @@ func (h *MESHelper) GetConversationMessages(conversationId string, limit int) ([
 
 		// Try to parse content as JSON, if it fails, use as string
 		var content interface{}
-		if err := json.Unmarshal([]byte(history.Content), &content); err != nil {
+		if err := common.Unmarshal([]byte(history.Content), &content); err != nil {
 			message["content"] = history.Content
 		} else {
 			message["content"] = content
@@ -262,7 +264,7 @@ func (h *MESHelper) GetConversationMessages(conversationId string, limit int) ([
 		// Add other metadata if present
 		if history.Other != "" {
 			var otherData map[string]interface{}
-			if err := json.Unmarshal([]byte(history.Other), &otherData); err == nil {
+			if err := common.Unmarshal([]byte(history.Other), &otherData); err == nil {
 				for key, value := range otherData {
 					message[key] = value
 				}
@@ -363,7 +365,7 @@ func (h *MESHelper) extractContent(content interface{}) string {
 	}
 
 	// Handle array or object content by converting to JSON
-	contentBytes, err := json.Marshal(content)
+	contentBytes, err := common.Marshal(content)
 	if err != nil {
 		return fmt.Sprintf("%v", content)
 	}
@@ -372,7 +374,7 @@ func (h *MESHelper) extractContent(content interface{}) string {
 
 // saveAssistantResponse saves the assistant's response to conversation history
 func (h *MESHelper) saveAssistantResponse(conversationId string, response map[string]interface{},
-	modelName string, userId int, tokenId int, channelId int, ip string) error {
+	modelName string, userId int, tokenId int, tokenName string, channelId int, ip string) error {
 
 	// Extract response content
 	var content string
@@ -402,6 +404,7 @@ func (h *MESHelper) saveAssistantResponse(conversationId string, response map[st
 		ModelName:      modelName,
 		UserId:         userId,
 		TokenId:        tokenId,
+		TokenName:      tokenName,
 		ChannelId:      channelId,
 		FinishReason:   finishReason,
 		Ip:             ip,
@@ -419,7 +422,7 @@ func (h *MESHelper) saveAssistantResponse(conversationId string, response map[st
 			history.TotalTokens = int(totalTokens)
 		}
 
-		usageBytes, _ := json.Marshal(usage)
+		usageBytes, _ := common.Marshal(usage)
 		history.Usage = string(usageBytes)
 	}
 
@@ -431,7 +434,7 @@ func (h *MESHelper) saveAssistantResponse(conversationId string, response map[st
 		}
 	}
 	if len(otherData) > 0 {
-		otherBytes, _ := json.Marshal(otherData)
+		otherBytes, _ := common.Marshal(otherData)
 		history.Other = string(otherBytes)
 	}
 
@@ -460,7 +463,7 @@ func (h *MESHelper) buildAssistantMessage(response map[string]interface{}) map[s
 
 	// 调试日志
 	if common.DebugEnabled {
-		responseJSON, _ := json.Marshal(response)
+		responseJSON, _ := common.Marshal(response)
 		common.SysLog("MES调试: 原始响应数据 = " + string(responseJSON))
 	}
 
@@ -472,7 +475,7 @@ func (h *MESHelper) buildAssistantMessage(response map[string]interface{}) map[s
 
 		if firstChoice, ok := choices[0].(map[string]interface{}); ok {
 			if common.DebugEnabled {
-				choiceJSON, _ := json.Marshal(firstChoice)
+				choiceJSON, _ := common.Marshal(firstChoice)
 				common.SysLog("MES调试: 第一个choice = " + string(choiceJSON))
 			}
 

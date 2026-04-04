@@ -65,7 +65,7 @@ func ExampleMESUsage() {
 	}
 
 	mesHelper := model.GetMESHelper()
-	err = mesHelper.SaveChatCompletion(c, conversationId, messages, response, "gpt-3.5-turbo", 1, 1, 1)
+	err = mesHelper.SaveChatCompletion(c, conversationId, messages, response, "gpt-3.5-turbo", 1, 1, "test_token", 1)
 	if err != nil {
 		fmt.Printf("Failed to save chat completion: %v\n", err)
 		return
@@ -90,7 +90,7 @@ func ExampleMESUsage() {
 		},
 	}
 
-	err = mesHelper.SaveErrorConversation(c, "error_conv_123", errorMessages, 400, "Content filter triggered", "gpt-4", 1, 1, 1)
+	err = mesHelper.SaveErrorConversation(c, "error_conv_123", errorMessages, 400, "Content filter triggered", "gpt-4", 1, 1, "test_token", 1)
 	if err != nil {
 		fmt.Printf("Failed to save error conversation: %v\n", err)
 		return
@@ -163,7 +163,7 @@ func ExampleMESDailyPartitioning() {
 		},
 	}
 
-	err = mesHelper.SaveChatCompletion(c, "partition_test_conv", messages, response, "gpt-3.5-turbo", 1, 1, 1)
+	err = mesHelper.SaveChatCompletion(c, "partition_test_conv", messages, response, "gpt-3.5-turbo", 1, 1, "test_token", 1)
 	if err != nil {
 		fmt.Printf("Failed to save chat completion with partitioning: %v\n", err)
 		return

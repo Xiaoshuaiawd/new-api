@@ -124,6 +124,7 @@ func makeTask(userId, channelId, quota, tokenId int, billingSource string, subsc
 			BillingSource:  billingSource,
 			SubscriptionId: subscriptionId,
 			TokenId:        tokenId,
+			TokenName:      "snapshot_token",
 			BillingContext: &model.TaskBillingContext{
 				ModelPrice:      0.02,
 				GroupRatio:      1.0,
@@ -285,6 +286,30 @@ func TestRefundTaskQuota_NoToken(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+func TestRefundTaskQuota_UsesStoredTokenNameSnapshot(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 5, 5, 5
+	const initQuota, preConsumed = 10000, 1200
+	const tokenRemain = 3000
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-snapshot-key", tokenRemain)
+	seedChannel(t, channelID)
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.PrivateData.TokenName = "original_snapshot_name"
+
+	require.NoError(t, model.DB.Model(&model.Token{}).Where("id = ?", tokenID).Update("name", "renamed_token").Error)
+
+	RefundTaskQuota(ctx, task, "snapshot name task failed")
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Equal(t, "original_snapshot_name", log.TokenName)
 }
 
 // ===========================================================================

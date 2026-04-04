@@ -422,9 +422,10 @@ func createMySQLDatabaseIfNeeded(dsn string, dbType string) error {
 // migrateMESDB performs database migration for MES tables
 func migrateMESDB() error {
 	if common.MESDailyPartition {
-		// For daily partitioning, we only create base tables for reference
-		// Actual tables will be created on demand
-		common.SysLog("MES daily partitioning enabled - tables will be created on demand")
+		if err := migrateExistingMESPartitionTables(); err != nil {
+			return fmt.Errorf("failed to migrate existing MES partition tables: %v", err)
+		}
+		common.SysLog("MES daily partitioning enabled - existing tables migrated and new tables will be created on demand")
 		return nil
 	}
 
