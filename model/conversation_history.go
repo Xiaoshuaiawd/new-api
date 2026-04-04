@@ -352,51 +352,54 @@ func queryUserHistoryAcrossPartitions(userId int, limit int, offset int, histori
 
 // getExistingPartitionTables returns a list of existing partition tables with the given prefix
 func getExistingPartitionTables(prefix string) ([]string, error) {
-	var tables []string
-	var rows []map[string]interface{}
-
-	var query string
 	switch common.MesSqlType {
 	case common.DatabaseTypeMySQL:
-		query = "SHOW TABLES LIKE ?"
-		err := MES_DB.Raw(query, prefix+"%").Scan(&rows).Error
+		var rows []struct {
+			TableName string `gorm:"column:table_name"`
+		}
+		err := MES_DB.Raw(
+			"SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name LIKE ?",
+			prefix+"%",
+		).Scan(&rows).Error
 		if err != nil {
 			return nil, err
 		}
+		tables := make([]string, 0, len(rows))
 		for _, row := range rows {
-			for _, value := range row {
-				if tableName, ok := value.(string); ok && strings.HasPrefix(tableName, prefix) {
-					tables = append(tables, tableName)
-				}
+			if row.TableName != "" && strings.HasPrefix(row.TableName, prefix) {
+				tables = append(tables, row.TableName)
 			}
 		}
+		return tables, nil
 	case common.DatabaseTypePostgreSQL:
-		query = "SELECT tablename FROM pg_tables WHERE tablename LIKE $1 AND schemaname = 'public'"
-		err := MES_DB.Raw(query, prefix+"%").Scan(&rows).Error
+		var rows []struct {
+			TableName string `gorm:"column:tablename"`
+		}
+		err := MES_DB.Raw("SELECT tablename FROM pg_tables WHERE tablename LIKE $1 AND schemaname = 'public'", prefix+"%").Scan(&rows).Error
 		if err != nil {
 			return nil, err
 		}
+		tables := make([]string, 0, len(rows))
 		for _, row := range rows {
-			if tableName, ok := row["tablename"].(string); ok {
-				tables = append(tables, tableName)
-			}
+			tables = append(tables, row.TableName)
 		}
+		return tables, nil
 	case common.DatabaseTypeSQLite:
-		query = "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE ?"
-		err := MES_DB.Raw(query, prefix+"%").Scan(&rows).Error
+		var rows []struct {
+			TableName string `gorm:"column:name"`
+		}
+		err := MES_DB.Raw("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE ?", prefix+"%").Scan(&rows).Error
 		if err != nil {
 			return nil, err
 		}
+		tables := make([]string, 0, len(rows))
 		for _, row := range rows {
-			if tableName, ok := row["name"].(string); ok {
-				tables = append(tables, tableName)
-			}
+			tables = append(tables, row.TableName)
 		}
+		return tables, nil
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", common.MesSqlType)
 	}
-
-	return tables, nil
 }
 
 // DeleteConversationHistory deletes conversation history by conversation ID
