@@ -226,7 +226,11 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	req.Set("Authorization", "Bearer "+accessToken)
 	if useWebSocketUpstream(info) {
 		req.Set("chatgpt-account-id", accountID)
+	} else {
+		req.Set("chatgpt-account-id", accountID)
 	}
+
+	req.Set("user-agent", "codex-tui/0.118.0 (Mac OS 15.3.0; arm64) Apple_Terminal/455 (codex-tui; 0.118.0)")
 
 	if req.Get("OpenAI-Beta") == "" {
 		if useWebSocketUpstream(info) {
@@ -243,9 +247,6 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	req.Set("x-client-request-id", sessionID)
 	req.Set("x-codex-turn-metadata", `{"turn_id":"`+sessionID+`","sandbox":"seatbelt"}`)
 
-	// chatgpt.com/backend-api/codex/responses is strict about Content-Type.
-	// Clients may omit it or include parameters like `application/json; charset=utf-8`,
-	// which can be rejected by the upstream. Force the exact media type.
 	req.Set("Content-Type", "application/json")
 	if info.IsStream {
 		req.Set("Accept", "text/event-stream")
