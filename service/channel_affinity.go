@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/cachex"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -32,13 +33,86 @@ const (
 
 var (
 	channelAffinityCacheOnce sync.Once
-	channelAffinityCache     *cachex.HybridCache[int]
+	channelAffinityCache     *cachex.HybridCache[channelRouteSelection]
 
 	channelAffinityUsageCacheStatsOnce  sync.Once
 	channelAffinityUsageCacheStatsCache *cachex.HybridCache[ChannelAffinityUsageCacheCounters]
 
 	channelAffinityRegexCache sync.Map // map[string]*regexp.Regexp
 )
+
+type channelRouteSelection struct {
+	ChannelID     int  `json:"channel_id"`
+	MultiKeyIndex *int `json:"multi_key_index,omitempty"`
+}
+
+type channelRouteSelectionCodec struct{}
+
+func (c channelRouteSelectionCodec) Encode(v channelRouteSelection) (string, error) {
+	if v.ChannelID <= 0 {
+		return "", fmt.Errorf("invalid channel id")
+	}
+	if v.MultiKeyIndex == nil {
+		return strconv.Itoa(v.ChannelID), nil
+	}
+	payload, err := common.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(payload), nil
+}
+
+func (c channelRouteSelectionCodec) Decode(s string) (channelRouteSelection, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return channelRouteSelection{}, fmt.Errorf("empty channel selection")
+	}
+	if channelID, err := strconv.Atoi(s); err == nil {
+		return channelRouteSelection{ChannelID: channelID}, nil
+	}
+	var selection channelRouteSelection
+	if err := common.UnmarshalJsonStr(s, &selection); err != nil {
+		return channelRouteSelection{}, err
+	}
+	if selection.ChannelID <= 0 {
+		return channelRouteSelection{}, fmt.Errorf("invalid channel id")
+	}
+	return selection, nil
+}
+
+func newChannelRouteSelection(channelID int, multiKeyIndex *int) channelRouteSelection {
+	selection := channelRouteSelection{ChannelID: channelID}
+	if multiKeyIndex != nil && *multiKeyIndex >= 0 {
+		selection.MultiKeyIndex = common.GetPointer(*multiKeyIndex)
+	}
+	return selection
+}
+
+func getCurrentChannelMultiKeyIndexFromContext(c *gin.Context) *int {
+	if c == nil || !common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey) {
+		return nil
+	}
+	indexAny, ok := common.GetContextKey(c, constant.ContextKeyChannelMultiKeyIndex)
+	if !ok {
+		return nil
+	}
+	index, ok := indexAny.(int)
+	if !ok || index < 0 {
+		return nil
+	}
+	return common.GetPointer(index)
+}
+
+func getCurrentChannelRouteSelectionFromContext(c *gin.Context, channelID int) channelRouteSelection {
+	return newChannelRouteSelection(channelID, getCurrentChannelMultiKeyIndexFromContext(c))
+}
+
+func applyPreferredChannelRouteSelection(c *gin.Context, selection channelRouteSelection) {
+	if c == nil || selection.MultiKeyIndex == nil {
+		return
+	}
+	common.SetContextKey(c, constant.ContextKeyChannelPreferredMultiKeyIndex, *selection.MultiKeyIndex)
+}
 
 type channelAffinityMeta struct {
 	CacheKey       string
@@ -52,6 +126,7 @@ type channelAffinityMeta struct {
 	KeyHint        string
 	KeyFingerprint string
 	UsingGroup     string
+	RequestedGroup string
 	ModelName      string
 	RequestPath    string
 }
@@ -78,7 +153,7 @@ type ChannelAffinityCacheStats struct {
 	CacheAlgo     string         `json:"cache_algo"`
 }
 
-func getChannelAffinityCache() *cachex.HybridCache[int] {
+func getChannelAffinityCache() *cachex.HybridCache[channelRouteSelection] {
 	channelAffinityCacheOnce.Do(func() {
 		setting := operation_setting.GetChannelAffinitySetting()
 		capacity := setting.MaxEntries
@@ -90,15 +165,15 @@ func getChannelAffinityCache() *cachex.HybridCache[int] {
 			defaultTTLSeconds = 3600
 		}
 
-		channelAffinityCache = cachex.NewHybridCache[int](cachex.HybridCacheConfig[int]{
+		channelAffinityCache = cachex.NewHybridCache[channelRouteSelection](cachex.HybridCacheConfig[channelRouteSelection]{
 			Namespace: cachex.Namespace(channelAffinityCacheNamespace),
 			Redis:     common.RDB,
 			RedisEnabled: func() bool {
 				return common.RedisEnabled && common.RDB != nil
 			},
-			RedisCodec: cachex.IntCodec{},
-			Memory: func() *hot.HotCache[string, int] {
-				return hot.NewHotCache[string, int](hot.LRU, capacity).
+			RedisCodec: channelRouteSelectionCodec{},
+			Memory: func() *hot.HotCache[string, channelRouteSelection] {
+				return hot.NewHotCache[string, channelRouteSelection](hot.LRU, capacity).
 					WithTTL(time.Duration(defaultTTLSeconds) * time.Second).
 					WithJanitor().
 					Build()
@@ -319,13 +394,17 @@ func extractChannelAffinityValue(c *gin.Context, src operation_setting.ChannelAf
 	}
 }
 
-func buildChannelAffinityCacheKeySuffix(rule operation_setting.ChannelAffinityRule, usingGroup string, affinityValue string) string {
-	parts := make([]string, 0, 3)
+func buildChannelAffinityCacheKeySuffix(rule operation_setting.ChannelAffinityRule, usingGroup string, modelName string, affinityValue string) string {
+	parts := make([]string, 0, 4)
 	if rule.IncludeRuleName && rule.Name != "" {
 		parts = append(parts, rule.Name)
 	}
 	if rule.IncludeUsingGroup && usingGroup != "" {
 		parts = append(parts, usingGroup)
+	}
+	modelName = strings.TrimSpace(modelName)
+	if modelName != "" {
+		parts = append(parts, modelName)
 	}
 	parts = append(parts, affinityValue)
 	return strings.Join(parts, ":")
@@ -492,11 +571,14 @@ func appendChannelAffinityTemplateAdminInfo(c *gin.Context, meta channelAffinity
 	if anyInfo, ok := c.Get(ginKeyChannelAffinityLogInfo); ok {
 		if info, ok := anyInfo.(map[string]interface{}); ok {
 			info["override_template"] = templateInfo
+			if strings.TrimSpace(meta.RequestedGroup) != "" && meta.RequestedGroup != meta.UsingGroup {
+				info["requested_group"] = meta.RequestedGroup
+			}
 			c.Set(ginKeyChannelAffinityLogInfo, info)
 			return
 		}
 	}
-	c.Set(ginKeyChannelAffinityLogInfo, map[string]interface{}{
+	info := map[string]interface{}{
 		"reason":            meta.RuleName,
 		"rule_name":         meta.RuleName,
 		"using_group":       meta.UsingGroup,
@@ -508,7 +590,11 @@ func appendChannelAffinityTemplateAdminInfo(c *gin.Context, meta channelAffinity
 		"key_hint":          meta.KeyHint,
 		"key_fp":            meta.KeyFingerprint,
 		"override_template": templateInfo,
-	})
+	}
+	if strings.TrimSpace(meta.RequestedGroup) != "" && meta.RequestedGroup != meta.UsingGroup {
+		info["requested_group"] = meta.RequestedGroup
+	}
+	c.Set(ginKeyChannelAffinityLogInfo, info)
 }
 
 // ApplyChannelAffinityOverrideTemplate merges per-rule channel override templates onto the selected channel override config.
@@ -529,10 +615,10 @@ func ApplyChannelAffinityOverrideTemplate(c *gin.Context, paramOverride map[stri
 	return mergedParam, true
 }
 
-func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup string) (int, bool) {
+func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup string) (channelRouteSelection, bool) {
 	setting := operation_setting.GetChannelAffinitySetting()
 	if setting == nil || !setting.Enabled {
-		return 0, false
+		return channelRouteSelection{}, false
 	}
 	path := ""
 	if c != nil && c.Request != nil && c.Request.URL != nil {
@@ -541,6 +627,10 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 	userAgent := ""
 	if c != nil && c.Request != nil {
 		userAgent = c.Request.UserAgent()
+	}
+	cacheScope := strings.TrimSpace(getOrInitGlobalStickyScope(c, usingGroup))
+	if cacheScope == "" {
+		cacheScope = strings.TrimSpace(usingGroup)
 	}
 
 	for _, rule := range setting.Rules {
@@ -573,7 +663,7 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		if ttlSeconds <= 0 {
 			ttlSeconds = setting.DefaultTTLSeconds
 		}
-		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, usingGroup, affinityValue)
+		cacheKeySuffix := buildChannelAffinityCacheKeySuffix(rule, cacheScope, modelName, affinityValue)
 		cacheKeyFull := channelAffinityCacheNamespace + ":" + cacheKeySuffix
 		setChannelAffinityContext(c, channelAffinityMeta{
 			CacheKey:       cacheKeyFull,
@@ -586,23 +676,25 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 			KeySourcePath:  strings.TrimSpace(usedSource.Path),
 			KeyHint:        buildChannelAffinityKeyHint(affinityValue),
 			KeyFingerprint: affinityFingerprint(affinityValue),
-			UsingGroup:     usingGroup,
+			UsingGroup:     cacheScope,
+			RequestedGroup: strings.TrimSpace(usingGroup),
 			ModelName:      modelName,
 			RequestPath:    path,
 		})
 
 		cache := getChannelAffinityCache()
-		channelID, found, err := cache.Get(cacheKeySuffix)
+		selection, found, err := cache.Get(cacheKeySuffix)
 		if err != nil {
 			common.SysError(fmt.Sprintf("channel affinity cache get failed: key=%s, err=%v", cacheKeyFull, err))
-			return 0, false
+			return channelRouteSelection{}, false
 		}
-		if found {
-			return channelID, true
+		if found && selection.ChannelID > 0 {
+			applyPreferredChannelRouteSelection(c, selection)
+			return selection, true
 		}
-		return 0, false
+		return channelRouteSelection{}, false
 	}
-	return 0, false
+	return channelRouteSelection{}, false
 }
 
 func ShouldSkipRetryAfterChannelAffinityFailure(c *gin.Context) bool {
@@ -620,8 +712,8 @@ func ShouldSkipRetryAfterChannelAffinityFailure(c *gin.Context) bool {
 	return b
 }
 
-func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int) {
-	if c == nil || channelID <= 0 {
+func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, selection channelRouteSelection) {
+	if c == nil || selection.ChannelID <= 0 {
 		return
 	}
 	meta, ok := getChannelAffinityMeta(c)
@@ -636,12 +728,18 @@ func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int
 		"selected_group": selectedGroup,
 		"model":          meta.ModelName,
 		"request_path":   meta.RequestPath,
-		"channel_id":     channelID,
+		"channel_id":     selection.ChannelID,
 		"key_source":     meta.KeySourceType,
 		"key_key":        meta.KeySourceKey,
 		"key_path":       meta.KeySourcePath,
 		"key_hint":       meta.KeyHint,
 		"key_fp":         meta.KeyFingerprint,
+	}
+	if selection.MultiKeyIndex != nil {
+		info["multi_key_index"] = *selection.MultiKeyIndex
+	}
+	if strings.TrimSpace(meta.RequestedGroup) != "" && meta.RequestedGroup != meta.UsingGroup {
+		info["requested_group"] = meta.RequestedGroup
 	}
 	c.Set(ginKeyChannelAffinityLogInfo, info)
 }
@@ -681,7 +779,8 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 		ttlSeconds = 3600
 	}
 	cache := getChannelAffinityCache()
-	if err := cache.SetWithTTL(cacheKey, channelID, time.Duration(ttlSeconds)*time.Second); err != nil {
+	selection := getCurrentChannelRouteSelectionFromContext(c, channelID)
+	if err := cache.SetWithTTL(cacheKey, selection, time.Duration(ttlSeconds)*time.Second); err != nil {
 		common.SysError(fmt.Sprintf("channel affinity cache set failed: key=%s, err=%v", cacheKey, err))
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -116,6 +118,115 @@ func TestApplyChannelAffinityOverrideTemplate_MergeOperations(t *testing.T) {
 	require.Equal(t, "trim_prefix", secondOp["mode"])
 }
 
+func TestGetPreferredChannelByAffinityUsesScopedGroupAndModelKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"prompt_cache_key":"pc-scope-model"}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "vip")
+
+	selection, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "auto")
+	require.False(t, found)
+	require.Zero(t, selection.ChannelID)
+
+	meta, ok := getChannelAffinityMeta(ctx)
+	require.True(t, ok)
+	require.Equal(t, "auto@vip", meta.UsingGroup)
+	require.Equal(t, "auto", meta.RequestedGroup)
+	require.Contains(t, meta.CacheKey, "codex cli trace:auto@vip:gpt-5:pc-scope-model")
+}
+
+func TestGetPreferredChannelByAffinitySeparatesModelCacheKeys(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	setting := operation_setting.GetChannelAffinitySetting()
+	require.NotNil(t, setting)
+
+	var codexRule *operation_setting.ChannelAffinityRule
+	for i := range setting.Rules {
+		rule := &setting.Rules[i]
+		if strings.EqualFold(strings.TrimSpace(rule.Name), "codex cli trace") {
+			codexRule = rule
+			break
+		}
+	}
+	require.NotNil(t, codexRule)
+
+	affinityValue := fmt.Sprintf("pc-model-split-%d", time.Now().UnixNano())
+	gpt4Key := buildChannelAffinityCacheKeySuffix(*codexRule, "default", "gpt-4.1", affinityValue)
+
+	cache := getChannelAffinityCache()
+	require.NoError(t, cache.SetWithTTL(gpt4Key, newChannelRouteSelection(2048, nil), time.Minute))
+	t.Cleanup(func() {
+		_, _ = cache.DeleteMany([]string{gpt4Key})
+	})
+
+	ctxMissRec := httptest.NewRecorder()
+	ctxMiss, _ := gin.CreateTestContext(ctxMissRec)
+	ctxMiss.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(fmt.Sprintf(`{"prompt_cache_key":"%s"}`, affinityValue)))
+	ctxMiss.Request.Header.Set("Content-Type", "application/json")
+
+	selection, found := GetPreferredChannelByAffinity(ctxMiss, "gpt-5", "default")
+	require.False(t, found)
+	require.Zero(t, selection.ChannelID)
+
+	ctxHitRec := httptest.NewRecorder()
+	ctxHit, _ := gin.CreateTestContext(ctxHitRec)
+	ctxHit.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(fmt.Sprintf(`{"prompt_cache_key":"%s"}`, affinityValue)))
+	ctxHit.Request.Header.Set("Content-Type", "application/json")
+
+	selection, found = GetPreferredChannelByAffinity(ctxHit, "gpt-4.1", "default")
+	require.True(t, found)
+	require.Equal(t, 2048, selection.ChannelID)
+}
+
+func TestRecordChannelAffinityStoresMultiKeySelection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	setting := operation_setting.GetChannelAffinitySetting()
+	require.NotNil(t, setting)
+
+	var codexRule *operation_setting.ChannelAffinityRule
+	for i := range setting.Rules {
+		rule := &setting.Rules[i]
+		if strings.EqualFold(strings.TrimSpace(rule.Name), "codex cli trace") {
+			codexRule = rule
+			break
+		}
+	}
+	require.NotNil(t, codexRule)
+
+	affinityValue := fmt.Sprintf("pc-store-mk-%d", time.Now().UnixNano())
+	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(*codexRule, "default", "gpt-5", affinityValue)
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(fmt.Sprintf(`{"prompt_cache_key":"%s"}`, affinityValue)))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	selection, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
+	require.False(t, found)
+	require.Zero(t, selection.ChannelID)
+
+	common.SetContextKey(ctx, constant.ContextKeyChannelIsMultiKey, true)
+	common.SetContextKey(ctx, constant.ContextKeyChannelMultiKeyIndex, 2)
+	ctx.Set("channel_id", 4096)
+
+	RecordChannelAffinity(ctx, 4096)
+	t.Cleanup(func() {
+		_, _ = getChannelAffinityCache().DeleteMany([]string{cacheKeySuffix})
+	})
+
+	stored, found, err := getChannelAffinityCache().Get(cacheKeySuffix)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, 4096, stored.ChannelID)
+	require.NotNil(t, stored.MultiKeyIndex)
+	require.Equal(t, 2, *stored.MultiKeyIndex)
+}
+
 func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -133,10 +244,11 @@ func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 	require.NotNil(t, codexRule)
 
 	affinityValue := fmt.Sprintf("pc-hit-%d", time.Now().UnixNano())
-	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(*codexRule, "default", affinityValue)
+	cacheKeySuffix := buildChannelAffinityCacheKeySuffix(*codexRule, "default", "gpt-5", affinityValue)
 
 	cache := getChannelAffinityCache()
-	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, 9527, time.Minute))
+	preferredIndex := 1
+	require.NoError(t, cache.SetWithTTL(cacheKeySuffix, newChannelRouteSelection(9527, &preferredIndex), time.Minute))
 	t.Cleanup(func() {
 		_, _ = cache.DeleteMany([]string{cacheKeySuffix})
 	})
@@ -146,9 +258,14 @@ func TestChannelAffinityHitCodexTemplatePassHeadersEffective(t *testing.T) {
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(fmt.Sprintf(`{"prompt_cache_key":"%s"}`, affinityValue)))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 
-	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
+	selection, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
 	require.True(t, found)
-	require.Equal(t, 9527, channelID)
+	require.Equal(t, 9527, selection.ChannelID)
+	require.NotNil(t, selection.MultiKeyIndex)
+	require.Equal(t, preferredIndex, *selection.MultiKeyIndex)
+	preferredAny, ok := common.GetContextKey(ctx, constant.ContextKeyChannelPreferredMultiKeyIndex)
+	require.True(t, ok)
+	require.Equal(t, preferredIndex, preferredAny)
 
 	baseOverride := map[string]interface{}{
 		"temperature": 0.2,

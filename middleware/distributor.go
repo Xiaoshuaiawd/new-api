@@ -101,34 +101,36 @@ func Distribute() func(c *gin.Context) {
 
 				service.SetGlobalStickyScopeContext(c, usingGroup)
 
-				// 全局渠道粘性：优先使用 Redis 中记录的活跃渠道
-				if sticky, stickyGroup, found := service.TryGetGlobalStickyChannel(c, usingGroup, modelRequest.Model); found {
-					channel = sticky
-					selectGroup = stickyGroup
+				// 先解析渠道亲和性，这样即使最终命中 sticky，也能保留 affinity 上下文用于模板透传、
+				// usage cache 统计以及成功后的 affinity 回写。
+				if preferredSelection, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
+					preferred, err := model.CacheGetChannel(preferredSelection.ChannelID)
+					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled {
+						if usingGroup == "auto" {
+							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+							autoGroups := service.GetUserAutoGroup(userGroup)
+							for _, g := range autoGroups {
+								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
+									selectGroup = g
+									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
+									channel = preferred
+									service.MarkChannelAffinityUsed(c, g, preferredSelection)
+									break
+								}
+							}
+						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) {
+							channel = preferred
+							selectGroup = usingGroup
+							service.MarkChannelAffinityUsed(c, usingGroup, preferredSelection)
+						}
+					}
 				}
 
 				if channel == nil {
-					if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
-						preferred, err := model.CacheGetChannel(preferredChannelID)
-						if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled {
-							if usingGroup == "auto" {
-								userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-								autoGroups := service.GetUserAutoGroup(userGroup)
-								for _, g := range autoGroups {
-									if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
-										selectGroup = g
-										common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
-										channel = preferred
-										service.MarkChannelAffinityUsed(c, g, preferred.Id)
-										break
-									}
-								}
-							} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) {
-								channel = preferred
-								selectGroup = usingGroup
-								service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
-							}
-						}
+					// 全局渠道粘性作为 affinity miss 时的兜底，继续提供 group/model 级别的稳定选路。
+					if sticky, stickyGroup, found := service.TryGetGlobalStickyChannel(c, usingGroup, modelRequest.Model); found {
+						channel = sticky
+						selectGroup = stickyGroup
 					}
 				}
 
@@ -166,7 +168,7 @@ func Distribute() func(c *gin.Context) {
 				successChannelID = channel.Id
 			}
 			service.RecordChannelAffinity(c, successChannelID)
-			// 请求成功后仅在 sticky 仍指向当前成功渠道时刷新 TTL，避免旧请求覆盖新切换结果。
+			// 请求成功后尽量刷新或初始化 sticky；若已有其他请求切到了新渠道，则保持 no-op。
 			if modelRequest != nil && successChannelID > 0 {
 				service.RefreshGlobalStickyChannelFromContext(c, modelRequest.Model, successChannelID)
 			}
@@ -377,7 +379,25 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelModelMapping, channel.GetModelMapping())
 	common.SetContextKey(c, constant.ContextKeyChannelStatusCodeMapping, channel.GetStatusCodeMapping())
 
-	key, index, newAPIError := channel.GetNextEnabledKey()
+	var key string
+	var index int
+	var newAPIError *types.NewAPIError
+	if preferredIndexAny, ok := common.GetContextKey(c, constant.ContextKeyChannelPreferredMultiKeyIndex); ok && channel.ChannelInfo.IsMultiKey {
+		if preferredIndex, ok := preferredIndexAny.(int); ok && preferredIndex >= 0 {
+			var matched bool
+			key, index, matched, newAPIError = channel.TryGetEnabledKeyByIndex(preferredIndex)
+			if newAPIError != nil {
+				return newAPIError
+			}
+			if !matched {
+				key, index, newAPIError = channel.GetNextEnabledKey()
+			}
+		} else {
+			key, index, newAPIError = channel.GetNextEnabledKey()
+		}
+	} else {
+		key, index, newAPIError = channel.GetNextEnabledKey()
+	}
 	if newAPIError != nil {
 		return newAPIError
 	}

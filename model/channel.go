@@ -189,6 +189,44 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 	}
 }
 
+func (channel *Channel) TryGetEnabledKeyByIndex(preferredIndex int) (string, int, bool, *types.NewAPIError) {
+	if !channel.ChannelInfo.IsMultiKey || preferredIndex < 0 {
+		return "", 0, false, nil
+	}
+
+	keys := channel.GetKeys()
+	if len(keys) == 0 {
+		return "", 0, false, types.NewError(errors.New("no keys available"), types.ErrorCodeChannelNoAvailableKey)
+	}
+
+	lock := GetChannelPollingLock(channel.Id)
+	lock.Lock()
+	defer lock.Unlock()
+
+	statusList := channel.ChannelInfo.MultiKeyStatusList
+	getStatus := func(idx int) int {
+		if statusList == nil {
+			return common.ChannelStatusEnabled
+		}
+		if status, ok := statusList[idx]; ok {
+			return status
+		}
+		return common.ChannelStatusEnabled
+	}
+
+	if preferredIndex >= len(keys) || getStatus(preferredIndex) != common.ChannelStatusEnabled {
+		return "", 0, false, nil
+	}
+
+	if channel.ChannelInfo.MultiKeyMode == constant.MultiKeyModePolling {
+		channel.ChannelInfo.MultiKeyPollingIndex = (preferredIndex + 1) % len(keys)
+		if !common.MemoryCacheEnabled {
+			_ = channel.SaveChannelInfo()
+		}
+	}
+	return keys[preferredIndex], preferredIndex, true, nil
+}
+
 func (channel *Channel) SaveChannelInfo() error {
 	return DB.Model(channel).Update("channel_info", channel.ChannelInfo).Error
 }

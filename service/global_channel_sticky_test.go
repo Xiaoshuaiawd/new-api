@@ -1,11 +1,14 @@
 package service
 
 import (
+	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,6 +49,23 @@ func TestResolveGlobalStickyScope(t *testing.T) {
 	assert.Equal(t, "auto@vip", ResolveGlobalStickyScope("auto", "vip"))
 	assert.Equal(t, "auto", ResolveGlobalStickyScope("auto", ""))
 	assert.Equal(t, "", ResolveGlobalStickyScope("", "vip"))
+}
+
+func buildGlobalStickyContextForTest(requestedGroup, userGroup string) *gin.Context {
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	if userGroup != "" {
+		common.SetContextKey(ctx, constant.ContextKeyUserGroup, userGroup)
+	}
+	SetGlobalStickyScopeContext(ctx, requestedGroup)
+	return ctx
+}
+
+func buildGlobalStickyMultiKeyContextForTest(requestedGroup, userGroup string, keyIndex int) *gin.Context {
+	ctx := buildGlobalStickyContextForTest(requestedGroup, userGroup)
+	common.SetContextKey(ctx, constant.ContextKeyChannelIsMultiKey, true)
+	common.SetContextKey(ctx, constant.ContextKeyChannelMultiKeyIndex, keyIndex)
+	return ctx
 }
 
 func TestRefreshGlobalStickyChannelIDDoesNotOverwriteDifferentChannel(t *testing.T) {
@@ -105,6 +125,45 @@ func TestGlobalStickyEntryVersionPreventsSameChannelStaleOperations(t *testing.T
 		// Only the latest generation can mutate the sticky key.
 		assert.True(t, refreshGlobalStickyChannelEntry(scope, modelName, newEntry))
 		assert.True(t, invalidateGlobalStickyChannelIfMatch(scope, modelName, newEntry))
+		assert.Equal(t, 0, GetGlobalStickyChannelID(scope, modelName))
+	})
+}
+
+func TestRefreshGlobalStickyChannelFromContextSeedsStickyWhenAbsent(t *testing.T) {
+	withGlobalStickyTestRedis(t, func() {
+		scope := ResolveGlobalStickyScope("auto", "vip")
+		modelName := "gpt-5"
+		ctx := buildGlobalStickyContextForTest("auto", "vip")
+
+		assert.True(t, RefreshGlobalStickyChannelFromContext(ctx, modelName, 818))
+		assert.Equal(t, 818, GetGlobalStickyChannelID(scope, modelName))
+	})
+}
+
+func TestRefreshGlobalStickyChannelFromContextUpgradesToMultiKeySelection(t *testing.T) {
+	withGlobalStickyTestRedis(t, func() {
+		scope := ResolveGlobalStickyScope("auto", "vip")
+		modelName := "gpt-5"
+		SetGlobalStickyChannelID(scope, modelName, 818)
+		ctx := buildGlobalStickyMultiKeyContextForTest("auto", "vip", 2)
+
+		assert.True(t, RefreshGlobalStickyChannelFromContext(ctx, modelName, 818))
+
+		entry, ok := getGlobalStickyEntry(scope, modelName)
+		require.True(t, ok)
+		require.NotNil(t, entry.MultiKeyIndex)
+		assert.Equal(t, 2, *entry.MultiKeyIndex)
+	})
+}
+
+func TestInvalidateGlobalStickyChannelFromContextLoadsEntryWhenNotReadEarlier(t *testing.T) {
+	withGlobalStickyTestRedis(t, func() {
+		scope := ResolveGlobalStickyScope("auto", "vip")
+		modelName := "gpt-5"
+		SetGlobalStickyChannelID(scope, modelName, 919)
+		ctx := buildGlobalStickyContextForTest("auto", "vip")
+
+		assert.True(t, InvalidateGlobalStickyChannelFromContext(ctx, modelName, 919))
 		assert.Equal(t, 0, GetGlobalStickyChannelID(scope, modelName))
 	})
 }
