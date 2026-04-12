@@ -11,11 +11,15 @@ type GlobalChannelStickySetting struct {
 	// TTLSeconds 活跃渠道在 Redis 中的 TTL（秒），0 表示不过期
 	// 建议设置一个合理值（如 3600），避免渠道长期不更新
 	TTLSeconds int `json:"ttl_seconds"`
+	// MaxActiveChannels 最大同时活跃渠道数，0 表示不限制
+	// 启用后随机选路只会在最多 N 个活跃渠道范围内扩散。
+	MaxActiveChannels int `json:"max_active_channels"`
 }
 
 var globalChannelStickySetting = GlobalChannelStickySetting{
-	Enabled:    false,
-	TTLSeconds: 3600,
+	Enabled:           false,
+	TTLSeconds:        3600,
+	MaxActiveChannels: 0,
 }
 
 func init() {

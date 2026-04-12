@@ -159,9 +159,19 @@ func SyncChannelCache(frequency int) {
 }
 
 func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
+	return GetRandomSatisfiedChannelWithAllowedIDs(group, model, retry, nil)
+}
+
+func GetRandomSatisfiedChannelWithAllowedIDs(group string, model string, retry int, allowedChannelIDs []int) (*Channel, error) {
+	if len(allowedChannelIDs) == 0 {
+		allowedChannelIDs = nil
+	}
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry)
+		if allowedChannelIDs == nil {
+			return GetChannel(group, model, retry)
+		}
+		return GetChannelWithAllowedIDs(group, model, retry, allowedChannelIDs)
 	}
 
 	// Select channel ID from slim cache under read lock
@@ -191,55 +201,96 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 		return nil, errors.New("channel bucket is empty")
 	}
 
-	var selectedID int
-
-	if len(targetBucket.ChannelIDs) == 1 {
-		selectedID = targetBucket.ChannelIDs[0]
-		if _, ok := channelsIDM[selectedID]; !ok {
-			channelSyncLock.RUnlock()
-			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", selectedID)
-		}
-	} else {
-		sumWeight := targetBucket.SumWeight
-
-		// smoothing factor and adjustment
-		smoothingFactor := 1
-		smoothingAdjustment := 0
-
-		if sumWeight == 0 {
-			sumWeight = len(targetBucket.ChannelIDs) * 100
-			smoothingAdjustment = 100
-		} else if sumWeight/len(targetBucket.ChannelIDs) < 10 {
-			smoothingFactor = 100
-		}
-
-		totalWeight := sumWeight * smoothingFactor
-		randomWeight := rand.Intn(totalWeight)
-
-		found := false
-		for _, channelId := range targetBucket.ChannelIDs {
-			channel, ok := channelsIDM[channelId]
-			if !ok {
-				channelSyncLock.RUnlock()
-				return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
-			}
-			randomWeight -= channel.GetWeight()*smoothingFactor + smoothingAdjustment
-			if randomWeight < 0 {
-				selectedID = channelId
-				found = true
-				break
-			}
-		}
-		if !found {
-			channelSyncLock.RUnlock()
-			return nil, errors.New("channel not found")
-		}
+	allowedSet := buildAllowedChannelIDSet(allowedChannelIDs)
+	selectedID, err := getRandomSatisfiedChannelIDFromBucket(targetBucket, allowedSet)
+	if err != nil {
+		channelSyncLock.RUnlock()
+		return nil, err
+	}
+	if selectedID <= 0 {
+		channelSyncLock.RUnlock()
+		return nil, nil
 	}
 
 	channelSyncLock.RUnlock()
 
 	// Load full channel (with key, setting, etc.) on-demand
 	return CacheGetFullChannel(selectedID)
+}
+
+func buildAllowedChannelIDSet(allowedChannelIDs []int) map[int]struct{} {
+	if len(allowedChannelIDs) == 0 {
+		return nil
+	}
+	allowedSet := make(map[int]struct{}, len(allowedChannelIDs))
+	for _, channelID := range allowedChannelIDs {
+		if channelID > 0 {
+			allowedSet[channelID] = struct{}{}
+		}
+	}
+	if len(allowedSet) == 0 {
+		return nil
+	}
+	return allowedSet
+}
+
+func getRandomSatisfiedChannelIDFromBucket(targetBucket channelPriorityBucket, allowedChannelIDs map[int]struct{}) (int, error) {
+	candidateIDs := targetBucket.ChannelIDs
+	sumWeight := targetBucket.SumWeight
+
+	if len(allowedChannelIDs) > 0 {
+		filteredIDs := make([]int, 0, len(targetBucket.ChannelIDs))
+		sumWeight = 0
+		for _, channelID := range targetBucket.ChannelIDs {
+			if _, ok := allowedChannelIDs[channelID]; !ok {
+				continue
+			}
+			channel, ok := channelsIDM[channelID]
+			if !ok {
+				return 0, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelID)
+			}
+			filteredIDs = append(filteredIDs, channelID)
+			sumWeight += channel.GetWeight()
+		}
+		candidateIDs = filteredIDs
+	}
+
+	if len(candidateIDs) == 0 {
+		return 0, nil
+	}
+	if len(candidateIDs) == 1 {
+		selectedID := candidateIDs[0]
+		if _, ok := channelsIDM[selectedID]; !ok {
+			return 0, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", selectedID)
+		}
+		return selectedID, nil
+	}
+
+	// smoothing factor and adjustment
+	smoothingFactor := 1
+	smoothingAdjustment := 0
+
+	if sumWeight == 0 {
+		sumWeight = len(candidateIDs) * 100
+		smoothingAdjustment = 100
+	} else if sumWeight/len(candidateIDs) < 10 {
+		smoothingFactor = 100
+	}
+
+	totalWeight := sumWeight * smoothingFactor
+	randomWeight := rand.Intn(totalWeight)
+
+	for _, channelID := range candidateIDs {
+		channel, ok := channelsIDM[channelID]
+		if !ok {
+			return 0, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelID)
+		}
+		randomWeight -= channel.GetWeight()*smoothingFactor + smoothingAdjustment
+		if randomWeight < 0 {
+			return channelID, nil
+		}
+	}
+	return 0, errors.New("channel not found")
 }
 
 // CacheGetFullChannel loads a full Channel (with key, setting, etc.) by ID.

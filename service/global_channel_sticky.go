@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	globalChannelStickyKeyPrefix = "new-api:global_channel_sticky:v1"
+	globalChannelStickyKeyPrefix     = "new-api:global_channel_sticky:v1"
+	globalChannelActivePoolKeyPrefix = "new-api:global_channel_active_pool:v1"
 	// ginKeyGlobalChannelStickyUsed 标记本次请求是否走了全局渠道粘性
 	ginKeyGlobalChannelStickyUsed  = "global_channel_sticky_used"
 	ginKeyGlobalChannelStickyScope = "global_channel_sticky_scope"
@@ -56,6 +57,74 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then
 end
 return 0
 	`
+	globalChannelActivePoolTouchLua = `
+local now = tonumber(ARGV[1])
+local member = ARGV[2]
+local maxChannels = tonumber(ARGV[3])
+local ttlSeconds = tonumber(ARGV[4])
+local expireBefore = tonumber(ARGV[5])
+
+if ttlSeconds and ttlSeconds > 0 and expireBefore > 0 then
+	redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', expireBefore)
+end
+
+if redis.call('ZSCORE', KEYS[1], member) then
+	redis.call('ZADD', KEYS[1], now, member)
+	if ttlSeconds and ttlSeconds > 0 then
+		redis.call('EXPIRE', KEYS[1], ttlSeconds)
+	end
+	return 1
+end
+
+local currentSize = redis.call('ZCARD', KEYS[1])
+if maxChannels <= 0 or currentSize < maxChannels then
+	redis.call('ZADD', KEYS[1], now, member)
+	if ttlSeconds and ttlSeconds > 0 then
+		redis.call('EXPIRE', KEYS[1], ttlSeconds)
+	end
+	return 1
+end
+
+return 0
+`
+	globalChannelActivePoolReplaceOldestLua = `
+local now = tonumber(ARGV[1])
+local member = ARGV[2]
+local maxChannels = tonumber(ARGV[3])
+local ttlSeconds = tonumber(ARGV[4])
+local expireBefore = tonumber(ARGV[5])
+
+if ttlSeconds and ttlSeconds > 0 and expireBefore > 0 then
+	redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', expireBefore)
+end
+
+if redis.call('ZSCORE', KEYS[1], member) then
+	redis.call('ZADD', KEYS[1], now, member)
+	if ttlSeconds and ttlSeconds > 0 then
+		redis.call('EXPIRE', KEYS[1], ttlSeconds)
+	end
+	return 1
+end
+
+local currentSize = redis.call('ZCARD', KEYS[1])
+if maxChannels <= 0 or currentSize < maxChannels then
+	redis.call('ZADD', KEYS[1], now, member)
+	if ttlSeconds and ttlSeconds > 0 then
+		redis.call('EXPIRE', KEYS[1], ttlSeconds)
+	end
+	return 1
+end
+
+local oldest = redis.call('ZRANGE', KEYS[1], 0, 0)
+if oldest[1] then
+	redis.call('ZREM', KEYS[1], oldest[1])
+end
+redis.call('ZADD', KEYS[1], now, member)
+if ttlSeconds and ttlSeconds > 0 then
+	redis.call('EXPIRE', KEYS[1], ttlSeconds)
+end
+return 1
+`
 )
 
 type globalChannelStickyEntry struct {
@@ -193,12 +262,28 @@ func globalChannelStickyRedisKey(scope, model string) string {
 	return fmt.Sprintf("%s:%s:%s", globalChannelStickyKeyPrefix, scope, model)
 }
 
+func globalChannelActivePoolRedisKey(scope, model string) string {
+	return fmt.Sprintf("%s:%s:%s", globalChannelActivePoolKeyPrefix, scope, model)
+}
+
 func globalChannelStickyTTLSeconds() int {
 	setting := operation_setting.GetGlobalChannelStickySetting()
 	if setting == nil {
 		return 0
 	}
 	return setting.TTLSeconds
+}
+
+func globalChannelActivePoolMaxChannels() int {
+	setting := operation_setting.GetGlobalChannelStickySetting()
+	if setting == nil || setting.MaxActiveChannels <= 0 {
+		return 0
+	}
+	return setting.MaxActiveChannels
+}
+
+func isGlobalChannelActivePoolEnabled() bool {
+	return globalChannelActivePoolMaxChannels() > 0 && common.RedisEnabled && common.RDB != nil
 }
 
 func applyGlobalStickySelectedGroup(c *gin.Context, requestedGroup, selectedGroup string) {
@@ -259,6 +344,217 @@ func resolveGlobalStickySelectedChannel(requestedGroup, userGroup, modelName str
 		return channel, requestedGroup, true
 	}
 	return nil, "", false
+}
+
+func resolveGlobalStickyScopeGroups(scope string) []string {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return nil
+	}
+	if scope == "auto" {
+		return GetUserAutoGroup("")
+	}
+	if strings.HasPrefix(scope, "auto@") {
+		return GetUserAutoGroup(strings.TrimSpace(strings.TrimPrefix(scope, "auto@")))
+	}
+	return []string{scope}
+}
+
+func isChannelEnabledForStickyScope(scope, modelName string, channelID int) bool {
+	if channelID <= 0 {
+		return false
+	}
+	groups := resolveGlobalStickyScopeGroups(scope)
+	if len(groups) == 0 {
+		return false
+	}
+	return model.IsChannelEnabledForAnyGroupModel(groups, modelName, channelID)
+}
+
+func getGlobalChannelActivePoolChannelIDs(scope, modelName string) []int {
+	if !isGlobalChannelActivePoolEnabled() {
+		return nil
+	}
+	scope = strings.TrimSpace(scope)
+	modelName = strings.TrimSpace(modelName)
+	if scope == "" || modelName == "" {
+		return nil
+	}
+
+	key := globalChannelActivePoolRedisKey(scope, modelName)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if ttlSeconds := globalChannelStickyTTLSeconds(); ttlSeconds > 0 {
+		expireBefore := time.Now().Add(-time.Duration(ttlSeconds) * time.Second).UnixMilli()
+		if err := common.RDB.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(expireBefore, 10)).Err(); err != nil {
+			common.SysError(fmt.Sprintf("global channel active pool cleanup failed: key=%s, err=%v", key, err))
+			return nil
+		}
+	}
+
+	maxChannels := globalChannelActivePoolMaxChannels()
+	stop := int64(maxChannels - 1)
+	if maxChannels <= 0 {
+		stop = -1
+	}
+	values, err := common.RDB.ZRevRange(ctx, key, 0, stop).Result()
+	if err != nil {
+		common.SysError(fmt.Sprintf("global channel active pool read failed: key=%s, err=%v", key, err))
+		return nil
+	}
+
+	channelIDs := make([]int, 0, len(values))
+	for _, value := range values {
+		channelID, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || channelID <= 0 {
+			continue
+		}
+		channelIDs = append(channelIDs, channelID)
+	}
+	return channelIDs
+}
+
+func removeGlobalChannelActivePoolChannels(scope, modelName string, channelIDs []int) bool {
+	if !isGlobalChannelActivePoolEnabled() {
+		return false
+	}
+	scope = strings.TrimSpace(scope)
+	modelName = strings.TrimSpace(modelName)
+	if scope == "" || modelName == "" || len(channelIDs) == 0 {
+		return false
+	}
+
+	members := make([]interface{}, 0, len(channelIDs))
+	for _, channelID := range channelIDs {
+		if channelID <= 0 {
+			continue
+		}
+		members = append(members, strconv.Itoa(channelID))
+	}
+	if len(members) == 0 {
+		return false
+	}
+
+	key := globalChannelActivePoolRedisKey(scope, modelName)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	removed, err := common.RDB.ZRem(ctx, key, members...).Result()
+	if err != nil {
+		common.SysError(fmt.Sprintf("global channel active pool remove failed: key=%s, err=%v", key, err))
+		return false
+	}
+	return removed > 0
+}
+
+func removeGlobalChannelActivePoolChannel(scope, modelName string, channelID int) bool {
+	return removeGlobalChannelActivePoolChannels(scope, modelName, []int{channelID})
+}
+
+func getUsableGlobalChannelActivePoolChannelIDs(scope, modelName string) []int {
+	channelIDs := getGlobalChannelActivePoolChannelIDs(scope, modelName)
+	if len(channelIDs) == 0 {
+		return nil
+	}
+
+	validChannelIDs := make([]int, 0, len(channelIDs))
+	invalidChannelIDs := make([]int, 0)
+	for _, channelID := range channelIDs {
+		if isChannelEnabledForStickyScope(scope, modelName, channelID) {
+			validChannelIDs = append(validChannelIDs, channelID)
+			continue
+		}
+		invalidChannelIDs = append(invalidChannelIDs, channelID)
+	}
+	if len(invalidChannelIDs) > 0 {
+		removeGlobalChannelActivePoolChannels(scope, modelName, invalidChannelIDs)
+	}
+	return validChannelIDs
+}
+
+func touchGlobalChannelActivePool(scope, modelName string, channelID int) bool {
+	if !isGlobalChannelActivePoolEnabled() {
+		return false
+	}
+	scope = strings.TrimSpace(scope)
+	modelName = strings.TrimSpace(modelName)
+	if scope == "" || modelName == "" || channelID <= 0 {
+		return false
+	}
+
+	key := globalChannelActivePoolRedisKey(scope, modelName)
+	nowMillis := time.Now().UnixMilli()
+	ttlSeconds := globalChannelStickyTTLSeconds()
+	expireBefore := int64(0)
+	if ttlSeconds > 0 {
+		expireBefore = nowMillis - int64(ttlSeconds)*1000
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	res, err := common.RDB.Eval(
+		ctx,
+		globalChannelActivePoolTouchLua,
+		[]string{key},
+		strconv.FormatInt(nowMillis, 10),
+		strconv.Itoa(channelID),
+		strconv.Itoa(globalChannelActivePoolMaxChannels()),
+		strconv.Itoa(ttlSeconds),
+		strconv.FormatInt(expireBefore, 10),
+	).Int()
+	if err != nil {
+		common.SysError(fmt.Sprintf("global channel active pool touch failed: key=%s, err=%v", key, err))
+		return false
+	}
+	return res == 1
+}
+
+func replaceOldestGlobalChannelActivePoolMember(scope, modelName string, channelID int) bool {
+	if !isGlobalChannelActivePoolEnabled() {
+		return false
+	}
+	scope = strings.TrimSpace(scope)
+	modelName = strings.TrimSpace(modelName)
+	if scope == "" || modelName == "" || channelID <= 0 {
+		return false
+	}
+
+	key := globalChannelActivePoolRedisKey(scope, modelName)
+	nowMillis := time.Now().UnixMilli()
+	ttlSeconds := globalChannelStickyTTLSeconds()
+	expireBefore := int64(0)
+	if ttlSeconds > 0 {
+		expireBefore = nowMillis - int64(ttlSeconds)*1000
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	res, err := common.RDB.Eval(
+		ctx,
+		globalChannelActivePoolReplaceOldestLua,
+		[]string{key},
+		strconv.FormatInt(nowMillis, 10),
+		strconv.Itoa(channelID),
+		strconv.Itoa(globalChannelActivePoolMaxChannels()),
+		strconv.Itoa(ttlSeconds),
+		strconv.FormatInt(expireBefore, 10),
+	).Int()
+	if err != nil {
+		common.SysError(fmt.Sprintf("global channel active pool replace failed: key=%s, err=%v", key, err))
+		return false
+	}
+	return res == 1
+}
+
+func touchGlobalChannelActivePoolFromContext(c *gin.Context, modelName string, channelID int) bool {
+	scope := getGlobalStickyScopeContext(c)
+	if scope == "" || channelID <= 0 {
+		return false
+	}
+	return touchGlobalChannelActivePool(scope, modelName, channelID)
 }
 
 // GetGlobalStickyChannelID 从 Redis 中获取当前活跃渠道 ID。
@@ -396,6 +692,7 @@ func RefreshGlobalStickyChannelFromContext(c *gin.Context, model string, channel
 	if scope == "" || channelID <= 0 {
 		return false
 	}
+	touchGlobalChannelActivePool(scope, model, channelID)
 	selection := getCurrentChannelRouteSelectionFromContext(c, channelID)
 
 	if entry, ok := getGlobalStickyEntryContext(c); ok {
@@ -600,6 +897,7 @@ func InvalidateGlobalStickyChannelFromContext(c *gin.Context, model string, chan
 	if scope == "" || channelID <= 0 {
 		return false
 	}
+	removeGlobalChannelActivePoolChannel(scope, model, channelID)
 	selection := getCurrentChannelRouteSelectionFromContext(c, channelID)
 
 	if entry, ok := getGlobalStickyEntryContext(c); ok {

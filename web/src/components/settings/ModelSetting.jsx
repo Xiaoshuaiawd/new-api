@@ -51,6 +51,7 @@ const ModelSetting = () => {
     'grok.violation_deduction_amount': 0.05,
     'global_channel_sticky_setting.enabled': false,
     'global_channel_sticky_setting.ttl_seconds': 3600,
+    'global_channel_sticky_setting.max_active_channels': 0,
   });
 
   let [loading, setLoading] = useState(false);

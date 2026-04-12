@@ -45,6 +45,54 @@ func (p *RetryParam) ResetRetryNextTry() {
 	p.resetNextTry = true
 }
 
+func getRandomSatisfiedChannelWithActivePool(c *gin.Context, selectGroup, modelName string, retry int) (*model.Channel, error) {
+	if c == nil {
+		return model.GetRandomSatisfiedChannel(selectGroup, modelName, retry)
+	}
+
+	scope := getGlobalStickyScopeContext(c)
+	if scope == "" || !isGlobalChannelActivePoolEnabled() {
+		return model.GetRandomSatisfiedChannel(selectGroup, modelName, retry)
+	}
+
+	maxActiveChannels := globalChannelActivePoolMaxChannels()
+	activeChannelIDs := getUsableGlobalChannelActivePoolChannelIDs(scope, modelName)
+	if len(activeChannelIDs) >= maxActiveChannels {
+		channel, err := model.GetRandomSatisfiedChannelWithAllowedIDs(selectGroup, modelName, retry, activeChannelIDs)
+		if err != nil || channel != nil {
+			return channel, err
+		}
+
+		channel, err = model.GetRandomSatisfiedChannel(selectGroup, modelName, retry)
+		if err != nil || channel == nil {
+			return channel, err
+		}
+		if replaceOldestGlobalChannelActivePoolMember(scope, modelName, channel.Id) {
+			return channel, nil
+		}
+
+		activeChannelIDs = getUsableGlobalChannelActivePoolChannelIDs(scope, modelName)
+		if len(activeChannelIDs) == 0 {
+			return nil, nil
+		}
+		return model.GetRandomSatisfiedChannelWithAllowedIDs(selectGroup, modelName, retry, activeChannelIDs)
+	}
+
+	channel, err := model.GetRandomSatisfiedChannel(selectGroup, modelName, retry)
+	if err != nil || channel == nil {
+		return channel, err
+	}
+	if touchGlobalChannelActivePool(scope, modelName, channel.Id) {
+		return channel, nil
+	}
+
+	activeChannelIDs = getUsableGlobalChannelActivePoolChannelIDs(scope, modelName)
+	if len(activeChannelIDs) == 0 {
+		return nil, nil
+	}
+	return model.GetRandomSatisfiedChannelWithAllowedIDs(selectGroup, modelName, retry, activeChannelIDs)
+}
+
 // CacheGetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.
 // 尝试获取一个满足要求的随机渠道。
 //
@@ -115,7 +163,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry)
+			channel, _ = getRandomSatisfiedChannelWithActivePool(param.Ctx, autoGroup, param.ModelName, priorityRetry)
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -153,7 +201,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry())
+		channel, err = getRandomSatisfiedChannelWithActivePool(param.Ctx, param.TokenGroup, param.ModelName, param.GetRetry())
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}

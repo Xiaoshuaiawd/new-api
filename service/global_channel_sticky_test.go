@@ -167,3 +167,50 @@ func TestInvalidateGlobalStickyChannelFromContextLoadsEntryWhenNotReadEarlier(t 
 		assert.Equal(t, 0, GetGlobalStickyChannelID(scope, modelName))
 	})
 }
+
+func TestGlobalChannelActivePoolHonorsMaxActiveChannels(t *testing.T) {
+	withGlobalStickyTestRedis(t, func() {
+		scope := ResolveGlobalStickyScope("auto", "vip")
+		modelName := "gpt-5"
+		setting := operation_setting.GetGlobalChannelStickySetting()
+		setting.MaxActiveChannels = 2
+
+		assert.True(t, touchGlobalChannelActivePool(scope, modelName, 101))
+		assert.True(t, touchGlobalChannelActivePool(scope, modelName, 202))
+		assert.False(t, touchGlobalChannelActivePool(scope, modelName, 303))
+		assert.ElementsMatch(t, []int{101, 202}, getGlobalChannelActivePoolChannelIDs(scope, modelName))
+	})
+}
+
+func TestInvalidateGlobalStickyChannelFromContextRemovesActivePoolMember(t *testing.T) {
+	withGlobalStickyTestRedis(t, func() {
+		scope := ResolveGlobalStickyScope("auto", "vip")
+		modelName := "gpt-5"
+		setting := operation_setting.GetGlobalChannelStickySetting()
+		setting.MaxActiveChannels = 2
+
+		assert.True(t, touchGlobalChannelActivePool(scope, modelName, 919))
+		assert.True(t, touchGlobalChannelActivePool(scope, modelName, 1024))
+		SetGlobalStickyChannelID(scope, modelName, 919)
+
+		ctx := buildGlobalStickyContextForTest("auto", "vip")
+		assert.True(t, InvalidateGlobalStickyChannelFromContext(ctx, modelName, 919))
+		assert.ElementsMatch(t, []int{1024}, getGlobalChannelActivePoolChannelIDs(scope, modelName))
+		assert.True(t, touchGlobalChannelActivePool(scope, modelName, 2048))
+		assert.ElementsMatch(t, []int{1024, 2048}, getGlobalChannelActivePoolChannelIDs(scope, modelName))
+	})
+}
+
+func TestReplaceOldestGlobalChannelActivePoolMemberKeepsPoolBounded(t *testing.T) {
+	withGlobalStickyTestRedis(t, func() {
+		scope := ResolveGlobalStickyScope("auto", "vip")
+		modelName := "gpt-5"
+		setting := operation_setting.GetGlobalChannelStickySetting()
+		setting.MaxActiveChannels = 2
+
+		assert.True(t, touchGlobalChannelActivePool(scope, modelName, 101))
+		assert.True(t, touchGlobalChannelActivePool(scope, modelName, 202))
+		assert.True(t, replaceOldestGlobalChannelActivePoolMember(scope, modelName, 303))
+		assert.ElementsMatch(t, []int{202, 303}, getGlobalChannelActivePoolChannelIDs(scope, modelName))
+	})
+}

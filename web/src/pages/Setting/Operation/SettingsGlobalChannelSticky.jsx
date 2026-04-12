@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next';
 
 const KEY_ENABLED = 'global_channel_sticky_setting.enabled';
 const KEY_TTL = 'global_channel_sticky_setting.ttl_seconds';
+const KEY_MAX_ACTIVE_CHANNELS = 'global_channel_sticky_setting.max_active_channels';
 
 export default function SettingsGlobalChannelSticky(props) {
   const { t } = useTranslation();
@@ -31,6 +32,7 @@ export default function SettingsGlobalChannelSticky(props) {
   const [inputs, setInputs] = useState({
     [KEY_ENABLED]: false,
     [KEY_TTL]: 3600,
+    [KEY_MAX_ACTIVE_CHANNELS]: 0,
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
@@ -105,6 +107,17 @@ export default function SettingsGlobalChannelSticky(props) {
                 min={0}
                 placeholder='3600'
                 onChange={handleFieldChange(KEY_TTL)}
+              />
+            </Col>
+            <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+              <Form.InputNumber
+                field={KEY_MAX_ACTIVE_CHANNELS}
+                label={t('最大同时活跃渠道数')}
+                extraText={t('0 表示不限制；大于 0 时，随机选路最多只会同时扩散到这么多个渠道，超出后只会在已有活跃渠道中继续选择')}
+                step={1}
+                min={0}
+                placeholder='0'
+                onChange={handleFieldChange(KEY_MAX_ACTIVE_CHANNELS)}
               />
             </Col>
           </Row>

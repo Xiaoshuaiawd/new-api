@@ -105,6 +105,26 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 }
 
 func GetChannel(group string, model string, retry int) (*Channel, error) {
+	return getChannel(group, model, retry, nil)
+}
+
+func GetChannelWithAllowedIDs(group string, model string, retry int, allowedChannelIDs []int) (*Channel, error) {
+	if len(allowedChannelIDs) == 0 {
+		return nil, nil
+	}
+	allowed := make(map[int]struct{}, len(allowedChannelIDs))
+	for _, channelID := range allowedChannelIDs {
+		if channelID > 0 {
+			allowed[channelID] = struct{}{}
+		}
+	}
+	if len(allowed) == 0 {
+		return nil, nil
+	}
+	return getChannel(group, model, retry, allowed)
+}
+
+func getChannel(group string, model string, retry int, allowedChannelIDs map[int]struct{}) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
@@ -123,6 +143,7 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
 	if err != nil {
 		return nil, err
 	}
+	abilities = filterAbilitiesByAllowedIDs(abilities, allowedChannelIDs)
 	if len(abilities) == 0 {
 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
 		if normalizedModel != "" && normalizedModel != model {
@@ -134,6 +155,7 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
 			if err != nil {
 				return nil, err
 			}
+			abilities = filterAbilitiesByAllowedIDs(abilities, allowedChannelIDs)
 		}
 	}
 	channel := Channel{}
@@ -158,6 +180,19 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
 	}
 	err = DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+func filterAbilitiesByAllowedIDs(abilities []Ability, allowedChannelIDs map[int]struct{}) []Ability {
+	if len(allowedChannelIDs) == 0 {
+		return abilities
+	}
+	filtered := make([]Ability, 0, len(abilities))
+	for _, ability := range abilities {
+		if _, ok := allowedChannelIDs[ability.ChannelId]; ok {
+			filtered = append(filtered, ability)
+		}
+	}
+	return filtered
 }
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {
